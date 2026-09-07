@@ -1,7 +1,8 @@
-'use client';
+      'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '../../lib/supabase';
 
 type Student = {
@@ -62,6 +63,9 @@ export default function StudentsPage() {
     <div style={{ maxWidth: 600, margin: '40px auto', padding: '0 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Student records</h2>
+        <Link href="/students/add">
+          <button type="button">+ Add student</button>
+        </Link>
       </div>
       <input
         type="text"
