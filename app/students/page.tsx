@@ -67,6 +67,9 @@ export default function StudentsPage() {
           <Link href="/attendance">
             <button type="button">Attendance</button>
           </Link>
+          <Link href="/assessment">
+            <button type="button">Assessment</button>
+          </Link>
           <Link href="/students/add">
             <button type="button">+ Add student</button>
           </Link>
