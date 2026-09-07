@@ -1,4 +1,4 @@
-      'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -63,9 +63,14 @@ export default function StudentsPage() {
     <div style={{ maxWidth: 600, margin: '40px auto', padding: '0 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Student records</h2>
-        <Link href="/students/add">
-          <button type="button">+ Add student</button>
-        </Link>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Link href="/attendance">
+            <button type="button">Attendance</button>
+          </Link>
+          <Link href="/students/add">
+            <button type="button">+ Add student</button>
+          </Link>
+        </div>
       </div>
       <input
         type="text"
