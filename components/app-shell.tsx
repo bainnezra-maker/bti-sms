@@ -18,7 +18,7 @@ export default function AppShell({
     <div className="min-h-screen bg-slate-50">
       <Sidebar />
 
-      <main className="ml-64 min-h-screen">
+      <main className="min-h-screen pt-16 lg:ml-64 lg:pt-0">
         {children}
       </main>
     </div>
