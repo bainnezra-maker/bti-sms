@@ -2,9 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 export default function AddStudentPage() {
+  const supabase = createClient();
+  const router = useRouter();
+
   const [form, setForm] = useState({
     admission_number: '',
     full_name: '',
@@ -15,27 +19,39 @@ export default function AddStudentPage() {
     address: '',
     admission_date: '',
   });
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
-  const supabase = createClient();
 
   function updateField(field: string, value: string) {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
     setError('');
 
-    if (!form.admission_number || !form.full_name || !form.admission_date) {
-      setError('Admission number, full name, and admission date are required.');
+    if (
+      !form.admission_number ||
+      !form.full_name ||
+      !form.admission_date
+    ) {
+      setError(
+        'Admission number, full name and admission date are required.'
+      );
       return;
     }
 
     setLoading(true);
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) {
       router.push('/login');
       return;
@@ -53,85 +69,222 @@ export default function AddStudentPage() {
       return;
     }
 
-    const { error: insertError } = await supabase.from('students').insert({
-      school_id: profile.school_id,
-      admission_number: form.admission_number,
-      full_name: form.full_name,
-      date_of_birth: form.date_of_birth || null,
-      gender: form.gender || null,
-      guardian_name: form.guardian_name || null,
-      guardian_phone: form.guardian_phone || null,
-      address: form.address || null,
-      admission_date: form.admission_date,
-    });
-
-    setLoading(false);
+    const { error: insertError } = await supabase
+      .from('students')
+      .insert({
+        school_id: profile.school_id,
+        admission_number: form.admission_number.trim(),
+        full_name: form.full_name.trim(),
+        date_of_birth: form.date_of_birth || null,
+        gender: form.gender || null,
+        guardian_name: form.guardian_name.trim() || null,
+        guardian_phone: form.guardian_phone.trim() || null,
+        address: form.address.trim() || null,
+        admission_date: form.admission_date,
+      });
 
     if (insertError) {
       setError(insertError.message);
+      setLoading(false);
       return;
     }
 
     router.push('/students');
+    router.refresh();
   }
 
   return (
-    <div style={{ maxWidth: 480, margin: '40px auto', padding: '0 16px' }}>
-      <h2>Add student</h2>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <input
-          type="text"
-          placeholder="Admission number *"
-          value={form.admission_number}
-          onChange={(e) => updateField('admission_number', e.target.value)}
-        />
-        <input
-          type="text"
-          placeholder="Full name *"
-          value={form.full_name}
-          onChange={(e) => updateField('full_name', e.target.value)}
-        />
-        <label style={{ fontSize: 13, color: '#666' }}>Date of birth</label>
-        <input
-          type="date"
-          value={form.date_of_birth}
-          onChange={(e) => updateField('date_of_birth', e.target.value)}
-        />
-        <input
-          type="text"
-          placeholder="Gender"
-          value={form.gender}
-          onChange={(e) => updateField('gender', e.target.value)}
-        />
-        <input
-          type="text"
-          placeholder="Guardian name"
-          value={form.guardian_name}
-          onChange={(e) => updateField('guardian_name', e.target.value)}
-        />
-        <input
-          type="text"
-          placeholder="Guardian phone"
-          value={form.guardian_phone}
-          onChange={(e) => updateField('guardian_phone', e.target.value)}
-        />
-        <input
-          type="text"
-          placeholder="Address"
-          value={form.address}
-          onChange={(e) => updateField('address', e.target.value)}
-        />
-        <label style={{ fontSize: 13, color: '#666' }}>Admission date *</label>
-        <input
-          type="date"
-          value={form.admission_date}
-          onChange={(e) => updateField('admission_date', e.target.value)}
-        />
-        {error && <p style={{ color: '#c0392b', fontSize: 13 }}>{error}</p>}
-        <button type="submit" disabled={loading}>
-          {loading ? 'Saving…' : 'Save student'}
-        </button>
-      </form>
+    <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+      <div className="mx-auto max-w-3xl">
+
+        {/* Header */}
+        <div className="mb-6">
+          <Link
+            href="/students"
+            className="text-sm font-medium text-blue-600 hover:underline"
+          >
+            ← Back to Students
+          </Link>
+
+          <h1 className="mt-3 text-3xl font-bold text-slate-900">
+            Register New Student
+          </h1>
+
+          <p className="mt-1 text-slate-500">
+            Enter the student's information below.
+          </p>
+        </div>
+
+        {/* Form */}
+        <form
+          onSubmit={handleSubmit}
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8"
+        >
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-slate-900">
+              Student Information
+            </h2>
+
+            <p className="text-sm text-slate-500">
+              Basic identification and admission details.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Admission Number *
+              </label>
+
+              <input
+                type="text"
+                value={form.admission_number}
+                onChange={(e) =>
+                  updateField('admission_number', e.target.value)
+                }
+                placeholder="e.g. BTI/2026/001"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Full Name *
+              </label>
+
+              <input
+                type="text"
+                value={form.full_name}
+                onChange={(e) =>
+                  updateField('full_name', e.target.value)
+                }
+                placeholder="Student full name"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Date of Birth
+              </label>
+
+              <input
+                type="date"
+                value={form.date_of_birth}
+                onChange={(e) =>
+                  updateField('date_of_birth', e.target.value)
+                }
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Gender
+              </label>
+
+              <select
+                value={form.gender}
+                onChange={(e) =>
+                  updateField('gender', e.target.value)
+                }
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+              >
+                <option value="">Select gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Guardian Name
+              </label>
+
+              <input
+                type="text"
+                value={form.guardian_name}
+                onChange={(e) =>
+                  updateField('guardian_name', e.target.value)
+                }
+                placeholder="Parent / guardian name"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Guardian Phone
+              </label>
+
+              <input
+                type="tel"
+                value={form.guardian_phone}
+                onChange={(e) =>
+                  updateField('guardian_phone', e.target.value)
+                }
+                placeholder="e.g. 024 000 0000"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Address
+              </label>
+
+              <textarea
+                value={form.address}
+                onChange={(e) =>
+                  updateField('address', e.target.value)
+                }
+                placeholder="Student's residential address"
+                rows={3}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Admission Date *
+              </label>
+
+              <input
+                type="date"
+                value={form.admission_date}
+                onChange={(e) =>
+                  updateField('admission_date', e.target.value)
+                }
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Link
+              href="/students"
+              className="rounded-xl border border-slate-300 px-6 py-3 text-center font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </Link>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? 'Registering...' : 'Register Student'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
-          }
+}
