@@ -108,10 +108,10 @@ export default function EnrollmentPage() {
         .order('name'),
 
       supabase
-        .from('classes')
-        .select('id, name, level')
-        .eq('school_id', schoolId)
-        .order('name'),
+  .from('classes')
+  .select('id, name, level, programme_id, academic_year_id')
+  .eq('school_id', schoolId)
+  .order('name'),
 
       supabase
         .from('academic_years')
