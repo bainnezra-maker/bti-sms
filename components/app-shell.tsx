@@ -10,20 +10,17 @@ export default function AppShell({
 }) {
   const pathname = usePathname();
 
-  // Login page should not display the school sidebar
   if (pathname === '/login') {
     return <>{children}</>;
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
-
       <Sidebar />
 
       <main className="ml-64 min-h-screen">
         {children}
       </main>
-
     </div>
   );
 }
