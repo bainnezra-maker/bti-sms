@@ -4,7 +4,17 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-const menuSections = [
+type MenuItem = {
+  name: string;
+  href: string;
+  icon: string;
+  comingSoon?: boolean;
+};
+
+const menuSections: {
+  title: string;
+  items: MenuItem[];
+}[] = [
   {
     title: 'MAIN',
     items: [
