@@ -27,13 +27,17 @@ const menuSections: {
     ],
   },
   {
-    title: 'ACADEMICS',
-    items: [
-      { name: 'Classes', href: '/classes', icon: '🏫', comingSoon: true },
-      { name: 'Subjects', href: '/subjects', icon: '📚', comingSoon: true },
-      { name: 'Results', href: '/results', icon: '📊', comingSoon: true },
-    ],
-  },
+  title: 'ACADEMICS',
+  items: [
+    { name: 'Classes', href: '/classes', icon: '🏫' },
+    { name: 'Subjects', href: '/subjects', icon: '📚' },
+    { name: 'Programmes', href: '/programmes', icon: '🧰' },
+    { name: 'Academic Years', href: '/academic-years', icon: '📅' },
+    { name: 'Terms', href: '/terms', icon: '🗓️' },
+    { name: 'Enrollment', href: '/enrollment', icon: '🎓' },
+    { name: 'Results', href: '/results', icon: '📊', comingSoon: true },
+  ],
+},
   {
     title: 'ADMINISTRATION',
     items: [
