@@ -158,79 +158,50 @@ export default function EnrollmentPage() {
   }
 
   async function loadEnrollments(schoolId: string) {
-    const { data, error: enrollmentError } = await supabase
-      .from('enrollments')
-      .select(`
+  const studentIds = students.map((student) => student.id);
+
+  if (studentIds.length === 0) {
+    setEnrollments([]);
+    return;
+  }
+
+  const { data, error: enrollmentError } = await supabase
+    .from('enrollments')
+    .select(`
+      id,
+      student_id,
+      class_id,
+      academic_year_id,
+      programme_id,
+      enrollment_date,
+      status,
+      student:students (
         id,
-        student_id,
-        class_id,
-        academic_year_id,
-        programme_id,
-        enrollment_date,
-        status,
-        student:students (
-          id,
-          full_name,
-          admission_number
-        ),
-        class:classes (
-          id,
-          name,
-          level
-        ),
-        programme:programmes (
-          id,
-          name
-        ),
-        academic_year:academic_years (
-          id,
-          name
-        )
-      `)
-      const studentIds = students.map((student) => student.id);
+        full_name,
+        admission_number
+      ),
+      class:classes (
+        id,
+        name,
+        level
+      ),
+      programme:programmes (
+        id,
+        name
+      ),
+      academic_year:academic_years (
+        id,
+        name
+      )
+    `)
+    .in('student_id', studentIds);
 
-if (studentIds.length === 0) {
-  setEnrollments([]);
-  return;
-}
+  if (enrollmentError) {
+    setError(enrollmentError.message);
+    return;
+  }
 
-const { data, error: enrollmentError } = await supabase
-  .from('enrollments')
-  .select(`
-    id,
-    student_id,
-    class_id,
-    academic_year_id,
-    programme_id,
-    enrollment_date,
-    status,
-    student:students (
-      id,
-      full_name,
-      admission_number
-    ),
-    class:classes (
-      id,
-      name,
-      level
-    ),
-    programme:programmes (
-      id,
-      name
-    ),
-    academic_year:academic_years (
-      id,
-      name
-    )
-  `)
-  .in('student_id', studentIds);
-
-    if (enrollmentError) {
-      setError(enrollmentError.message);
-      return;
-    }
-
-    setEnrollments((data as any) || []);
+  setEnrollments((data as any) || []);
   }
 
   useEffect(() => {
