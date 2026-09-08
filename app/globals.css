@@ -1,28 +1,29 @@
-* { box-sizing: border-box; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
 body {
   font-family: system-ui, -apple-system, sans-serif;
-  background: #f5f5f2;
-  margin: 0;
-  color: #1a1a1a;
+  background: #f8fafc;
+  color: #0f172a;
 }
-input, button {
-  font-size: 14px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid #d0d0c8;
-}
+
+input,
 button {
-  background: #1a1a1a;
-  color: white;
-  border: none;
-  cursor: pointer;
+  font-size: 14px;
 }
-button:hover { opacity: 0.9; }
-.card {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  max-width: 400px;
-  margin: 60px auto;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+
+button {
+  cursor: pointer;
 }
