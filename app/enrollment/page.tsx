@@ -62,99 +62,100 @@ export default function EnrollmentPage() {
   const [error, setError] = useState('');
 
   async function loadData() {
-    setLoading(true);
-    setError('');
+  setLoading(true);
+  setError('');
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    if (!user) {
-      window.location.href = '/login';
-      return;
-    }
+  if (!user) {
+    window.location.href = '/login';
+    return;
+  }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('school_id')
-      .eq('id', user.id)
-      .single();
+  const { data: profile } = await supabase
+    .from('users')
+    .select('school_id')
+    .eq('id', user.id)
+    .single();
 
-    if (!profile) {
-      setError('School profile could not be found.');
-      setLoading(false);
-      return;
-    }
-
-    const schoolId = profile.school_id;
-
-    const [
-      studentsResult,
-      programmesResult,
-      classesResult,
-      yearsResult,
-    ] = await Promise.all([
-      supabase
-        .from('students')
-        .select('id, full_name, admission_number')
-        .eq('school_id', schoolId)
-        .eq('status', 'active')
-        .order('full_name'),
-
-      supabase
-        .from('programmes')
-        .select('id, name')
-        .eq('school_id', schoolId)
-        .order('name'),
-
-      supabase
-  .from('classes')
-  .select('id, name, level, programme_id, academic_year_id')
-  .eq('school_id', schoolId)
-  .order('name'),
-
-      supabase
-        .from('academic_years')
-        .select('id, name')
-        .eq('school_id', schoolId)
-        .order('name', { ascending: false }),
-    ]);
-
-    if (studentsResult.error) {
-      setError(studentsResult.error.message);
-    } else {
-      setStudents(studentsResult.data || []);
-    }
-
-    if (programmesResult.error) {
-      setError(programmesResult.error.message);
-    } else {
-      setProgrammes(programmesResult.data || []);
-    }
-
-    if (classesResult.error) {
-      setError(classesResult.error.message);
-    } else {
-      setClasses(classesResult.data || []);
-    }
-
-    if (yearsResult.error) {
-      setError(yearsResult.error.message);
-    } else {
-      setAcademicYears(yearsResult.data || []);
-
-      const currentYear = yearsResult.data?.find(
-        (year: any) => year.is_current
-      );
-
-      if (currentYear) {
-        setAcademicYearId(currentYear.id);
-      }
-    }
-
-    await loadEnrollments(schoolId);
-
+  if (!profile) {
+    setError('School profile could not be found.');
     setLoading(false);
+    return;
+  }
+
+  const schoolId = profile.school_id;
+
+  const [
+    studentsResult,
+    programmesResult,
+    classesResult,
+    yearsResult,
+  ] = await Promise.all([
+    supabase
+      .from('students')
+      .select('id, full_name, admission_number')
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .order('full_name'),
+
+    supabase
+      .from('programmes')
+      .select('id, name')
+      .eq('school_id', schoolId)
+      .order('name'),
+
+    supabase
+      .from('classes')
+      .select('id, name, level, programme_id, academic_year_id')
+      .eq('school_id', schoolId)
+      .order('name'),
+
+    supabase
+      .from('academic_years')
+      .select('id, name, is_current')
+      .eq('school_id', schoolId)
+      .order('name', { ascending: false }),
+  ]);
+
+  if (studentsResult.error) {
+    setError(studentsResult.error.message);
+  } else {
+    setStudents(studentsResult.data || []);
+  }
+
+  if (programmesResult.error) {
+    setError(programmesResult.error.message);
+  } else {
+    setProgrammes(programmesResult.data || []);
+  }
+
+  if (classesResult.error) {
+    setError(`Classes error: ${classesResult.error.message}`);
+  } else {
+    setClasses(classesResult.data || []);
+    console.log('CLASSES LOADED:', classesResult.data);
+  }
+
+  if (yearsResult.error) {
+    setError(yearsResult.error.message);
+  } else {
+    setAcademicYears(yearsResult.data || []);
+
+    const currentYear = yearsResult.data?.find(
+      (year: any) => year.is_current
+    );
+
+    if (currentYear) {
+      setAcademicYearId(currentYear.id);
+    }
+  }
+
+  await loadEnrollments(schoolId);
+
+  setLoading(false);
   }
 
   async function loadEnrollments(schoolId: string) {
