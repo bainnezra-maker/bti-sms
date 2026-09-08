@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '../../lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 
 type Student = {
   id: string;
