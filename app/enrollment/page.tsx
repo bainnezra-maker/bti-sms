@@ -43,18 +43,25 @@ type Enrollment = {
 export default function EnrollmentPage() {
   const supabase = createClient();
 
-  const [students, setStudents] = useState<Student[]>([]);
+  const [schoolId, setSchoolId] = useState('');
+
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
 
   const [studentId, setStudentId] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(
+    null
+  );
+
   const [programmeId, setProgrammeId] = useState('');
   const [classId, setClassId] = useState('');
   const [academicYearId, setAcademicYearId] = useState('');
 
   const [studentSearch, setStudentSearch] = useState('');
+  const [studentResults, setStudentResults] = useState<Student[]>([]);
+  const [searchingStudents, setSearchingStudents] = useState(false);
   const [showStudentResults, setShowStudentResults] = useState(false);
 
   const [enrollmentDate, setEnrollmentDate] = useState(
@@ -65,31 +72,6 @@ export default function EnrollmentPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-
-  const selectedStudent = students.find(
-    (student) => student.id === studentId
-  );
-
-  const matchingStudents = useMemo(() => {
-    const query = studentSearch.toLowerCase().trim();
-
-    if (!query) {
-      return [];
-    }
-
-    return students
-      .filter((student) => {
-        const name = student.full_name.toLowerCase();
-        const admissionNumber =
-          student.admission_number.toLowerCase();
-
-        return (
-          name.includes(query) ||
-          admissionNumber.includes(query)
-        );
-      })
-      .slice(0, 10);
-  }, [students, studentSearch]);
 
   async function loadEnrollments(
     studentList: Student[],
@@ -115,19 +97,19 @@ export default function EnrollmentPage() {
 
     const combined: Enrollment[] = rows.map((item: any) => {
       const student = studentList.find(
-        (s) => s.id === item.student_id
+        (student) => student.id === item.student_id
       );
 
       const programme = programmeList.find(
-        (p) => p.id === item.programme_id
+        (programme) => programme.id === item.programme_id
       );
 
       const classItem = classList.find(
-        (c) => c.id === item.class_id
+        (classItem) => classItem.id === item.class_id
       );
 
       const academicYear = yearList.find(
-        (y) => y.id === item.academic_year_id
+        (year) => year.id === item.academic_year_id
       );
 
       return {
@@ -161,12 +143,11 @@ export default function EnrollmentPage() {
       return;
     }
 
-    const { data: profile, error: profileError } =
-      await supabase
-        .from('users')
-        .select('school_id')
-        .eq('id', user.id)
-        .single();
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .select('school_id')
+      .eq('id', user.id)
+      .single();
 
     if (profileError || !profile) {
       setError('School profile could not be found.');
@@ -174,47 +155,41 @@ export default function EnrollmentPage() {
       return;
     }
 
-    const schoolId = profile.school_id;
+    const currentSchoolId = profile.school_id;
+
+    setSchoolId(currentSchoolId);
 
     const [
-      studentsResult,
       programmesResult,
       classesResult,
       yearsResult,
+      enrollmentResult,
     ] = await Promise.all([
-      supabase
-        .from('students')
-        .select('id, full_name, admission_number')
-        .eq('school_id', schoolId)
-        .eq('status', 'active')
-        .order('full_name'),
-
       supabase
         .from('programmes')
         .select('id, name')
-        .eq('school_id', schoolId)
+        .eq('school_id', currentSchoolId)
         .order('name'),
 
       supabase
         .from('classes')
-        .select(
-          'id, name, level, programme_id, academic_year_id'
-        )
-        .eq('school_id', schoolId)
+        .select('id, name, level')
+        .eq('school_id', currentSchoolId)
         .order('name'),
 
       supabase
         .from('academic_years')
         .select('id, name, is_current')
-        .eq('school_id', schoolId)
+        .eq('school_id', currentSchoolId)
         .order('name', { ascending: false }),
-    ]);
 
-    if (studentsResult.error) {
-      setError(
-        `Students error: ${studentsResult.error.message}`
-      );
-    }
+      supabase
+        .from('enrollments')
+        .select(
+          'id, student_id, class_id, academic_year_id, programme_id, enrollment_date, status'
+        )
+        .order('enrollment_date', { ascending: false }),
+    ]);
 
     if (programmesResult.error) {
       setError(
@@ -234,12 +209,16 @@ export default function EnrollmentPage() {
       );
     }
 
-    const studentList = studentsResult.data || [];
+    if (enrollmentResult.error) {
+      setError(
+        `Enrollments error: ${enrollmentResult.error.message}`
+      );
+    }
+
     const programmeList = programmesResult.data || [];
     const classList = classesResult.data || [];
     const yearList = yearsResult.data || [];
 
-    setStudents(studentList);
     setProgrammes(programmeList);
     setClasses(classList);
     setAcademicYears(yearList);
@@ -249,17 +228,38 @@ export default function EnrollmentPage() {
     );
 
     if (currentYear) {
-      setAcademicYearId((current) =>
-        current || currentYear.id
-      );
+      setAcademicYearId(currentYear.id);
     }
 
-    await loadEnrollments(
-      studentList,
-      programmeList,
-      classList,
-      yearList
-    );
+    /*
+     * Build enrollment records.
+     *
+     * We obtain the students belonging to existing enrollments
+     * separately so the existing enrollment list can display
+     * student names and admission numbers.
+     */
+    const enrollmentRows = enrollmentResult.data || [];
+
+    if (enrollmentRows.length > 0) {
+      const studentIds = enrollmentRows.map(
+        (item: any) => item.student_id
+      );
+
+      const { data: enrolledStudents } = await supabase
+        .from('students')
+        .select('id, full_name, admission_number')
+        .in('id', studentIds)
+        .eq('school_id', currentSchoolId);
+
+      await loadEnrollments(
+        enrolledStudents || [],
+        programmeList,
+        classList,
+        yearList
+      );
+    } else {
+      setEnrollments([]);
+    }
 
     setLoading(false);
   }
@@ -268,16 +268,74 @@ export default function EnrollmentPage() {
     loadData();
   }, []);
 
+  /*
+   * Search students directly from Supabase.
+   *
+   * This avoids loading hundreds or thousands of students
+   * into the browser at once.
+   */
+  useEffect(() => {
+    const query = studentSearch.trim();
+
+    if (!schoolId || !query || selectedStudent) {
+      setStudentResults([]);
+      setShowStudentResults(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      setSearchingStudents(true);
+      setShowStudentResults(true);
+
+      const { data, error: searchError } = await supabase
+        .from('students')
+        .select('id, full_name, admission_number')
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .or(
+          `full_name.ilike.%${query}%,admission_number.ilike.%${query}%`
+        )
+        .order('full_name')
+        .limit(10);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (searchError) {
+        setStudentResults([]);
+        setError(
+          `Student search error: ${searchError.message}`
+        );
+      } else {
+        setStudentResults(data || []);
+      }
+
+      setSearchingStudents(false);
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [studentSearch, schoolId, selectedStudent]);
+
   function selectStudent(student: Student) {
     setStudentId(student.id);
+    setSelectedStudent(student);
     setStudentSearch('');
+    setStudentResults([]);
     setShowStudentResults(false);
     setError('');
   }
 
   function clearStudent() {
     setStudentId('');
+    setSelectedStudent(null);
     setStudentSearch('');
+    setStudentResults([]);
     setShowStudentResults(false);
   }
 
@@ -299,16 +357,12 @@ export default function EnrollmentPage() {
     );
 
     if (existingEnrollment) {
-      const student = students.find(
-        (item) => item.id === studentId
-      );
-
       const year = academicYears.find(
         (item) => item.id === academicYearId
       );
 
       setError(
-        `${student?.full_name || 'This student'} is already enrolled for ${year?.name || 'this academic year'}.`
+        `${selectedStudent?.full_name || 'This student'} is already enrolled for ${year?.name || 'this academic year'}.`
       );
       return;
     }
@@ -332,14 +386,12 @@ export default function EnrollmentPage() {
       return;
     }
 
-    setStudentId('');
-    setStudentSearch('');
-    setShowStudentResults(false);
+    clearStudent();
     setProgrammeId('');
     setClassId('');
 
     await loadEnrollments(
-      students,
+      selectedStudent ? [selectedStudent] : [],
       programmes,
       classes,
       academicYears
@@ -404,6 +456,7 @@ export default function EnrollmentPage() {
     <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
       <div className="mx-auto max-w-7xl">
 
+        {/* Header */}
         <div className="mb-8">
           <p className="text-sm font-medium text-blue-600">
             Academic Management
@@ -440,7 +493,7 @@ export default function EnrollmentPage() {
 
               {/* SEARCHABLE STUDENT */}
               <div className="relative">
-                <label className="mb-2 block text-sm font-medium">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   Student
                 </label>
 
@@ -472,10 +525,9 @@ export default function EnrollmentPage() {
                     <input
                       type="text"
                       value={studentSearch}
-                      onChange={(e) => {
-                        setStudentSearch(e.target.value);
-                        setShowStudentResults(true);
-                      }}
+                      onChange={(e) =>
+                        setStudentSearch(e.target.value)
+                      }
                       onFocus={() => {
                         if (studentSearch.trim()) {
                           setShowStudentResults(true);
@@ -489,12 +541,16 @@ export default function EnrollmentPage() {
                       studentSearch.trim() && (
                         <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
 
-                          {matchingStudents.length === 0 ? (
+                          {searchingStudents ? (
+                            <div className="p-4 text-sm text-slate-500">
+                              Searching students...
+                            </div>
+                          ) : studentResults.length === 0 ? (
                             <div className="p-4 text-sm text-slate-500">
                               No student found.
                             </div>
                           ) : (
-                            matchingStudents.map((student) => (
+                            studentResults.map((student) => (
                               <button
                                 key={student.id}
                                 type="button"
@@ -520,13 +576,13 @@ export default function EnrollmentPage() {
                 )}
 
                 <p className="mt-1 text-xs text-slate-400">
-                  Type part of the student's name or admission number.
+                  Search by student name or admission number.
                 </p>
               </div>
 
               {/* PROGRAMME */}
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   Programme
                 </label>
 
@@ -554,7 +610,7 @@ export default function EnrollmentPage() {
 
               {/* CLASS */}
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   Class
                 </label>
 
@@ -586,7 +642,7 @@ export default function EnrollmentPage() {
 
               {/* ACADEMIC YEAR */}
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   Academic Year
                 </label>
 
@@ -615,7 +671,7 @@ export default function EnrollmentPage() {
 
               {/* ENROLLMENT DATE */}
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   Enrollment Date
                 </label>
 
@@ -635,9 +691,7 @@ export default function EnrollmentPage() {
                 disabled={saving}
                 className="w-full rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               >
-                {saving
-                  ? 'Saving...'
-                  : 'Enroll Student'}
+                {saving ? 'Saving...' : 'Enroll Student'}
               </button>
 
             </form>
@@ -662,7 +716,7 @@ export default function EnrollmentPage() {
                       ? 's'
                       : ''}
                   </p>
-                </div>
+                     </div>
 
                 <input
                   type="text"
@@ -706,7 +760,12 @@ export default function EnrollmentPage() {
 
                           <div className="mt-2 flex flex-wrap gap-2 text-xs">
 
-                                                        <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
+                            <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">
+                              {item.class?.name ||
+                                'No class'}
+                            </span>
+
+                            <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
                               {item.programme?.name ||
                                 'No programme'}
                             </span>
@@ -755,5 +814,3 @@ export default function EnrollmentPage() {
     </div>
   );
 }
-
-                           
