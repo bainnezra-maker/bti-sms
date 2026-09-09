@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -56,7 +56,26 @@ type AssessmentRecord = {
 type ScoreEntry = {
   student_id: string;
   score: string;
+  existingId: string | null;
 };
+
+function getPercentage(score: number, maxScore: number) {
+  if (!maxScore || maxScore <= 0) return 0;
+  return (score / maxScore) * 100;
+}
+
+function getGrade(percentage: number) {
+  if (percentage >= 80) return 'A';
+  if (percentage >= 70) return 'B';
+  if (percentage >= 60) return 'C';
+  if (percentage >= 50) return 'D';
+  if (percentage >= 40) return 'E';
+  return 'F';
+}
+
+function getStatus(percentage: number) {
+  return percentage >= 50 ? 'Pass' : 'Fail';
+}
 
 export default function AssessmentPage() {
   const router = useRouter();
@@ -84,7 +103,7 @@ export default function AssessmentPage() {
   const [scores, setScores] = useState<ScoreEntry[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [loadingScores, setLoadingScores] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -159,16 +178,15 @@ export default function AssessmentPage() {
       ]);
 
       const years = academicYearsResult.data ?? [];
+
       setAcademicYears(years);
       setProgrammes(programmesResult.data ?? []);
       setClasses(classesResult.data ?? []);
       setSubjects(subjectsResult.data ?? []);
 
       const currentYear =
-        years.find(
-          (year: AcademicYear) =>
-            year.name === '2026/2027'
-        ) ?? years[0];
+        years.find((year) => year.name === '2026/2027') ??
+        years[0];
 
       if (currentYear) {
         setAcademicYearId(currentYear.id);
@@ -182,9 +200,8 @@ export default function AssessmentPage() {
         setTerms(termRows ?? []);
 
         const currentTerm =
-          termRows?.find(
-            (term: Term) => term.name === 'Term 1'
-          ) ?? termRows?.[0];
+          termRows?.find((term) => term.name === 'Term 1') ??
+          termRows?.[0];
 
         if (currentTerm) {
           setTermId(currentTerm.id);
@@ -226,14 +243,14 @@ export default function AssessmentPage() {
   }, [academicYearId]);
 
   useEffect(() => {
-    async function loadStudents() {
+    async function loadStudentsAndScores() {
       if (!classId || !academicYearId) {
         setStudents([]);
         setScores([]);
         return;
       }
 
-      setLoadingStudents(true);
+      setLoadingScores(true);
       setMessage('');
 
       const { data: enrollmentRows, error: enrollmentError } =
@@ -245,8 +262,10 @@ export default function AssessmentPage() {
           .eq('status', 'active');
 
       if (enrollmentError) {
-        setMessage(`Error loading class: ${enrollmentError.message}`);
-        setLoadingStudents(false);
+        setMessage(
+          `Error loading class: ${enrollmentError.message}`
+        );
+        setLoadingScores(false);
         return;
       }
 
@@ -256,7 +275,7 @@ export default function AssessmentPage() {
       if (studentIds.length === 0) {
         setStudents([]);
         setScores([]);
-        setLoadingStudents(false);
+        setLoadingScores(false);
         return;
       }
 
@@ -269,8 +288,10 @@ export default function AssessmentPage() {
           .order('full_name');
 
       if (studentError) {
-        setMessage(`Error loading students: ${studentError.message}`);
-        setLoadingStudents(false);
+        setMessage(
+          `Error loading students: ${studentError.message}`
+        );
+        setLoadingScores(false);
         return;
       }
 
@@ -282,20 +303,107 @@ export default function AssessmentPage() {
         loadedStudents.map((student) => ({
           student_id: student.id,
           score: '',
+          existingId: null,
         }))
       );
 
-      setLoadingStudents(false);
+      setLoadingScores(false);
     }
 
-    loadStudents();
+    loadStudentsAndScores();
   }, [classId, academicYearId]);
 
-  function updateScore(studentId: string, value: string) {
+  useEffect(() => {
+    async function loadExistingScores() {
+      if (
+        !classId ||
+        !academicYearId ||
+        !termId ||
+        !subjectId ||
+        students.length === 0
+      ) {
+        return;
+      }
+
+      const selectedSubject = subjects.find(
+        (subject) => subject.id === subjectId
+      );
+
+      const selectedTerm = terms.find(
+        (term) => term.id === termId
+      );
+
+      if (!selectedSubject || !selectedTerm) return;
+
+      setLoadingScores(true);
+
+      const { data, error } = await supabase
+        .from('assessments')
+        .select(
+          'id, student_id, subject, assessment_type, score, max_score, term, created_at'
+        )
+        .eq('school_id', schoolId)
+        .eq('subject', selectedSubject.name)
+        .eq('assessment_type', assessmentType)
+        .eq('term', selectedTerm.name)
+        .in(
+          'student_id',
+          students.map((student) => student.id)
+        );
+
+      if (error) {
+        setMessage(
+          `Error loading existing scores: ${error.message}`
+        );
+        setLoadingScores(false);
+        return;
+      }
+
+      const existingRecords = data ?? [];
+
+      setScores(
+        students.map((student) => {
+          const existing = existingRecords.find(
+            (record) =>
+              record.student_id === student.id
+          );
+
+          return {
+            student_id: student.id,
+            score:
+              existing && existing.score !== null
+                ? String(existing.score)
+                : '',
+            existingId: existing?.id ?? null,
+          };
+        })
+      );
+
+      setLoadingScores(false);
+    }
+
+    loadExistingScores();
+  }, [
+    classId,
+    academicYearId,
+    termId,
+    subjectId,
+    assessmentType,
+    students,
+    schoolId,
+  ]);
+
+  function updateScore(
+    studentId: string,
+    value: string
+  ) {
     setScores((current) =>
       current.map((entry) =>
         entry.student_id === studentId
-          ? { ...entry, score: value }
+          ? {
+              ...entry,
+              score: value,
+            }
           : entry
       )
     );
@@ -315,7 +423,9 @@ export default function AssessmentPage() {
     setMessage('');
 
     if (!schoolId || !userId) {
-      setMessage('Your school profile could not be found.');
+      setMessage(
+        'Your school profile could not be found.'
+      );
       return;
     }
 
@@ -353,14 +463,18 @@ export default function AssessmentPage() {
     );
 
     if (!selectedSubject || !selectedTerm) {
-      setMessage('Subject or term could not be found.');
+      setMessage(
+        'Subject or term could not be found.'
+      );
       return;
     }
 
     const maximum = Number(maxScore);
 
     if (!maximum || maximum <= 0) {
-      setMessage('Maximum score must be greater than 0.');
+      setMessage(
+        'Maximum score must be greater than 0.'
+      );
       return;
     }
 
@@ -369,21 +483,30 @@ export default function AssessmentPage() {
     );
 
     if (enteredScores.length === 0) {
-      setMessage('Please enter at least one score.');
+      setMessage(
+        'Please enter at least one score.'
+      );
       return;
     }
 
     for (const entry of enteredScores) {
       const value = Number(entry.score);
 
-      if (Number.isNaN(value) || value < 0 || value > maximum) {
+      if (
+        Number.isNaN(value) ||
+        value < 0 ||
+        value > maximum
+      ) {
         const student = students.find(
           (s) => s.id === entry.student_id
         );
 
         setMessage(
-          `Invalid score for ${student?.full_name ?? 'student'}. Score must be between 0 and ${maximum}.`
+          `Invalid score for ${
+            student?.full_name ?? 'student'
+          }. Score must be between 0 and ${maximum}.`
         );
+
         return;
       }
     }
@@ -394,18 +517,7 @@ export default function AssessmentPage() {
       for (const entry of enteredScores) {
         const numericScore = Number(entry.score);
 
-        const { data: existing } = await supabase
-          .from('assessments')
-          .select('id')
-          .eq('school_id', schoolId)
-          .eq('student_id', entry.student_id)
-          .eq('subject', selectedSubject.name)
-          .eq('assessment_type', assessmentType)
-          .eq('term', selectedTerm.name)
-          .limit(1)
-          .maybeSingle();
-
-        if (existing) {
+        if (entry.existingId) {
           const { error } = await supabase
             .from('assessments')
             .update({
@@ -413,7 +525,7 @@ export default function AssessmentPage() {
               max_score: maximum,
               recorded_by: userId,
             })
-            .eq('id', existing.id);
+            .eq('id', entry.existingId);
 
           if (error) {
             throw error;
@@ -440,20 +552,52 @@ export default function AssessmentPage() {
 
       setMessage(
         `${enteredScores.length} score${
-          enteredScores.length === 1 ? '' : 's'
+          enteredScores.length === 1
+            ? ''
+            : 's'
         } saved successfully.`
       );
 
       await loadRecords(schoolId);
 
-      setScores((current) =>
-        current.map((entry) => ({
-          ...entry,
-          score: '',
-        }))
+      const { data: refreshed } = await supabase
+        .from('assessments')
+        .select(
+          'id, student_id, subject, assessment_type, score, max_score, term, created_at'
+        )
+        .eq('school_id', schoolId)
+        .eq('subject', selectedSubject.name)
+        .eq('assessment_type', assessmentType)
+        .eq('term', selectedTerm.name)
+        .in(
+          'student_id',
+          students.map((student) => student.id)
+        );
+
+      const refreshedRecords = refreshed ?? [];
+
+      setScores(
+        students.map((student) => {
+          const existing = refreshedRecords.find(
+            (record) =>
+              record.student_id === student.id
+          );
+
+          return {
+            student_id: student.id,
+            score:
+              existing
+                ? String(existing.score)
+                : '',
+            existingId:
+              existing?.id ?? null,
+          };
+        })
       );
     } catch (error: any) {
-      setMessage(`Error: ${error.message}`);
+      setMessage(
+        `Error: ${error.message}`
+      );
     } finally {
       setSaving(false);
     }
@@ -461,22 +605,78 @@ export default function AssessmentPage() {
 
   function studentName(id: string) {
     return (
-      students.find((student) => student.id === id)?.full_name ??
-      'Unknown'
+      students.find(
+        (student) => student.id === id
+      )?.full_name ?? 'Unknown'
     );
   }
 
-  const filteredClasses = classes.filter((item) => {
-    const programmeMatches =
-      !programmeId || item.programme_id === programmeId;
+  const statistics = useMemo(() => {
+    const completed = scores
+      .filter(
+        (entry) => entry.score.trim() !== ''
+      )
+      .map((entry) => Number(entry.score))
+      .filter((value) => !Number.isNaN(value));
 
-    const yearMatches =
-      !academicYearId ||
-      !item.academic_year_id ||
-      item.academic_year_id === academicYearId;
+    if (completed.length === 0) {
+      return {
+        count: 0,
+        average: 0,
+        highest: 0,
+        lowest: 0,
+        passRate: 0,
+      };
+    }
 
-    return programmeMatches && yearMatches;
-  });
+    const maximum = Number(maxScore) || 1;
+
+    const percentages = completed.map(
+      (score) =>
+        getPercentage(score, maximum)
+    );
+
+    const average =
+      percentages.reduce(
+        (sum, value) => sum + value,
+        0
+      ) / percentages.length;
+
+    const highest = Math.max(...percentages);
+    const lowest = Math.min(...percentages);
+
+    const passes = percentages.filter(
+      (percentage) => percentage >= 50
+    ).length;
+
+    return {
+      count: completed.length,
+      average,
+      highest,
+      lowest,
+      passRate:
+        (passes / completed.length) * 100,
+    };
+  }, [scores, maxScore]);
+
+  const filteredClasses = classes.filter(
+    (item) => {
+      const programmeMatches =
+        !programmeId ||
+        item.programme_id === programmeId;
+
+      const yearMatches =
+        !academicYearId ||
+        !item.academic_year_id ||
+        item.academic_year_id ===
+          academicYearId;
+
+      return (
+        programmeMatches &&
+        yearMatches
+      );
+    }
+  );
 
   if (loading) {
     return (
@@ -494,7 +694,7 @@ export default function AssessmentPage() {
   return (
     <div
       style={{
-        maxWidth: 1000,
+        maxWidth: 1100,
         margin: '0 auto',
         padding: '24px 16px 50px',
       }}
@@ -503,7 +703,8 @@ export default function AssessmentPage() {
       <div
         style={{
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent:
+            'space-between',
           alignItems: 'center',
           gap: 12,
           marginBottom: 20,
@@ -523,17 +724,21 @@ export default function AssessmentPage() {
 
           <p
             style={{
-              margin: '4px 0 0',
+              margin:
+                '4px 0 0',
               color: '#666',
               fontSize: 14,
             }}
           >
-            Enter and manage class assessment scores
+            Enter, update and monitor
+            class assessment scores
           </p>
         </div>
 
         <Link href="/students">
-          <button type="button">Student records</button>
+          <button type="button">
+            Student records
+          </button>
         </Link>
       </div>
 
@@ -541,7 +746,8 @@ export default function AssessmentPage() {
       <div
         style={{
           background: 'white',
-          border: '1px solid #e5e7eb',
+          border:
+            '1px solid #e5e7eb',
           borderRadius: 12,
           padding: 18,
           marginBottom: 20,
@@ -565,7 +771,6 @@ export default function AssessmentPage() {
             gap: 14,
           }}
         >
-          {/* Academic Year */}
           <div>
             <label style={labelStyle}>
               Academic Year
@@ -574,115 +779,168 @@ export default function AssessmentPage() {
             <select
               value={academicYearId}
               onChange={(e) => {
-                setAcademicYearId(e.target.value);
+                setAcademicYearId(
+                  e.target.value
+                );
                 setClassId('');
                 setStudents([]);
                 setScores([]);
               }}
               style={inputStyle}
             >
-              <option value="">Select academic year</option>
+              <option value="">
+                Select academic year
+              </option>
 
-              {academicYears.map((year) => (
-                <option key={year.id} value={year.id}>
-                  {year.name}
-                </option>
-              ))}
+              {academicYears.map(
+                (year) => (
+                  <option
+                    key={year.id}
+                    value={year.id}
+                  >
+                    {year.name}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
-          {/* Term */}
           <div>
-            <label style={labelStyle}>Term</label>
+            <label style={labelStyle}>
+              Term
+            </label>
 
             <select
               value={termId}
-              onChange={(e) => setTermId(e.target.value)}
+              onChange={(e) =>
+                setTermId(
+                  e.target.value
+                )
+              }
               style={inputStyle}
             >
-              <option value="">Select term</option>
+              <option value="">
+                Select term
+              </option>
 
-              {terms.map((term) => (
-                <option key={term.id} value={term.id}>
-                  {term.name}
-                </option>
-              ))}
+              {terms.map(
+                (term) => (
+                  <option
+                    key={term.id}
+                    value={term.id}
+                  >
+                    {term.name}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
-          {/* Programme */}
           <div>
-            <label style={labelStyle}>Programme</label>
+            <label style={labelStyle}>
+              Programme
+            </label>
 
             <select
               value={programmeId}
               onChange={(e) => {
-                setProgrammeId(e.target.value);
+                setProgrammeId(
+                  e.target.value
+                );
                 setClassId('');
                 setStudents([]);
                 setScores([]);
               }}
               style={inputStyle}
             >
-              <option value="">Select programme</option>
+              <option value="">
+                Select programme
+              </option>
 
-              {programmes.map((programme) => (
-                <option
-                  key={programme.id}
-                  value={programme.id}
-                >
-                  {programme.name}
-                  {programme.code
-                    ? ` (${programme.code})`
-                    : ''}
-                </option>
-              ))}
+              {programmes.map(
+                (programme) => (
+                  <option
+                    key={programme.id}
+                    value={programme.id}
+                  >
+                    {programme.name}
+                    {programme.code
+                      ? ` (${programme.code})`
+                      : ''}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
-          {/* Class */}
           <div>
-            <label style={labelStyle}>Class</label>
+            <label style={labelStyle}>
+              Class
+            </label>
 
             <select
               value={classId}
-              onChange={(e) => setClassId(e.target.value)}
+              onChange={(e) =>
+                setClassId(
+                  e.target.value
+                )
+              }
               style={inputStyle}
             >
-              <option value="">Select class</option>
+              <option value="">
+                Select class
+              </option>
 
-              {filteredClasses.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                  {item.level ? ` — ${item.level}` : ''}
-                </option>
-              ))}
+              {filteredClasses.map(
+                (item) => (
+                  <option
+                    key={item.id}
+                    value={item.id}
+                  >
+                    {item.name}
+                    {item.level
+                      ? ` — ${item.level}`
+                      : ''}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
-          {/* Subject */}
           <div>
-            <label style={labelStyle}>Subject</label>
+            <label style={labelStyle}>
+              Subject
+            </label>
 
             <select
               value={subjectId}
-              onChange={(e) => setSubjectId(e.target.value)}
+              onChange={(e) =>
+                setSubjectId(
+                  e.target.value
+                )
+              }
               style={inputStyle}
             >
-              <option value="">Select subject</option>
+              <option value="">
+                Select subject
+              </option>
 
-              {subjects.map((subject) => (
-                <option key={subject.id} value={subject.id}>
-                  {subject.name}
-                  {subject.code
-                    ? ` (${subject.code})`
-                    : ''}
-                </option>
-              ))}
+              {subjects.map(
+                (subject) => (
+                  <option
+                    key={subject.id}
+                    value={subject.id}
+                  >
+                    {subject.name}
+                    {subject.code
+                      ? ` (${subject.code})`
+                      : ''}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
-          {/* Assessment Type */}
           <div>
             <label style={labelStyle}>
               Assessment Type
@@ -691,18 +949,27 @@ export default function AssessmentPage() {
             <select
               value={assessmentType}
               onChange={(e) =>
-                setAssessmentType(e.target.value)
+                setAssessmentType(
+                  e.target.value
+                )
               }
               style={inputStyle}
             >
-              <option value="CA1">CA1</option>
-              <option value="CA2">CA2</option>
-              <option value="CA3">CA3</option>
-              <option value="Exam">Exam</option>
+              <option value="CA1">
+                CA1
+              </option>
+              <option value="CA2">
+                CA2
+              </option>
+              <option value="CA3">
+                CA3
+              </option>
+              <option value="Exam">
+                Exam
+              </option>
             </select>
           </div>
 
-          {/* Maximum Score */}
           <div>
             <label style={labelStyle}>
               Maximum Score
@@ -713,7 +980,9 @@ export default function AssessmentPage() {
               min="1"
               value={maxScore}
               onChange={(e) =>
-                setMaxScore(e.target.value)
+                setMaxScore(
+                  e.target.value
+                )
               }
               style={inputStyle}
             />
@@ -728,12 +997,18 @@ export default function AssessmentPage() {
             padding: 12,
             marginBottom: 16,
             borderRadius: 8,
-            background: message.startsWith('Error')
-              ? '#fef2f2'
-              : '#f0fdf4',
-            color: message.startsWith('Error')
-              ? '#b91c1c'
-              : '#166534',
+            background:
+              message.startsWith(
+                'Error'
+              )
+                ? '#fef2f2'
+                : '#f0fdf4',
+            color:
+              message.startsWith(
+                'Error'
+              )
+                ? '#b91c1c'
+                : '#166534',
             fontSize: 14,
           }}
         >
@@ -741,13 +1016,61 @@ export default function AssessmentPage() {
         </div>
       )}
 
-      {/* Student Score Sheet */}
+      {/* Statistics */}
+      {classId &&
+        students.length > 0 && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 10,
+              marginBottom: 20,
+            }}
+          >
+            <StatCard
+              title="Entered"
+              value={`${statistics.count}/${students.length}`}
+            />
+
+            <StatCard
+              title="Class Average"
+              value={`${statistics.average.toFixed(
+                1
+              )}%`}
+            />
+
+            <StatCard
+              title="Highest"
+              value={`${statistics.highest.toFixed(
+                1
+              )}%`}
+            />
+
+            <StatCard
+              title="Lowest"
+              value={`${statistics.lowest.toFixed(
+                1
+              )}%`}
+            />
+
+            <StatCard
+              title="Pass Rate"
+              value={`${statistics.passRate.toFixed(
+                1
+              )}%`}
+            />
+          </div>
+        )}
+
+      {/* Score Sheet */}
       {classId && (
         <form onSubmit={handleSaveAll}>
           <div
             style={{
               background: 'white',
-              border: '1px solid #e5e7eb',
+              border:
+                '1px solid #e5e7eb',
               borderRadius: 12,
               overflow: 'hidden',
               marginBottom: 24,
@@ -756,9 +1079,11 @@ export default function AssessmentPage() {
             <div
               style={{
                 padding: 16,
-                borderBottom: '1px solid #e5e7eb',
+                borderBottom:
+                  '1px solid #e5e7eb',
                 display: 'flex',
-                justifyContent: 'space-between',
+                justifyContent:
+                  'space-between',
                 alignItems: 'center',
                 gap: 10,
                 flexWrap: 'wrap',
@@ -777,27 +1102,30 @@ export default function AssessmentPage() {
 
                 <p
                   style={{
-                    margin: '4px 0 0',
+                    margin:
+                      '4px 0 0',
                     color: '#666',
                     fontSize: 13,
                   }}
                 >
-                  {students.length} active student
-                  {students.length === 1 ? '' : 's'}
+                  Existing scores are
+                  loaded automatically.
                 </p>
               </div>
 
               {students.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => fillAllScores('')}
+                  onClick={() =>
+                    fillAllScores('')
+                  }
                 >
                   Clear scores
                 </button>
               )}
             </div>
 
-            {loadingStudents ? (
+            {loadingScores ? (
               <p
                 style={{
                   padding: 24,
@@ -805,9 +1133,10 @@ export default function AssessmentPage() {
                   color: '#666',
                 }}
               >
-                Loading students…
+                Loading scores…
               </p>
-            ) : students.length === 0 ? (
+            ) : students.length ===
+              0 ? (
               <div
                 style={{
                   padding: 24,
@@ -815,17 +1144,19 @@ export default function AssessmentPage() {
                   color: '#666',
                 }}
               >
-                No students are enrolled in this class for
-                the selected academic year.
+                No students are enrolled
+                in this class for the
+                selected academic year.
               </div>
             ) : (
               <>
-                {/* Quick fill */}
                 <div
                   style={{
                     padding: 12,
-                    background: '#f8fafc',
-                    borderBottom: '1px solid #e5e7eb',
+                    background:
+                      '#f8fafc',
+                    borderBottom:
+                      '1px solid #e5e7eb',
                     display: 'flex',
                     gap: 8,
                     alignItems: 'center',
@@ -851,13 +1182,17 @@ export default function AssessmentPage() {
                             String(
                               Math.min(
                                 value,
-                                Number(maxScore) || value
+                                Number(
+                                  maxScore
+                                ) ||
+                                  value
                               )
                             )
                           )
                         }
                         style={{
-                          padding: '5px 9px',
+                          padding:
+                            '5px 9px',
                           fontSize: 12,
                         }}
                       >
@@ -867,92 +1202,228 @@ export default function AssessmentPage() {
                   )}
                 </div>
 
-                {/* Desktop/tablet score table */}
-                <div style={{ overflowX: 'auto' }}>
+                <div
+                  style={{
+                    overflowX: 'auto',
+                  }}
+                >
                   <table
                     style={{
                       width: '100%',
-                      borderCollapse: 'collapse',
-                      minWidth: 650,
+                      borderCollapse:
+                        'collapse',
+                      minWidth: 800,
                     }}
                   >
                     <thead>
                       <tr
                         style={{
-                          background: '#f8fafc',
+                          background:
+                            '#f8fafc',
                         }}
                       >
-                        <th style={thStyle}>#</th>
-                        <th style={thStyle}>
+                        <th
+                          style={thStyle}
+                        >
+                          #
+                        </th>
+
+                        <th
+                          style={thStyle}
+                        >
                           Student
                         </th>
-                        <th style={thStyle}>
+
+                        <th
+                          style={thStyle}
+                        >
                           Admission No.
                         </th>
-                        <th style={thStyle}>
-                          Score / {maxScore || '—'}
+
+                        <th
+                          style={thStyle}
+                        >
+                          Score /{' '}
+                          {maxScore ||
+                            '—'}
+                        </th>
+
+                        <th
+                          style={thStyle}
+                        >
+                          %
+                        </th>
+
+                        <th
+                          style={thStyle}
+                        >
+                          Grade
+                        </th>
+
+                        <th
+                          style={thStyle}
+                        >
+                          Status
                         </th>
                       </tr>
                     </thead>
 
                     <tbody>
-                      {students.map((student, index) => {
-                        const scoreEntry = scores.find(
-                          (entry) =>
-                            entry.student_id ===
-                            student.id
-                        );
+                      {students.map(
+                        (
+                          student,
+                          index
+                        ) => {
+                          const scoreEntry =
+                            scores.find(
+                              (
+                                entry
+                              ) =>
+                                entry.student_id ===
+                                student.id
+                            );
 
-                        return (
-                          <tr key={student.id}>
-                            <td style={tdStyle}>
-                              {index + 1}
-                            </td>
+                          const numericScore =
+                            scoreEntry?.score
+                              ? Number(
+                                  scoreEntry.score
+                                )
+                              : null;
 
-                            <td
-                              style={{
-                                ...tdStyle,
-                                fontWeight: 500,
-                              }}
+                          const maximum =
+                            Number(
+                              maxScore
+                            ) || 0;
+
+                          const percentage =
+                            numericScore !==
+                              null &&
+                            maximum > 0
+                              ? getPercentage(
+                                  numericScore,
+                                  maximum
+                                )
+                              : null;
+
+                          return (
+                            <tr
+                              key={
+                                student.id
+                              }
                             >
-                              {student.full_name}
-                            </td>
+                              <td
+                                style={
+                                  tdStyle
+                                }
+                              >
+                                {index +
+                                  1}
+                              </td>
 
-                            <td style={tdStyle}>
-                              {student.admission_number}
-                            </td>
-
-                            <td style={tdStyle}>
-                              <input
-                                type="number"
-                                min="0"
-                                max={
-                                  Number(maxScore) || undefined
-                                }
-                                step="0.01"
-                                value={
-                                  scoreEntry?.score ?? ''
-                                }
-                                onChange={(e) =>
-                                  updateScore(
-                                    student.id,
-                                    e.target.value
-                                  )
-                                }
-                                placeholder="Enter score"
+                              <td
                                 style={{
-                                  width: 130,
-                                  padding: 9,
-                                  border:
-                                    '1px solid #d1d5db',
-                                  borderRadius: 6,
-                                  fontSize: 14,
+                                  ...tdStyle,
+                                  fontWeight:
+                                    500,
                                 }}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
+                              >
+                                {
+                                  student.full_name
+                                }
+                              </td>
+
+                              <td
+                                style={
+                                  tdStyle
+                                }
+                              >
+                                {
+                                  student.admission_number
+                                }
+                              </td>
+
+                              <td
+                                style={
+                                  tdStyle
+                                }
+                              >
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={
+                                    maximum ||
+                                    undefined
+                                  }
+                                  step="0.01"
+                                  value={
+                                    scoreEntry?.score ??
+                                    ''
+                                  }
+                                  onChange={(
+                                    e
+                                  ) =>
+                                    updateScore(
+                                      student.id,
+                                      e.target
+                                        .value
+                                    )
+                                  }
+                                  placeholder="Score"
+                                  style={{
+                                    width: 110,
+                                    padding: 9,
+                                    border:
+                                      '1px solid #d1d5db',
+                                    borderRadius: 6,
+                                    fontSize: 14,
+                                  }}
+                                />
+                              </td>
+
+                              <td
+                                style={
+                                  tdStyle
+                                }
+                              >
+                                {percentage !==
+                                null
+                                  ? `${percentage.toFixed(
+                                      1
+                                    )}%`
+                                  : '—'}
+                              </td>
+
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  fontWeight:
+                                    600,
+                                }}
+                              >
+                                {percentage !==
+                                null
+                                  ? getGrade(
+                                      percentage
+                                    )
+                                  : '—'}
+                              </td>
+
+                              <td
+                                style={
+                                  tdStyle
+                                }
+                              >
+                                {percentage !==
+                                null
+                                  ? getStatus(
+                                      percentage
+                                    )
+                                  : '—'}
+                              </td>
+                            </tr>
+                          );
+                        }
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -960,22 +1431,25 @@ export default function AssessmentPage() {
                 <div
                   style={{
                     padding: 16,
-                    borderTop: '1px solid #e5e7eb',
+                    borderTop:
+                      '1px solid #e5e7eb',
                     display: 'flex',
-                    justifyContent: 'flex-end',
+                    justifyContent:
+                      'flex-end',
                   }}
                 >
                   <button
                     type="submit"
                     disabled={saving}
                     style={{
-                      padding: '11px 20px',
+                      padding:
+                        '11px 20px',
                       fontWeight: 600,
                     }}
                   >
                     {saving
                       ? 'Saving scores…'
-                      : 'Save All Scores'}
+                      : 'Save / Update All Scores'}
                   </button>
                 </div>
               </>
@@ -1004,62 +1478,162 @@ export default function AssessmentPage() {
           <div
             style={{
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection:
+                'column',
               gap: 8,
             }}
           >
-            {records.map((record) => (
-              <div
-                key={record.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: 12,
-                  background: 'white',
-                  borderRadius: 8,
-                  border: '1px solid #e5e7eb',
-                }}
-              >
-                <div>
-                  <p
+            {records.map(
+              (record) => {
+                const percentage =
+                  getPercentage(
+                    Number(
+                      record.score
+                    ),
+                    Number(
+                      record.max_score
+                    )
+                  );
+
+                return (
+                  <div
+                    key={
+                      record.id
+                    }
                     style={{
-                      margin: 0,
-                      fontWeight: 500,
+                      display:
+                        'flex',
+                      justifyContent:
+                        'space-between',
+                      alignItems:
+                        'center',
+                      gap: 12,
+                      padding: 12,
+                      background:
+                        'white',
+                      border:
+                        '1px solid #e5e7eb',
+                      borderRadius: 8,
                     }}
                   >
-                    {studentName(record.student_id)}
-                  </p>
+                    <div>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontWeight:
+                            500,
+                        }}
+                      >
+                        {studentName(
+                          record.student_id
+                        )}
+                      </p>
 
-                  <p
-                    style={{
-                      margin: '3px 0 0',
-                      fontSize: 13,
-                      color: '#666',
-                    }}
-                  >
-                    {record.subject} ·{' '}
-                    {record.assessment_type}
-                    {record.term
-                      ? ` · ${record.term}`
-                      : ''}
-                  </p>
-                </div>
+                      <p
+                        style={{
+                          margin:
+                            '3px 0 0',
+                          fontSize: 13,
+                          color:
+                            '#666',
+                        }}
+                      >
+                        {
+                          record.subject
+                        }{' '}
+                        ·{' '}
+                        {
+                          record.assessment_type
+                        }
+                        {record.term
+                          ? ` · ${record.term}`
+                          : ''}
+                      </p>
+                    </div>
 
-                <span
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {record.score}/{record.max_score}
-                </span>
-              </div>
-            ))}
+                    <div
+                      style={{
+                        textAlign:
+                          'right',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight:
+                            600,
+                        }}
+                      >
+                        {
+                          record.score
+                        }
+                        /
+                        {
+                          record.max_score
+                        }
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color:
+                            '#666',
+                        }}
+                      >
+                        {percentage.toFixed(
+                          1
+                        )}
+                        % ·{' '}
+                        {getGrade(
+                          percentage
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+            )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({
+  title,
+  value,
+}: {
+  title: string;
+  value: string;
+}) {
+  return (
+    <div
+      style={{
+        background: 'white',
+        border:
+          '1px solid #e5e7eb',
+        borderRadius: 10,
+        padding: 14,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          color: '#6b7280',
+          marginBottom: 5,
+        }}
+      >
+        {title}
+      </div>
+
+      <div
+        style={{
+          fontSize: 20,
+          fontWeight: 700,
+        }}
+      >
+        {value}
       </div>
     </div>
   );
@@ -1088,11 +1662,13 @@ const thStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   color: '#4b5563',
-  borderBottom: '1px solid #e5e7eb',
+  borderBottom:
+    '1px solid #e5e7eb',
 };
 
 const tdStyle: React.CSSProperties = {
   padding: 12,
   fontSize: 14,
-  borderBottom: '1px solid #f0f0f0',
+  borderBottom:
+    '1px solid #f0f0f0',
 };
