@@ -661,73 +661,74 @@ export default function StudentProfilePage() {
                       </span>
 
                       <p className="text-xs text-slate-400">
-                        Enrolled:{' '}
-                        {formatDate(
-                          enrollment.enrollment_date
-                        )}
-                          </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+  Enrolled:{' '}
+  {formatDate(enrollment.enrollment_date)}
+</p>
+</div>
+</div>
+</div>
+))}
+</div>
+)}
+</div>
 
-        {/* Attendance and Results */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+{/* Attendance and Results */}
+<div className="grid grid-cols-1 gap-6 md:grid-cols-2">
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-            <h2 className="text-lg font-bold text-slate-900">
-              Attendance
-            </h2>
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+    <h2 className="text-lg font-bold text-slate-900">
+      Attendance
+    </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Attendance summary will appear here.
-            </p>
+    <p className="mt-1 text-sm text-slate-500">
+      Attendance summary will appear here.
+    </p>
 
-            <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
-              <p className="text-sm text-slate-400">
-                Coming next
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-            <h2 className="text-lg font-bold text-slate-900">
-              Results
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Assessment and academic results will appear here.
-            </p>
-
-            <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
-              <p className="text-sm text-slate-400">
-                Coming next
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom Actions */}
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
-
-          <Link
-            href="/students"
-            className="rounded-xl border border-slate-300 px-6 py-3 text-center font-medium text-slate-700 hover:bg-white"
-          >
-            ← Back to Students
-          </Link>
-
-          <Link
-            href={`/students/${student.id}/edit`}
-            className="rounded-xl bg-blue-600 px-6 py-3 text-center font-semibold text-white shadow-sm hover:bg-blue-700"
-          >
-            Edit Student
-          </Link>
-        </div>
-      </div>
+    <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
+      <p className="text-sm text-slate-400">
+        Coming next
+      </p>
     </div>
-  );
+  </div>
+
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+    <h2 className="text-lg font-bold text-slate-900">
+      Results
+    </h2>
+
+    <p className="mt-1 text-sm text-slate-500">
+      Assessment and academic results will appear here.
+    </p>
+
+    <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
+      <p className="text-sm text-slate-400">
+        Coming next
+      </p>
+    </div>
+  </div>
+
+</div>
+
+{/* Bottom Actions */}
+<div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
+
+  <Link
+    href="/students"
+    className="rounded-xl border border-slate-300 px-6 py-3 text-center font-medium text-slate-700 hover:bg-white"
+  >
+    ← Back to Students
+  </Link>
+
+  <Link
+    href={`/students/${student.id}/edit`}
+    className="rounded-xl bg-blue-600 px-6 py-3 text-center font-semibold text-white shadow-sm hover:bg-blue-700"
+  >
+    Edit Student
+  </Link>
+
+</div>
+
+</div>
+</div>
+);
 }
