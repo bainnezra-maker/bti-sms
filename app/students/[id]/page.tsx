@@ -125,112 +125,151 @@ export default function StudentProfilePage() {
       return;
     }
 
-    const { data: userProfile } = await supabase
-      .from('users')
-      .select('school_id')
-      .eq('id', user.id)
-      .single();
+    const { data: userProfile, error: userProfileError } =
+      await supabase
+        .from('users')
+        .select('school_id')
+        .eq('id', user.id)
+        .single();
 
-    if (!userProfile?.school_id) {
+    if (userProfileError || !userProfile?.school_id) {
       setLoading(false);
       return;
     }
 
-    const { data: studentData, error: studentError } = await supabase
-      .from('students')
-      .select(`
-        id,
-        admission_number,
-        full_name,
-        date_of_birth,
-        gender,
-        guardian_name,
-        guardian_phone,
-        address,
-        admission_date,
-        status,
-        jhs_aggregate,
-        photo_url,
-        conduct,
-        promotion_status,
-        class_teacher_remark,
-        hod_remark,
-        next_term_begins
-      `)
-      .eq('id', studentId)
-      .eq('school_id', userProfile.school_id)
-      .single();
+    const schoolId = userProfile.school_id;
+
+    const { data: studentData, error: studentError } =
+      await supabase
+        .from('students')
+        .select(`
+          id,
+          admission_number,
+          full_name,
+          date_of_birth,
+          gender,
+          guardian_name,
+          guardian_phone,
+          address,
+          admission_date,
+          status,
+          jhs_aggregate,
+          photo_url,
+          conduct,
+          promotion_status,
+          class_teacher_remark,
+          hod_remark,
+          next_term_begins
+        `)
+        .eq('id', studentId)
+        .eq('school_id', schoolId)
+        .single();
 
     if (studentError || !studentData) {
+      console.error('Student loading error:', studentError);
       setLoading(false);
       return;
     }
 
-    setStudent(studentData);
+    const typedStudent = studentData as Student;
+
+    setStudent(typedStudent);
 
     setForm({
-      photo_url: studentData.photo_url || '',
-      conduct: studentData.conduct || '',
-      promotion_status: studentData.promotion_status || '',
-      class_teacher_remark: studentData.class_teacher_remark || '',
-      hod_remark: studentData.hod_remark || '',
-      next_term_begins: studentData.next_term_begins || '',
+      photo_url: typedStudent.photo_url || '',
+      conduct: typedStudent.conduct || '',
+      promotion_status: typedStudent.promotion_status || '',
+      class_teacher_remark:
+        typedStudent.class_teacher_remark || '',
+      hod_remark: typedStudent.hod_remark || '',
+      next_term_begins:
+        typedStudent.next_term_begins || '',
     });
 
-    const { data: enrollmentData } = await supabase
-      .from('enrollments')
-      .select(`
-        id,
-        enrollment_date,
-        status,
-        class:classes (
+    const { data: enrollmentData, error: enrollmentError } =
+      await supabase
+        .from('enrollments')
+        .select(`
           id,
-          name,
-          level
-        ),
-        programme:programmes (
+          enrollment_date,
+          status,
+          class:classes (
+            id,
+            name,
+            level
+          ),
+          programme:programmes (
+            id,
+            name,
+            code
+          ),
+          academic_year:academic_years (
+            id,
+            name
+          )
+        `)
+        .eq('student_id', studentId)
+        .order('enrollment_date', { ascending: false });
+
+    if (enrollmentError) {
+      console.error(
+        'Enrollment loading error:',
+        enrollmentError
+      );
+    }
+
+    setEnrollments(
+      (enrollmentData || []) as Enrollment[]
+    );
+
+    const { data: attendanceData, error: attendanceError } =
+      await supabase
+        .from('attendance')
+        .select(`
           id,
-          name,
-          code
-        ),
-        academic_year:academic_years (
+          date,
+          status,
+          class_id
+        `)
+        .eq('student_id', studentId)
+        .order('date', { ascending: false });
+
+    if (attendanceError) {
+      console.error(
+        'Attendance loading error:',
+        attendanceError
+      );
+    }
+
+    setAttendance(
+      (attendanceData || []) as AttendanceRecord[]
+    );
+
+    const { data: assessmentData, error: assessmentError } =
+      await supabase
+        .from('assessments')
+        .select(`
           id,
-          name
-        )
-      `)
-      .eq('student_id', studentId)
-      .order('enrollment_date', { ascending: false });
+          subject,
+          assessment_type,
+          score,
+          max_score,
+          term,
+          created_at
+        `)
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false });
 
-    setEnrollments((enrollmentData || []) as Enrollment[]);
+    if (assessmentError) {
+      console.error(
+        'Assessment loading error:',
+        assessmentError
+      );
+    }
 
-    const { data: attendanceData } = await supabase
-      .from('attendance')
-      .select(`
-        id,
-        date,
-        status,
-        class_id
-      `)
-      .eq('student_id', studentId)
-      .order('date', { ascending: false });
-
-    setAttendance(attendanceData || []);
-
-    const { data: assessmentData } = await supabase
-      .from('assessments')
-      .select(`
-        id,
-        subject,
-        assessment_type,
-        score,
-        max_score,
-        term,
-        created_at
-      `)
-      .eq('student_id', studentId)
-      .order('created_at', { ascending: false });
-
-    setAssessments(assessmentData || []);
+    setAssessments(
+      (assessmentData || []) as Assessment[]
+    );
 
     setLoading(false);
   }
@@ -240,29 +279,163 @@ export default function StudentProfilePage() {
 
     setSaving(true);
 
-    const { error } = await supabase
-      .from('students')
-      .update({
-        photo_url: form.photo_url.trim() || null,
-        conduct: form.conduct.trim() || null,
-        promotion_status: form.promotion_status || null,
+    try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        alert('Your session has expired. Please log in again.');
+        router.push('/login');
+        return;
+      }
+
+      const {
+        data: userProfile,
+        error: userProfileError,
+      } = await supabase
+        .from('users')
+        .select('school_id')
+        .eq('id', user.id)
+        .single();
+
+      if (
+        userProfileError ||
+        !userProfile?.school_id
+      ) {
+        alert(
+          'Could not identify your school. Please log in again.'
+        );
+        return;
+      }
+
+      const schoolId = userProfile.school_id;
+
+      const updateData = {
+        photo_url:
+          form.photo_url.trim() || null,
+
+        conduct:
+          form.conduct.trim() || null,
+
+        promotion_status:
+          form.promotion_status.trim() || null,
+
         class_teacher_remark:
           form.class_teacher_remark.trim() || null,
-        hod_remark: form.hod_remark.trim() || null,
-        next_term_begins: form.next_term_begins || null,
-      })
-      .eq('id', student.id);
 
-    if (error) {
-      alert(`Could not save report card information: ${error.message}`);
+        hod_remark:
+          form.hod_remark.trim() || null,
+
+        next_term_begins:
+          form.next_term_begins || null,
+      };
+
+      console.log(
+        'Saving report card information:',
+        updateData
+      );
+
+      const {
+        data: updatedStudent,
+        error: updateError,
+      } = await supabase
+        .from('students')
+        .update(updateData)
+        .eq('id', student.id)
+        .eq('school_id', schoolId)
+        .select(`
+          id,
+          admission_number,
+          full_name,
+          date_of_birth,
+          gender,
+          guardian_name,
+          guardian_phone,
+          address,
+          admission_date,
+          status,
+          jhs_aggregate,
+          photo_url,
+          conduct,
+          promotion_status,
+          class_teacher_remark,
+          hod_remark,
+          next_term_begins
+        `)
+        .maybeSingle();
+
+      if (updateError) {
+        console.error(
+          'Report card update error:',
+          updateError
+        );
+
+        alert(
+          `Could not save report card information:\n\n${updateError.message}`
+        );
+
+        return;
+      }
+
+      if (!updatedStudent) {
+        console.error(
+          'No student row was returned after update.'
+        );
+
+        alert(
+          'The information was NOT saved. Supabase did not return the updated student record. This usually means the students UPDATE permission (RLS policy) needs to be enabled.'
+        );
+
+        return;
+      }
+
+      const savedStudent =
+        updatedStudent as Student;
+
+      setStudent(savedStudent);
+
+      setForm({
+        photo_url:
+          savedStudent.photo_url || '',
+
+        conduct:
+          savedStudent.conduct || '',
+
+        promotion_status:
+          savedStudent.promotion_status || '',
+
+        class_teacher_remark:
+          savedStudent.class_teacher_remark || '',
+
+        hod_remark:
+          savedStudent.hod_remark || '',
+
+        next_term_begins:
+          savedStudent.next_term_begins || '',
+      });
+
+      console.log(
+        'Report card information successfully saved:',
+        savedStudent
+      );
+
+      alert(
+        'Report card information saved successfully.'
+      );
+    } catch (error) {
+      console.error(
+        'Unexpected save error:',
+        error
+      );
+
+      alert(
+        'An unexpected error occurred while saving the report card information.'
+      );
+    } finally {
       setSaving(false);
-      return;
     }
-
-    alert('Report card information saved successfully.');
-
-    await loadStudent();
-    setSaving(false);
   }
 
   if (loading) {
@@ -301,19 +474,23 @@ export default function StudentProfilePage() {
   const totalAttendance = attendance.length;
 
   const presentCount = attendance.filter(
-    (item) => item.status.toLowerCase() === 'present'
+    (item) =>
+      item.status.toLowerCase() === 'present'
   ).length;
 
   const absentCount = attendance.filter(
-    (item) => item.status.toLowerCase() === 'absent'
+    (item) =>
+      item.status.toLowerCase() === 'absent'
   ).length;
 
   const lateCount = attendance.filter(
-    (item) => item.status.toLowerCase() === 'late'
+    (item) =>
+      item.status.toLowerCase() === 'late'
   ).length;
 
   const excusedCount = attendance.filter(
-    (item) => item.status.toLowerCase() === 'excused'
+    (item) =>
+      item.status.toLowerCase() === 'excused'
   ).length;
 
   const attendancePercentage =
@@ -337,52 +514,68 @@ export default function StudentProfilePage() {
       };
     }
 
-    if (CA_TYPES.includes(assessment.assessment_type)) {
-      subjectMap[assessment.subject].caRaw += Number(assessment.score);
+    if (
+      CA_TYPES.includes(
+        assessment.assessment_type
+      )
+    ) {
+      subjectMap[assessment.subject].caRaw +=
+        Number(assessment.score);
     }
 
-    if (assessment.assessment_type === 'Examination') {
-      subjectMap[assessment.subject].examRaw = Number(
-        assessment.score
-      );
+    if (
+      assessment.assessment_type ===
+      'Examination'
+    ) {
+      subjectMap[assessment.subject].examRaw =
+        Number(assessment.score);
     }
   });
 
-  const subjectResults = Object.entries(subjectMap).map(
-    ([subject, values]) => {
-      const caContribution = (values.caRaw / 100) * 30;
-      const examContribution = (values.examRaw / 100) * 70;
-      const finalScore = caContribution + examContribution;
+  const subjectResults = Object.entries(
+    subjectMap
+  ).map(([subject, values]) => {
+    const caContribution =
+      (values.caRaw / 100) * 30;
 
-      return {
-        subject,
-        caRaw: values.caRaw,
-        caContribution,
-        examRaw: values.examRaw,
-        examContribution,
-        finalScore,
-        grade: getGrade(finalScore),
-      };
-    }
-  );
+    const examContribution =
+      (values.examRaw / 100) * 70;
+
+    const finalScore =
+      caContribution + examContribution;
+
+    return {
+      subject,
+      caRaw: values.caRaw,
+      caContribution,
+      examRaw: values.examRaw,
+      examContribution,
+      finalScore,
+      grade: getGrade(finalScore),
+    };
+  });
 
   const overallAverage =
     subjectResults.length > 0
       ? subjectResults.reduce(
-          (sum, item) => sum + item.finalScore,
+          (sum, item) =>
+            sum + item.finalScore,
           0
         ) / subjectResults.length
       : 0;
 
-  const activeEnrollment = enrollments.find(
-    (item) => item.status === 'active'
-  );
+  const activeEnrollment =
+    enrollments.find(
+      (item) => item.status === 'active'
+    );
 
   const currentClass =
-    activeEnrollment?.class?.[0]?.name || 'Not enrolled';
+    activeEnrollment?.class?.[0]?.name ||
+    'Not enrolled';
 
   const currentProgramme =
-    activeEnrollment?.programme?.[0]?.name || 'Not assigned';
+    activeEnrollment?.programme?.[0]?.name ||
+    'Not assigned';
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
@@ -494,7 +687,8 @@ export default function StudentProfilePage() {
                 JHS Aggregate
               </p>
               <p className="mt-1 font-semibold text-slate-800">
-                {student.jhs_aggregate ?? 'Not provided'}
+                {student.jhs_aggregate ??
+                  'Not provided'}
               </p>
             </div>
 
@@ -523,7 +717,8 @@ export default function StudentProfilePage() {
                 Guardian Name
               </p>
               <p className="mt-1 font-semibold text-slate-800">
-                {student.guardian_name || 'Not provided'}
+                {student.guardian_name ||
+                  'Not provided'}
               </p>
             </div>
 
@@ -532,7 +727,8 @@ export default function StudentProfilePage() {
                 Guardian Phone
               </p>
               <p className="mt-1 font-semibold text-slate-800">
-                {student.guardian_phone || 'Not provided'}
+                {student.guardian_phone ||
+                  'Not provided'}
               </p>
             </div>
 
@@ -541,7 +737,8 @@ export default function StudentProfilePage() {
                 Address
               </p>
               <p className="mt-1 font-semibold text-slate-800">
-                {student.address || 'Not provided'}
+                {student.address ||
+                  'Not provided'}
               </p>
             </div>
 
@@ -603,11 +800,26 @@ export default function StudentProfilePage() {
                 }
                 className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
               >
-                <option value="">Select conduct</option>
-                <option value="Excellent">Excellent</option>
-                <option value="Very Good">Very Good</option>
-                <option value="Good">Good</option>
-                <option value="Satisfactory">Satisfactory</option>
+                <option value="">
+                  Select conduct
+                </option>
+
+                <option value="Excellent">
+                  Excellent
+                </option>
+
+                <option value="Very Good">
+                  Very Good
+                </option>
+
+                <option value="Good">
+                  Good
+                </option>
+
+                <option value="Satisfactory">
+                  Satisfactory
+                </option>
+
                 <option value="Needs Improvement">
                   Needs Improvement
                 </option>
@@ -625,15 +837,27 @@ export default function StudentProfilePage() {
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    promotion_status: e.target.value,
+                    promotion_status:
+                      e.target.value,
                   })
                 }
                 className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
               >
-                <option value="">Select promotion status</option>
-                <option value="Promoted">Promoted</option>
-                <option value="Repeated">Repeated</option>
-                <option value="Referred">Referred</option>
+                <option value="">
+                  Select promotion status
+                </option>
+
+                <option value="Promoted">
+                  Promoted
+                </option>
+
+                <option value="Repeated">
+                  Repeated
+                </option>
+
+                <option value="Referred">
+                  Referred
+                </option>
               </select>
             </div>
 
@@ -648,7 +872,8 @@ export default function StudentProfilePage() {
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    class_teacher_remark: e.target.value,
+                    class_teacher_remark:
+                      e.target.value,
                   })
                 }
                 rows={4}
@@ -668,7 +893,8 @@ export default function StudentProfilePage() {
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    hod_remark: e.target.value,
+                    hod_remark:
+                      e.target.value,
                   })
                 }
                 rows={4}
@@ -689,7 +915,8 @@ export default function StudentProfilePage() {
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    next_term_begins: e.target.value,
+                    next_term_begins:
+                      e.target.value,
                   })
                 }
                 className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
@@ -701,7 +928,9 @@ export default function StudentProfilePage() {
               disabled={saving}
               className="w-full rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
-              {saving ? 'Saving...' : '💾 Save Report Card Information'}
+              {saving
+                ? 'Saving...'
+                : '💾 Save Report Card Information'}
             </button>
 
           </div>
@@ -719,40 +948,44 @@ export default function StudentProfilePage() {
             </p>
           ) : (
             <div className="space-y-3">
-              {enrollments.map((enrollment) => (
-                <div
-                  key={enrollment.id}
-                  className="rounded-xl border border-slate-200 p-4"
-                >
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              {enrollments.map(
+                (enrollment) => (
+                  <div
+                    key={enrollment.id}
+                    className="rounded-xl border border-slate-200 p-4"
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        {enrollment.class?.[0]?.name ||
-                          'Class not available'}
-                      </p>
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {enrollment.class?.[0]?.name ||
+                            'Class not available'}
+                        </p>
 
-                      <p className="text-sm text-slate-500">
-                        {enrollment.programme?.[0]?.name ||
-                          'Programme not available'}
-                      </p>
+                        <p className="text-sm text-slate-500">
+                          {enrollment.programme?.[0]?.name ||
+                            'Programme not available'}
+                        </p>
+                      </div>
+
+                      <div className="text-sm text-slate-500">
+                        {enrollment.academic_year?.[0]?.name ||
+                          'Academic year unavailable'}
+                      </div>
+
                     </div>
-
-                    <div className="text-sm text-slate-500">
-                      {enrollment.academic_year?.[0]?.name ||
-                        'Academic year unavailable'}
-                    </div>
-
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           )}
         </div>
 
         {/* Attendance */}
         <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
             <h2 className="text-lg font-bold text-slate-900">
               Attendance Summary
             </h2>
@@ -763,40 +996,56 @@ export default function StudentProfilePage() {
             >
               Manage Attendance →
             </Link>
+
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
 
             <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">Recorded</p>
+              <p className="text-xs text-slate-500">
+                Recorded
+              </p>
+
               <p className="mt-1 text-2xl font-bold text-slate-900">
                 {totalAttendance}
               </p>
             </div>
 
             <div className="rounded-xl bg-green-50 p-4">
-              <p className="text-xs text-green-700">Present</p>
+              <p className="text-xs text-green-700">
+                Present
+              </p>
+
               <p className="mt-1 text-2xl font-bold text-green-700">
                 {presentCount}
               </p>
             </div>
 
             <div className="rounded-xl bg-red-50 p-4">
-              <p className="text-xs text-red-700">Absent</p>
+              <p className="text-xs text-red-700">
+                Absent
+              </p>
+
               <p className="mt-1 text-2xl font-bold text-red-700">
                 {absentCount}
               </p>
             </div>
 
             <div className="rounded-xl bg-yellow-50 p-4">
-              <p className="text-xs text-yellow-700">Late</p>
+              <p className="text-xs text-yellow-700">
+                Late
+              </p>
+
               <p className="mt-1 text-2xl font-bold text-yellow-700">
                 {lateCount}
               </p>
             </div>
 
             <div className="rounded-xl bg-blue-50 p-4">
-              <p className="text-xs text-blue-700">Excused</p>
+              <p className="text-xs text-blue-700">
+                Excused
+              </p>
+
               <p className="mt-1 text-2xl font-bold text-blue-700">
                 {excusedCount}
               </p>
@@ -805,7 +1054,9 @@ export default function StudentProfilePage() {
           </div>
 
           <div className="mt-5">
+
             <div className="mb-2 flex justify-between text-sm">
+
               <span className="font-medium text-slate-600">
                 Attendance Percentage
               </span>
@@ -813,9 +1064,11 @@ export default function StudentProfilePage() {
               <span className="font-bold text-slate-900">
                 {attendancePercentage.toFixed(1)}%
               </span>
+
             </div>
 
             <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+
               <div
                 className="h-full rounded-full bg-green-500"
                 style={{
@@ -825,48 +1078,65 @@ export default function StudentProfilePage() {
                   )}%`,
                 }}
               />
+
             </div>
+
           </div>
 
           {attendance.length > 0 && (
             <div className="mt-6 overflow-x-auto">
+
               <table className="min-w-full text-left text-sm">
+
                 <thead>
                   <tr className="border-b border-slate-200">
+
                     <th className="px-3 py-3 font-semibold text-slate-600">
                       Date
                     </th>
+
                     <th className="px-3 py-3 font-semibold text-slate-600">
                       Status
                     </th>
+
                   </tr>
                 </thead>
 
                 <tbody>
-                  {attendance.slice(0, 10).map((record) => (
-                    <tr
-                      key={record.id}
-                      className="border-b border-slate-100"
-                    >
-                      <td className="px-3 py-3">
-                        {record.date}
-                      </td>
 
-                      <td className="px-3 py-3 capitalize">
-                        {record.status}
-                      </td>
-                    </tr>
-                  ))}
+                  {attendance
+                    .slice(0, 10)
+                    .map((record) => (
+                      <tr
+                        key={record.id}
+                        className="border-b border-slate-100"
+                      >
+
+                        <td className="px-3 py-3">
+                          {record.date}
+                        </td>
+
+                        <td className="px-3 py-3 capitalize">
+                          {record.status}
+                        </td>
+
+                      </tr>
+                    ))}
+
                 </tbody>
+
               </table>
+
             </div>
           )}
+
         </div>
 
         {/* Academic Results */}
         <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
 
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
             <div>
               <h2 className="text-lg font-bold text-slate-900">
                 Academic Results
@@ -883,11 +1153,13 @@ export default function StudentProfilePage() {
             >
               Manage Assessments →
             </Link>
+
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
 
             <div className="rounded-xl bg-slate-50 p-4">
+
               <p className="text-sm text-slate-500">
                 Assessments
               </p>
@@ -895,9 +1167,11 @@ export default function StudentProfilePage() {
               <p className="mt-1 text-2xl font-bold text-slate-900">
                 {assessments.length}
               </p>
+
             </div>
 
             <div className="rounded-xl bg-blue-50 p-4">
+
               <p className="text-sm text-blue-700">
                 Overall Average
               </p>
@@ -905,9 +1179,11 @@ export default function StudentProfilePage() {
               <p className="mt-1 text-2xl font-bold text-blue-700">
                 {overallAverage.toFixed(1)}%
               </p>
+
             </div>
 
             <div className="rounded-xl bg-purple-50 p-4">
+
               <p className="text-sm text-purple-700">
                 Subjects
               </p>
@@ -915,46 +1191,59 @@ export default function StudentProfilePage() {
               <p className="mt-1 text-2xl font-bold text-purple-700">
                 {subjectResults.length}
               </p>
+
             </div>
 
           </div>
 
           {subjectResults.length > 0 && (
             <div className="mt-6 space-y-3">
-              {subjectResults.map((result) => (
-                <div
-                  key={result.subject}
-                  className="rounded-xl border border-slate-200 p-4"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        {result.subject}
-                      </p>
 
-                      <p className="text-sm text-slate-500">
-                        Final: {result.finalScore.toFixed(1)}%
-                      </p>
+              {subjectResults.map(
+                (result) => (
+                  <div
+                    key={result.subject}
+                    className="rounded-xl border border-slate-200 p-4"
+                  >
+
+                    <div className="flex items-center justify-between gap-3">
+
+                      <div>
+
+                        <p className="font-semibold text-slate-900">
+                          {result.subject}
+                        </p>
+
+                        <p className="text-sm text-slate-500">
+                          Final: {result.finalScore.toFixed(1)}%
+                        </p>
+
+                      </div>
+
+                      <div className="rounded-lg bg-slate-100 px-3 py-2 font-bold text-slate-800">
+                        {result.grade}
+                      </div>
+
                     </div>
 
-                    <div className="rounded-lg bg-slate-100 px-3 py-2 font-bold text-slate-800">
-                      {result.grade}
-                    </div>
-                  </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
 
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full rounded-full bg-blue-500"
-                      style={{
-                        width: `${Math.min(
-                          result.finalScore,
-                          100
-                        )}%`,
-                      }}
-                    />
+                      <div
+                        className="h-full rounded-full bg-blue-500"
+                        style={{
+                          width: `${Math.min(
+                            result.finalScore,
+                            100
+                          )}%`,
+                        }}
+                      />
+
+                    </div>
+
                   </div>
-                </div>
-              ))}
+                )
+              )}
+
             </div>
           )}
 
