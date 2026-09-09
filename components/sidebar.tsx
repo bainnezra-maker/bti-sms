@@ -35,7 +35,7 @@ const menuSections: {
     { name: 'Academic Years', href: '/academic-years', icon: '📅' },
     { name: 'Terms', href: '/terms', icon: '🗓️' },
     { name: 'Enrollment', href: '/enrollment', icon: '🎓' },
-    { name: 'Results', href: '/results', icon: '📊', comingSoon: true },
+    { name: 'Results', href: '/results', icon: '📊' },
   ],
 },
   {
