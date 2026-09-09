@@ -66,19 +66,43 @@ export default function EnrollmentPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const selectedStudent = students.find(
+    (student) => student.id === studentId
+  );
+
+  const matchingStudents = useMemo(() => {
+    const query = studentSearch.toLowerCase().trim();
+
+    if (!query) {
+      return [];
+    }
+
+    return students
+      .filter((student) => {
+        const name = student.full_name.toLowerCase();
+        const admissionNumber =
+          student.admission_number.toLowerCase();
+
+        return (
+          name.includes(query) ||
+          admissionNumber.includes(query)
+        );
+      })
+      .slice(0, 10);
+  }, [students, studentSearch]);
+
   async function loadEnrollments(
     studentList: Student[],
     programmeList: Programme[],
     classList: ClassItem[],
     yearList: AcademicYear[]
   ) {
-    const { data: enrollmentData, error: enrollmentError } =
-      await supabase
-        .from('enrollments')
-        .select(
-          'id, student_id, class_id, academic_year_id, programme_id, enrollment_date, status'
-        )
-        .order('enrollment_date', { ascending: false });
+    const { data, error: enrollmentError } = await supabase
+      .from('enrollments')
+      .select(
+        'id, student_id, class_id, academic_year_id, programme_id, enrollment_date, status'
+      )
+      .order('enrollment_date', { ascending: false });
 
     if (enrollmentError) {
       setError(
@@ -87,39 +111,39 @@ export default function EnrollmentPage() {
       return;
     }
 
-    const combined: Enrollment[] = (enrollmentData || []).map(
-      (item: any) => {
-        const student = studentList.find(
-          (s) => s.id === item.student_id
-        );
+    const rows = data || [];
 
-        const programme = programmeList.find(
-          (p) => p.id === item.programme_id
-        );
+    const combined: Enrollment[] = rows.map((item: any) => {
+      const student = studentList.find(
+        (s) => s.id === item.student_id
+      );
 
-        const classItem = classList.find(
-          (c) => c.id === item.class_id
-        );
+      const programme = programmeList.find(
+        (p) => p.id === item.programme_id
+      );
 
-        const academicYear = yearList.find(
-          (y) => y.id === item.academic_year_id
-        );
+      const classItem = classList.find(
+        (c) => c.id === item.class_id
+      );
 
-        return {
-          id: item.id,
-          student_id: item.student_id,
-          class_id: item.class_id,
-          academic_year_id: item.academic_year_id,
-          programme_id: item.programme_id,
-          enrollment_date: item.enrollment_date,
-          status: item.status,
-          student,
-          programme,
-          class: classItem,
-          academic_year: academicYear,
-        };
-      }
-    );
+      const academicYear = yearList.find(
+        (y) => y.id === item.academic_year_id
+      );
+
+      return {
+        id: item.id,
+        student_id: item.student_id,
+        class_id: item.class_id,
+        academic_year_id: item.academic_year_id,
+        programme_id: item.programme_id,
+        enrollment_date: item.enrollment_date,
+        status: item.status,
+        student,
+        programme,
+        class: classItem,
+        academic_year: academicYear,
+      };
+    });
 
     setEnrollments(combined);
   }
@@ -224,8 +248,10 @@ export default function EnrollmentPage() {
       (year: AcademicYear) => year.is_current
     );
 
-    if (currentYear && !academicYearId) {
-      setAcademicYearId(currentYear.id);
+    if (currentYear) {
+      setAcademicYearId((current) =>
+        current || currentYear.id
+      );
     }
 
     await loadEnrollments(
@@ -241,31 +267,6 @@ export default function EnrollmentPage() {
   useEffect(() => {
     loadData();
   }, []);
-
-  const selectedStudent = students.find(
-    (student) => student.id === studentId
-  );
-
-  const matchingStudents = useMemo(() => {
-    const query = studentSearch.toLowerCase().trim();
-
-    if (!query) {
-      return [];
-    }
-
-    return students
-      .filter((student) => {
-        const name = student.full_name.toLowerCase();
-        const admissionNumber =
-          student.admission_number.toLowerCase();
-
-        return (
-          name.includes(query) ||
-          admissionNumber.includes(query)
-        );
-      })
-      .slice(0, 10);
-  }, [students, studentSearch]);
 
   function selectStudent(student: Student) {
     setStudentId(student.id);
@@ -291,13 +292,13 @@ export default function EnrollmentPage() {
       return;
     }
 
-    const alreadyEnrolled = enrollments.some(
+    const existingEnrollment = enrollments.find(
       (item) =>
         item.student_id === studentId &&
         item.academic_year_id === academicYearId
     );
 
-    if (alreadyEnrolled) {
+    if (existingEnrollment) {
       const student = students.find(
         (item) => item.id === studentId
       );
@@ -403,7 +404,6 @@ export default function EnrollmentPage() {
     <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
       <div className="mx-auto max-w-7xl">
 
-        {/* HEADER */}
         <div className="mb-8">
           <p className="text-sm font-medium text-blue-600">
             Academic Management
@@ -418,7 +418,6 @@ export default function EnrollmentPage() {
           </p>
         </div>
 
-        {/* ERROR */}
         {error && (
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {error}
@@ -521,7 +520,7 @@ export default function EnrollmentPage() {
                 )}
 
                 <p className="mt-1 text-xs text-slate-400">
-                  Type at least part of the student's name or admission number.
+                  Type part of the student's name or admission number.
                 </p>
               </div>
 
@@ -631,7 +630,6 @@ export default function EnrollmentPage() {
                 />
               </div>
 
-              {/* BUTTON */}
               <button
                 type="submit"
                 disabled={saving}
@@ -709,4 +707,8 @@ export default function EnrollmentPage() {
                           <div className="mt-2 flex flex-wrap gap-2 text-xs">
 
                             <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">
-                  
+                              {item.class?.name ||
+                                'No class'}
+                            </span>
+
+                           
