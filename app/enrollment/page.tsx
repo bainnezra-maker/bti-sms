@@ -18,8 +18,6 @@ type ClassItem = {
   id: string;
   name: string;
   level: string | null;
-  programme_id?: string | null;
-  academic_year_id?: string | null;
 };
 
 type AcademicYear = {
@@ -55,6 +53,7 @@ export default function EnrollmentPage() {
   const [programmeId, setProgrammeId] = useState('');
   const [classId, setClassId] = useState('');
   const [academicYearId, setAcademicYearId] = useState('');
+
   const [enrollmentDate, setEnrollmentDate] = useState(
     new Date().toISOString().split('T')[0]
   );
@@ -63,6 +62,63 @@ export default function EnrollmentPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  async function loadEnrollments(
+    studentList: Student[],
+    programmeList: Programme[],
+    classList: ClassItem[],
+    yearList: AcademicYear[]
+  ) {
+    const { data: enrollmentData, error: enrollmentError } = await supabase
+      .from('enrollments')
+      .select(
+        'id, student_id, class_id, academic_year_id, programme_id, enrollment_date, status'
+      )
+      .order('enrollment_date', { ascending: false });
+
+    if (enrollmentError) {
+      setError(
+        `Could not load enrollments: ${enrollmentError.message}`
+      );
+      return;
+    }
+
+    const enrollmentRows = enrollmentData || [];
+
+    const combined: Enrollment[] = enrollmentRows.map((item: any) => {
+      const student = studentList.find(
+        (s) => s.id === item.student_id
+      );
+
+      const programme = programmeList.find(
+        (p) => p.id === item.programme_id
+      );
+
+      const classItem = classList.find(
+        (c) => c.id === item.class_id
+      );
+
+      const academicYear = yearList.find(
+        (y) => y.id === item.academic_year_id
+      );
+
+      return {
+        id: item.id,
+        student_id: item.student_id,
+        class_id: item.class_id,
+        academic_year_id: item.academic_year_id,
+        programme_id: item.programme_id,
+        enrollment_date: item.enrollment_date,
+        status: item.status,
+        student,
+        programme,
+        class: classItem,
+        academic_year: academicYear,
+      };
+    });
+
+    setEnrollments(combined);
+  }
 
   async function loadData() {
     setLoading(true);
@@ -83,13 +139,7 @@ export default function EnrollmentPage() {
       .eq('id', user.id)
       .single();
 
-    if (profileError) {
-      setError(`Profile error: ${profileError.message}`);
-      setLoading(false);
-      return;
-    }
-
-    if (!profile) {
+    if (profileError || !profile) {
       setError('School profile could not be found.');
       setLoading(false);
       return;
@@ -135,106 +185,59 @@ export default function EnrollmentPage() {
       setError(
         `Students error: ${studentsResult.error.message}`
       );
-    } else {
-      setStudents(studentsResult.data || []);
     }
 
     if (programmesResult.error) {
       setError(
         `Programmes error: ${programmesResult.error.message}`
       );
-    } else {
-      setProgrammes(programmesResult.data || []);
     }
 
     if (classesResult.error) {
       setError(
         `Classes error: ${classesResult.error.message}`
       );
-    } else {
-      setClasses(classesResult.data || []);
     }
 
     if (yearsResult.error) {
       setError(
         `Academic years error: ${yearsResult.error.message}`
       );
-    } else {
-      setAcademicYears(yearsResult.data || []);
-
-      const currentYear = yearsResult.data?.find(
-        (year) => year.is_current
-      );
-
-      if (currentYear) {
-        setAcademicYearId(currentYear.id);
-      }
     }
 
-    await loadEnrollments(studentsResult.data || []);
+    const studentList = studentsResult.data || [];
+    const programmeList = programmesResult.data || [];
+    const classList = classesResult.data || [];
+    const yearList = yearsResult.data || [];
 
-    setLoading(false);
-  }
+    setStudents(studentList);
+    setProgrammes(programmeList);
+    setClasses(classList);
+    setAcademicYears(yearList);
 
-  async function loadEnrollments(
-    studentList: Student[]
-  ) {
-    const studentIds = studentList.map(
-      (student) => student.id
+    const currentYear = yearList.find(
+      (year: AcademicYear) => year.is_current
     );
 
-    if (studentIds.length === 0) {
-      setEnrollments([]);
-      return;
+    if (currentYear && !academicYearId) {
+      setAcademicYearId(currentYear.id);
     }
 
-    const { data, error: enrollmentError } =
-      await supabase
-        .from('enrollments')
-        .select(`
-          id,
-          student_id,
-          class_id,
-          academic_year_id,
-          programme_id,
-          enrollment_date,
-          status,
-          student:students (
-            id,
-            full_name,
-            admission_number
-          ),
-          class:classes (
-            id,
-            name,
-            level
-          ),
-          programme:programmes (
-            id,
-            name
-          ),
-          academic_year:academic_years (
-            id,
-            name
-          )
-        `)
-        .in('student_id', studentIds);
+    await loadEnrollments(
+      studentList,
+      programmeList,
+      classList,
+      yearList
+    );
 
-    if (enrollmentError) {
-      setError(enrollmentError.message);
-      return;
-    }
-
-    setEnrollments((data as any) || []);
+    setLoading(false);
   }
 
   useEffect(() => {
     loadData();
   }, []);
 
-  async function addEnrollment(
-    e: React.FormEvent
-  ) {
+  async function addEnrollment(e: React.FormEvent) {
     e.preventDefault();
     setError('');
 
@@ -267,29 +270,26 @@ export default function EnrollmentPage() {
     setStudentId('');
     setProgrammeId('');
     setClassId('');
-    setEnrollmentDate(
-      new Date().toISOString().split('T')[0]
-    );
 
-    await loadData();
+    await loadEnrollments(
+      students,
+      programmes,
+      classes,
+      academicYears
+    );
 
     setSaving(false);
   }
 
   async function deleteEnrollment(id: string) {
-    if (
-      !window.confirm(
-        'Delete this enrollment?'
-      )
-    ) {
+    if (!window.confirm('Delete this enrollment?')) {
       return;
     }
 
-    const { error: deleteError } =
-      await supabase
-        .from('enrollments')
-        .delete()
-        .eq('id', id);
+    const { error: deleteError } = await supabase
+      .from('enrollments')
+      .delete()
+      .eq('id', id);
 
     if (deleteError) {
       setError(deleteError.message);
@@ -297,34 +297,29 @@ export default function EnrollmentPage() {
     }
 
     setEnrollments((current) =>
-      current.filter(
-        (item) => item.id !== id
-      )
+      current.filter((item) => item.id !== id)
     );
   }
 
   const filteredEnrollments = useMemo(() => {
-    const query = search
-      .toLowerCase()
-      .trim();
+    const query = search.toLowerCase().trim();
 
     if (!query) {
       return enrollments;
     }
 
-    return enrollments.filter(
-      (item: any) =>
-        [
-          item.student?.full_name,
-          item.student?.admission_number,
-          item.class?.name,
-          item.programme?.name,
-          item.academic_year?.name,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-          .includes(query)
+    return enrollments.filter((item) =>
+      [
+        item.student?.full_name,
+        item.student?.admission_number,
+        item.class?.name,
+        item.programme?.name,
+        item.academic_year?.name,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
     );
   }, [enrollments, search]);
 
@@ -342,6 +337,7 @@ export default function EnrollmentPage() {
     <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
       <div className="mx-auto max-w-7xl">
 
+        {/* HEADER */}
         <div className="mb-8">
           <p className="text-sm font-medium text-blue-600">
             Academic Management
@@ -356,69 +352,16 @@ export default function EnrollmentPage() {
           </p>
         </div>
 
+        {/* ERROR */}
         {error && (
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {error}
           </div>
         )}
 
-        {/* Data Loading Diagnostic */}
-        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Programmes Loaded
-            </p>
-
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {programmes.length}
-            </p>
-
-            <p className="mt-1 text-xs text-slate-500">
-              {programmes.length > 0
-                ? programmes.map((item) => item.name).join(', ')
-                : 'No programmes loaded'}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Classes Loaded
-            </p>
-
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {classes.length}
-            </p>
-
-            <p className="mt-1 text-xs text-slate-500">
-              {classes.length > 0
-                ? classes.map((item) => item.name).join(', ')
-                : 'No classes loaded'}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Academic Years Loaded
-            </p>
-
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {academicYears.length}
-            </p>
-
-            <p className="mt-1 text-xs text-slate-500">
-              {academicYears.length > 0
-                ? academicYears
-                    .map((year) => year.name)
-                    .join(', ')
-                : 'No academic years loaded'}
-            </p>
-          </div>
-
-        </div>
-
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
+          {/* NEW ENROLLMENT */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
             <h2 className="mb-5 text-lg font-bold text-slate-900">
@@ -430,7 +373,7 @@ export default function EnrollmentPage() {
               className="space-y-4"
             >
 
-              {/* Student */}
+              {/* STUDENT */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Student
@@ -460,7 +403,7 @@ export default function EnrollmentPage() {
                 </select>
               </div>
 
-              {/* Programme */}
+              {/* PROGRAMME */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Programme
@@ -488,7 +431,7 @@ export default function EnrollmentPage() {
                 </select>
               </div>
 
-              {/* Class */}
+              {/* CLASS */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Class
@@ -520,7 +463,7 @@ export default function EnrollmentPage() {
                 </select>
               </div>
 
-              {/* Academic Year */}
+              {/* ACADEMIC YEAR */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Academic Year
@@ -549,7 +492,7 @@ export default function EnrollmentPage() {
                 </select>
               </div>
 
-              {/* Enrollment Date */}
+              {/* ENROLLMENT DATE */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Enrollment Date
@@ -566,6 +509,7 @@ export default function EnrollmentPage() {
                 />
               </div>
 
+              {/* BUTTON */}
               <button
                 type="submit"
                 disabled={saving}
@@ -579,7 +523,7 @@ export default function EnrollmentPage() {
             </form>
           </div>
 
-          {/* Enrolled Students */}
+          {/* ENROLLED STUDENTS */}
           <div className="lg:col-span-2">
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -619,63 +563,70 @@ export default function EnrollmentPage() {
                     No enrollments found.
                   </div>
                 ) : (
-                  filteredEnrollments.map(
-                    (item: any) => (
-                      <div
-                        key={item.id}
-                        className="rounded-xl border border-slate-100 p-4"
-                      >
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  filteredEnrollments.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-xl border border-slate-100 p-4"
+                    >
 
-                          <div>
-                            <h3 className="font-bold text-slate-900">
-                              {item.student?.full_name ||
-                                'Unknown Student'}
-                            </h3>
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
-                            <p className="text-sm text-slate-500">
-                              {
-                                item.student
-                                  ?.admission_number
-                              }
-                            </p>
+                        <div>
 
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                          <h3 className="font-bold text-slate-900">
+                            {item.student?.full_name ||
+                              'Unknown Student'}
+                          </h3>
 
-                              <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">
-                                {item.class?.name ||
-                                  'No class'}
-                              </span>
+                          <p className="text-sm text-slate-500">
+                            {item.student
+                              ?.admission_number ||
+                              'No admission number'}
+                          </p>
 
-                              <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
-                                {item.programme?.name ||
-                                  'No programme'}
-                              </span>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
 
-                              <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
-                                {item.academic_year
-                                  ?.name ||
-                                  'No year'}
-                              </span>
+                            <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">
+                              {item.class?.name ||
+                                'No class'}
+                            </span>
 
-                            </div>
+                            <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
+                              {item.programme?.name ||
+                                'No programme'}
+                            </span>
+
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+                              {item.academic_year?.name ||
+                                'No year'}
+                            </span>
+
+                            <span className="rounded-full bg-green-100 px-3 py-1 text-green-700">
+                              {item.status || 'active'}
+                            </span>
+
                           </div>
 
-                          <button
-                            onClick={() =>
-                              deleteEnrollment(
-                                item.id
-                              )
-                            }
-                            className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-                          >
-                            Delete
-                          </button>
+                          <p className="mt-2 text-xs text-slate-400">
+                            Enrollment date:{' '}
+                            {item.enrollment_date}
+                          </p>
 
                         </div>
+
+                        <button
+                          onClick={() =>
+                            deleteEnrollment(item.id)
+                          }
+                          className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                        >
+                          Delete
+                        </button>
+
                       </div>
-                    )
-                  )
+
+                    </div>
+                  ))
                 )}
 
               </div>
