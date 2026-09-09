@@ -12,6 +12,7 @@ type Student = {
   guardian_name: string | null;
   guardian_phone: string | null;
   admission_date: string;
+  jhs_aggregate: number | null;
   status: string;
 };
 
@@ -52,7 +53,7 @@ export default function StudentsPage() {
     const { data, error: studentError } = await supabase
       .from('students')
       .select(
-        'id, admission_number, full_name, gender, guardian_name, guardian_phone, admission_date, status'
+        'id, admission_number, full_name, gender, guardian_name, guardian_phone, admission_date, jhs_aggregate, status'
       )
       .eq('school_id', profile.school_id)
       .order('full_name');
@@ -239,8 +240,8 @@ export default function StudentsPage() {
                 key={student.id}
                 className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
               >
+                {/* Student Header */}
                 <div className="flex items-start justify-between gap-4">
-
                   <div className="flex items-center gap-4">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xl">
                       👨‍🎓
@@ -270,37 +271,71 @@ export default function StudentsPage() {
                   </span>
                 </div>
 
+                {/* Student Information */}
                 <div className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                   <div>
-                    <p className="text-xs text-slate-400">Gender</p>
+                    <p className="text-xs text-slate-400">
+                      Gender
+                    </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-700">
                       {student.gender || 'Not provided'}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-xs text-slate-400">Admission Date</p>
+                    <p className="text-xs text-slate-400">
+                      JHS Aggregate
+                    </p>
+
+                    <p className="mt-1 text-sm font-semibold text-blue-700">
+                      {student.jhs_aggregate !== null &&
+                      student.jhs_aggregate !== undefined
+                        ? student.jhs_aggregate
+                        : 'Not provided'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-slate-400">
+                      Admission Date
+                    </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-700">
                       {student.admission_date || 'Not provided'}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-xs text-slate-400">Guardian</p>
+                    <p className="text-xs text-slate-400">
+                      Guardian
+                    </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-700">
                       {student.guardian_name || 'Not provided'}
                     </p>
                   </div>
 
-                  <div>
-                    <p className="text-xs text-slate-400">Guardian Phone</p>
+                  <div className="col-span-2">
+                    <p className="text-xs text-slate-400">
+                      Guardian Phone
+                    </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-700">
                       {student.guardian_phone || 'Not provided'}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-5 flex justify-end">
+                {/* Actions */}
+                <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <Link
+                    href={`/students/${student.id}`}
+                    className="rounded-xl bg-blue-600 px-5 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                  >
+                    View Profile
+                  </Link>
+
                   <button
                     onClick={() =>
                       deleteStudent(student.id, student.full_name)
@@ -317,4 +352,4 @@ export default function StudentsPage() {
       </div>
     </div>
   );
-                    }
+            }
