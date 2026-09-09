@@ -706,9 +706,54 @@ export default function EnrollmentPage() {
 
                           <div className="mt-2 flex flex-wrap gap-2 text-xs">
 
-                            <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">
-                              {item.class?.name ||
-                                'No class'}
+                                                        <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
+                              {item.programme?.name ||
+                                'No programme'}
                             </span>
+
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+                              {item.academic_year?.name ||
+                                'No year'}
+                            </span>
+
+                            <span className="rounded-full bg-green-100 px-3 py-1 text-green-700">
+                              {item.status || 'active'}
+                            </span>
+
+                          </div>
+
+                          <p className="mt-2 text-xs text-slate-400">
+                            Enrollment date:{' '}
+                            {item.enrollment_date}
+                          </p>
+
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            deleteEnrollment(item.id)
+                          }
+                          className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                        >
+                          Delete
+                        </button>
+
+                      </div>
+
+                    </div>
+                  ))
+                )}
+
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
 
                            
