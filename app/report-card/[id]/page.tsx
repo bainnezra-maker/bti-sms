@@ -102,10 +102,8 @@ function getGradeDescription(grade: string) {
       return 'Credit';
     case 'E':
       return 'Pass';
-    case 'F':
-      return 'Fail';
     default:
-      return '';
+      return 'Fail';
   }
 }
 
@@ -114,15 +112,35 @@ function formatDate(date: string | null) {
 
   const value = new Date(date);
 
-  if (Number.isNaN(value.getTime())) {
-    return date;
-  }
+  if (Number.isNaN(value.getTime())) return date;
 
   return value.toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
   });
+}
+
+function getPositionSuffix(position: number) {
+  if (position % 100 >= 11 && position % 100 <= 13) {
+    return 'th';
+  }
+
+  switch (position % 10) {
+    case 1:
+      return 'st';
+    case 2:
+      return 'nd';
+    case 3:
+      return 'rd';
+    default:
+      return 'th';
+  }
+}
+
+function formatPosition(position: number | null) {
+  if (!position) return '—';
+  return `${position}${getPositionSuffix(position)}`;
 }
 
 export default function ReportCardPage() {
@@ -163,7 +181,7 @@ export default function ReportCardPage() {
     if (selectedYear && selectedTerm && student) {
       loadReportData();
     }
-  }, [selectedYear, selectedTerm, student]);
+  }, [selectedYear, selectedTerm, student, enrollment]);
 
   async function getSchoolId() {
     const {
@@ -220,7 +238,7 @@ export default function ReportCardPage() {
       return;
     }
 
-    setStudent(studentData);
+    setStudent(studentData as Student);
 
     const { data: yearsData } = await supabase
       .from('academic_years')
@@ -340,9 +358,10 @@ export default function ReportCardPage() {
       await loadClassAverages(
         enrollment.class_id,
         selectedYear,
-        termName,
-        student.id
+        termName
       );
+    } else {
+      setClassAverages([]);
     }
 
     setLoadingResults(false);
@@ -351,8 +370,7 @@ export default function ReportCardPage() {
   async function loadClassAverages(
     classId: string,
     yearId: string,
-    termName: string,
-    currentStudentId: string
+    termName: string
   ) {
     const { data: classEnrollmentData } = await supabase
       .from('enrollments')
@@ -401,27 +419,33 @@ export default function ReportCardPage() {
     > = {};
 
     classAssessmentData.forEach((assessment) => {
-      const studentId = assessment.student_id;
+      const currentStudentId = assessment.student_id;
 
-      if (!studentSubjectMap[studentId]) {
-        studentSubjectMap[studentId] = {};
+      if (!studentSubjectMap[currentStudentId]) {
+        studentSubjectMap[currentStudentId] = {};
       }
 
-      if (!studentSubjectMap[studentId][assessment.subject]) {
-        studentSubjectMap[studentId][assessment.subject] = {
+      if (
+        !studentSubjectMap[currentStudentId][
+          assessment.subject
+        ]
+      ) {
+        studentSubjectMap[currentStudentId][
+          assessment.subject
+        ] = {
           caRaw: 0,
           examRaw: 0,
         };
       }
 
       if (CA_TYPES.includes(assessment.assessment_type)) {
-        studentSubjectMap[studentId][
+        studentSubjectMap[currentStudentId][
           assessment.subject
         ].caRaw += Number(assessment.score);
       }
 
       if (assessment.assessment_type === 'Examination') {
-        studentSubjectMap[studentId][
+        studentSubjectMap[currentStudentId][
           assessment.subject
         ].examRaw = Number(assessment.score);
       }
@@ -430,7 +454,7 @@ export default function ReportCardPage() {
     const averages: StudentClassAverage[] = [];
 
     Object.entries(studentSubjectMap).forEach(
-      ([studentId, subjects]) => {
+      ([currentStudentId, subjects]) => {
         const subjectScores = Object.values(subjects);
 
         if (subjectScores.length === 0) return;
@@ -443,11 +467,13 @@ export default function ReportCardPage() {
         });
 
         const average =
-          finalScores.reduce((sum, value) => sum + value, 0) /
-          finalScores.length;
+          finalScores.reduce(
+            (sum, value) => sum + value,
+            0
+          ) / finalScores.length;
 
         averages.push({
-          student_id: studentId,
+          student_id: currentStudentId,
           average,
         });
       }
@@ -508,7 +534,9 @@ export default function ReportCardPage() {
           status: finalScore >= 50 ? 'Pass' : 'Fail',
         };
       })
-      .sort((a, b) => a.subject.localeCompare(b.subject));
+      .sort((a, b) =>
+        a.subject.localeCompare(b.subject)
+      );
   }, [assessments]);
 
   const totalFinal = subjectResults.reduce(
@@ -530,11 +558,11 @@ export default function ReportCardPage() {
   ).length;
 
   const classPosition = useMemo(() => {
-    if (!student) return null;
+    if (!student || classAverages.length === 0) {
+      return null;
+    }
 
     const currentAverage = overallAverage;
-
-    if (classAverages.length === 0) return null;
 
     const sorted = [...classAverages].sort(
       (a, b) => b.average - a.average
@@ -552,19 +580,23 @@ export default function ReportCardPage() {
   const totalAttendance = attendance.length;
 
   const presentCount = attendance.filter(
-    (item) => item.status.toLowerCase() === 'present'
+    (item) =>
+      item.status.toLowerCase() === 'present'
   ).length;
 
   const absentCount = attendance.filter(
-    (item) => item.status.toLowerCase() === 'absent'
+    (item) =>
+      item.status.toLowerCase() === 'absent'
   ).length;
 
   const lateCount = attendance.filter(
-    (item) => item.status.toLowerCase() === 'late'
+    (item) =>
+      item.status.toLowerCase() === 'late'
   ).length;
 
   const excusedCount = attendance.filter(
-    (item) => item.status.toLowerCase() === 'excused'
+    (item) =>
+      item.status.toLowerCase() === 'excused'
   ).length;
 
   const attendancePercentage =
@@ -573,6 +605,9 @@ export default function ReportCardPage() {
       : 0;
 
   const overallGrade = getGrade(overallAverage);
+
+  const overallGradeDescription =
+    getGradeDescription(overallGrade);
 
   const overallRemark =
     overallAverage >= 80
@@ -586,7 +621,8 @@ export default function ReportCardPage() {
             : 'Performance needs improvement. Greater effort is required.';
 
   const currentClass =
-    enrollment?.class?.[0]?.name || 'Not enrolled';
+    enrollment?.class?.[0]?.name ||
+    'Not enrolled';
 
   const currentLevel =
     enrollment?.class?.[0]?.level || '—';
@@ -594,10 +630,20 @@ export default function ReportCardPage() {
   const currentProgramme =
     enrollment?.programme?.[0]?.name || '—';
 
+  const selectedYearName =
+    academicYears.find(
+      (year) => year.id === selectedYear
+    )?.name || '—';
+
+  const selectedTermName =
+    terms.find(
+      (term) => term.id === selectedTerm
+    )?.name || '—';
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-100 p-6">
-        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-8 shadow-sm">
+        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-8 text-center shadow-sm">
           Loading report card...
         </div>
       </div>
@@ -614,7 +660,7 @@ export default function ReportCardPage() {
 
           <button
             onClick={() => router.push('/students')}
-            className="mt-4 rounded-lg bg-blue-600 px-5 py-2 text-white"
+            className="mt-4 rounded-lg bg-slate-900 px-5 py-2 text-white"
           >
             Back to Students
           </button>
@@ -628,7 +674,6 @@ export default function ReportCardPage() {
       {/* Screen Controls */}
       <div className="print:hidden bg-slate-100 px-4 py-4">
         <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-
           <button
             onClick={() => router.back()}
             className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700"
@@ -647,10 +692,15 @@ export default function ReportCardPage() {
               }}
               className="rounded-xl border border-slate-300 bg-white px-4 py-3"
             >
-              <option value="">Select Academic Year</option>
+              <option value="">
+                Select Academic Year
+              </option>
 
               {academicYears.map((year) => (
-                <option key={year.id} value={year.id}>
+                <option
+                  key={year.id}
+                  value={year.id}
+                >
                   {year.name}
                 </option>
               ))}
@@ -663,10 +713,15 @@ export default function ReportCardPage() {
               }
               className="rounded-xl border border-slate-300 bg-white px-4 py-3"
             >
-              <option value="">Select Term</option>
+              <option value="">
+                Select Term
+              </option>
 
               {terms.map((term) => (
-                <option key={term.id} value={term.id}>
+                <option
+                  key={term.id}
+                  value={term.id}
+                >
                   {term.name}
                 </option>
               ))}
@@ -684,157 +739,103 @@ export default function ReportCardPage() {
 
       {/* Report Card */}
       <main className="bg-slate-100 px-3 py-6 sm:px-6">
-
         <div
           id="report-card"
           className="report-card mx-auto max-w-5xl bg-white p-5 shadow-lg sm:p-8"
         >
-
           {/* School Header */}
           <header className="border-b-4 border-slate-900 pb-5">
-
-            <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:items-center sm:text-left">
-
+            <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
               <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border-4 border-slate-900 bg-white">
-                <span className="text-2xl font-black text-slate-900">
+                <span className="text-2xl font-black tracking-tight text-slate-900">
                   BTI
                 </span>
               </div>
 
               <div className="flex-1">
-                <h1 className="text-2xl font-black uppercase tracking-wide text-slate-900 sm:text-3xl">
+                <p className="text-xs font-bold uppercase tracking-[0.25em] text-slate-500">
                   Biriwa Technical Institute
+                </p>
+
+                <h1 className="mt-1 text-2xl font-black uppercase tracking-wide text-slate-900 sm:text-3xl">
+                  Student Academic Report Card
                 </h1>
 
-                <p className="mt-1 text-sm font-medium text-slate-600">
-                  STUDENT ACADEMIC REPORT CARD
-                </p>
-
-                <p className="mt-1 text-xs text-slate-500">
-                  Academic Year:{' '}
-                  {academicYears.find(
-                    (year) => year.id === selectedYear
-                  )?.name || '—'}
-                  {' • '}
-                  Term:{' '}
-                  {terms.find(
-                    (term) => term.id === selectedTerm
-                  )?.name || '—'}
-                </p>
+                <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs font-medium text-slate-600 sm:justify-start">
+                  <span>
+                    Academic Year: {selectedYearName}
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Term: {selectedTermName}
+                  </span>
+                </div>
               </div>
 
               {student.photo_url ? (
                 <img
                   src={student.photo_url}
                   alt={student.full_name}
-                  className="h-28 w-24 rounded-lg border-2 border-slate-300 object-cover"
+                  className="h-28 w-24 rounded-lg border-2 border-slate-400 object-cover"
                 />
               ) : (
                 <div className="flex h-28 w-24 items-center justify-center rounded-lg border-2 border-slate-300 bg-slate-50 text-3xl">
                   👤
                 </div>
               )}
-
             </div>
           </header>
 
           {/* Student Information */}
           <section className="mt-5">
-
-            <h2 className="mb-3 bg-slate-900 px-3 py-2 text-sm font-bold uppercase tracking-wide text-white">
+            <h2 className="section-heading">
               Student Information
             </h2>
 
             <div className="grid grid-cols-1 border border-slate-300 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ['Student Name', student.full_name],
+                ['Admission No.', student.admission_number],
+                ['Class', currentClass],
+                ['Programme', currentProgramme],
+                ['Level', currentLevel],
+                ['Gender', student.gender || '—'],
+                ['JHS Aggregate', student.jhs_aggregate ?? '—'],
+                [
+                  'Report Status',
+                  student.promotion_status || '—',
+                ],
+              ].map(([label, value], index) => (
+                <div
+                  key={label}
+                  className={`border-b border-slate-200 p-3 ${
+                    index % 4 !== 3
+                      ? 'lg:border-r'
+                      : ''
+                  }`}
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    {label}
+                  </p>
 
-              <div className="border-b border-slate-200 p-3 sm:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
-                  Student Name
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {student.full_name}
-                </p>
-              </div>
-
-              <div className="border-b border-slate-200 p-3 lg:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
-                  Admission No.
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {student.admission_number}
-                </p>
-              </div>
-
-              <div className="border-b border-slate-200 p-3 sm:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
-                  Class
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {currentClass}
-                </p>
-              </div>
-
-              <div className="border-b border-slate-200 p-3">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
-                  Programme
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {currentProgramme}
-                </p>
-              </div>
-
-              <div className="p-3 sm:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
-                  Level
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {currentLevel}
-                </p>
-              </div>
-
-              <div className="p-3 lg:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
-                  Gender
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {student.gender || '—'}
-                </p>
-              </div>
-
-              <div className="p-3 sm:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
-                  JHS Aggregate
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {student.jhs_aggregate ?? '—'}
-                </p>
-              </div>
-
-              <div className="p-3">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
-                  Report Status
-                </p>
-                <p className="mt-1 text-sm font-bold text-green-700">
-                  {student.promotion_status || '—'}
-                </p>
-              </div>
-
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {value}
+                  </p>
+                </div>
+              ))}
             </div>
           </section>
 
           {/* Academic Results */}
           <section className="mt-5">
-
-            <h2 className="mb-3 bg-slate-900 px-3 py-2 text-sm font-bold uppercase tracking-wide text-white">
+            <h2 className="section-heading">
               Academic Performance
             </h2>
 
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse border border-slate-400 text-xs">
-
                 <thead>
-                  <tr className="bg-slate-100">
-
+                  <tr className="bg-slate-200">
                     <th
                       rowSpan={2}
                       className="border border-slate-400 px-2 py-2 text-left"
@@ -878,11 +879,9 @@ export default function ReportCardPage() {
                     >
                       Status
                     </th>
-
                   </tr>
 
                   <tr className="bg-slate-50">
-
                     <th className="border border-slate-400 px-2 py-1 text-center">
                       Raw /100
                     </th>
@@ -898,15 +897,12 @@ export default function ReportCardPage() {
                     <th className="border border-slate-400 px-2 py-1 text-center">
                       /70
                     </th>
-
                   </tr>
                 </thead>
 
                 <tbody>
-
                   {subjectResults.map((result) => (
                     <tr key={result.subject}>
-
                       <td className="border border-slate-400 px-2 py-2 font-semibold">
                         {result.subject}
                       </td>
@@ -927,18 +923,23 @@ export default function ReportCardPage() {
                         {result.examContribution.toFixed(1)}
                       </td>
 
-                      <td className="border border-slate-400 px-2 py-2 text-center font-bold">
+                      <td className="border border-slate-400 px-2 py-2 text-center font-black">
                         {result.finalScore.toFixed(1)}
                       </td>
 
-                      <td className="border border-slate-400 px-2 py-2 text-center font-bold">
+                      <td className="border border-slate-400 px-2 py-2 text-center font-black">
                         {result.grade}
                       </td>
 
-                      <td className="border border-slate-400 px-2 py-2 text-center font-semibold">
+                      <td
+                        className={`border border-slate-400 px-2 py-2 text-center font-bold ${
+                          result.status === 'Pass'
+                            ? 'text-green-700'
+                            : 'text-red-700'
+                        }`}
+                      >
                         {result.status}
                       </td>
-
                     </tr>
                   ))}
 
@@ -946,13 +947,14 @@ export default function ReportCardPage() {
                     <tr>
                       <td
                         colSpan={8}
-                        className="border border-slate-400 px-4 py-6 text-center text-slate-500"
+                        className="border border-slate-400 px-4 py-8 text-center text-slate-500"
                       >
-                        No results recorded for this term.
+                        {loadingResults
+                          ? 'Loading results...'
+                          : 'No results recorded for this term.'}
                       </td>
                     </tr>
                   )}
-
                 </tbody>
               </table>
             </div>
@@ -960,70 +962,81 @@ export default function ReportCardPage() {
 
           {/* Performance Summary */}
           <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
-
-            <div className="border border-slate-300 p-3 text-center">
-              <p className="text-[10px] font-bold uppercase text-slate-500">
+            <div className="summary-box">
+              <p className="summary-label">
                 Subjects
               </p>
-              <p className="mt-1 text-xl font-black">
+              <p className="summary-value">
                 {subjectResults.length}
               </p>
             </div>
 
-            <div className="border border-slate-300 p-3 text-center">
-              <p className="text-[10px] font-bold uppercase text-slate-500">
+            <div className="summary-box">
+              <p className="summary-label">
                 Average
               </p>
-              <p className="mt-1 text-xl font-black">
+              <p className="summary-value">
                 {overallAverage.toFixed(1)}%
               </p>
             </div>
 
-            <div className="border border-slate-300 p-3 text-center">
-              <p className="text-[10px] font-bold uppercase text-slate-500">
-                Grade
+            <div className="summary-box">
+              <p className="summary-label">
+                Overall Grade
               </p>
-              <p className="mt-1 text-xl font-black">
+              <p className="summary-value">
                 {overallGrade}
               </p>
+              <p className="text-[9px] text-slate-500">
+                {overallGradeDescription}
+              </p>
             </div>
 
-            <div className="border border-slate-300 p-3 text-center">
-              <p className="text-[10px] font-bold uppercase text-slate-500">
+            <div className="summary-box">
+              <p className="summary-label">
                 Position
               </p>
-              <p className="mt-1 text-xl font-black">
-                {classPosition
-                  ? `${classPosition}/${classSize}`
-                  : '—'}
+              <p className="summary-value">
+                {formatPosition(classPosition)}
               </p>
+              {classPosition && (
+                <p className="text-[9px] text-slate-500">
+                  out of {classSize}
+                </p>
+              )}
             </div>
 
-            <div className="border border-slate-300 p-3 text-center">
-              <p className="text-[10px] font-bold uppercase text-slate-500">
-                Passed
+            <div className="summary-box">
+              <p className="summary-label">
+                Result
               </p>
-              <p className="mt-1 text-xl font-black text-green-700">
-                {passedSubjects}
+              <p
+                className={`mt-1 text-xl font-black ${
+                  overallAverage >= 50
+                    ? 'text-green-700'
+                    : 'text-red-700'
+                }`}
+              >
+                {overallAverage >= 50
+                  ? 'PASS'
+                  : 'FAIL'}
               </p>
             </div>
-
           </section>
 
           {/* Overall Performance */}
-          <section className="mt-5">
-
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-bold uppercase text-slate-700">
+          <section className="mt-5 border border-slate-300 p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-600">
                 Overall Performance
               </h3>
 
-              <span className="text-sm font-bold">
+              <span className="text-sm font-black">
                 {overallAverage.toFixed(1)}%
               </span>
             </div>
 
-            <div className="h-4 overflow-hidden rounded-full bg-slate-200">
+            <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-200">
               <div
                 className="h-full rounded-full bg-slate-900"
                 style={{
@@ -1035,112 +1048,104 @@ export default function ReportCardPage() {
               />
             </div>
 
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-xs leading-5 text-slate-600">
               {overallRemark}
             </p>
-
           </section>
 
           {/* Attendance */}
           <section className="mt-5">
-
-            <h2 className="mb-3 bg-slate-900 px-3 py-2 text-sm font-bold uppercase tracking-wide text-white">
+            <h2 className="section-heading">
               Attendance
             </h2>
 
             <div className="grid grid-cols-2 border border-slate-300 sm:grid-cols-5">
-
-              <div className="border-b border-slate-200 p-3 text-center sm:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
+              <div className="attendance-box">
+                <p className="summary-label">
                   Days Recorded
                 </p>
-                <p className="mt-1 text-lg font-bold">
+                <p className="summary-value">
                   {totalAttendance}
                 </p>
               </div>
 
-              <div className="border-b border-slate-200 p-3 text-center sm:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
+              <div className="attendance-box">
+                <p className="summary-label">
                   Present
                 </p>
-                <p className="mt-1 text-lg font-bold text-green-700">
+                <p className="summary-value text-green-700">
                   {presentCount}
                 </p>
               </div>
 
-              <div className="border-b border-slate-200 p-3 text-center sm:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
+              <div className="attendance-box">
+                <p className="summary-label">
                   Absent
                 </p>
-                <p className="mt-1 text-lg font-bold text-red-700">
+                <p className="summary-value text-red-700">
                   {absentCount}
                 </p>
               </div>
 
-              <div className="border-b border-slate-200 p-3 text-center sm:border-r">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
+              <div className="attendance-box">
+                <p className="summary-label">
                   Late
                 </p>
-                <p className="mt-1 text-lg font-bold">
+                <p className="summary-value">
                   {lateCount}
                 </p>
               </div>
 
-              <div className="p-3 text-center">
-                <p className="text-[10px] font-bold uppercase text-slate-500">
+              <div className="attendance-box">
+                <p className="summary-label">
                   Attendance
                 </p>
-                <p className="mt-1 text-lg font-bold">
+                <p className="summary-value">
                   {attendancePercentage.toFixed(1)}%
                 </p>
               </div>
-
             </div>
 
             {excusedCount > 0 && (
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-[10px] text-slate-500">
                 Excused absences: {excusedCount}
               </p>
             )}
-
           </section>
 
           {/* Conduct and Promotion */}
           <section className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-
             <div className="border border-slate-300 p-4">
-              <h3 className="text-xs font-bold uppercase text-slate-500">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                 Conduct / Attitude
               </h3>
 
-              <p className="mt-2 font-semibold text-slate-900">
+              <p className="mt-2 text-sm font-semibold text-slate-900">
                 {student.conduct || 'Not provided'}
               </p>
             </div>
 
             <div className="border border-slate-300 p-4">
-              <h3 className="text-xs font-bold uppercase text-slate-500">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                 Promotion Status
               </h3>
 
-              <p className="mt-2 font-semibold text-slate-900">
-                {student.promotion_status || 'Not provided'}
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {student.promotion_status ||
+                  'Not provided'}
               </p>
             </div>
-
           </section>
 
           {/* Remarks */}
           <section className="mt-5">
-
-            <h2 className="mb-3 bg-slate-900 px-3 py-2 text-sm font-bold uppercase tracking-wide text-white">
-              Remarks
+            <h2 className="section-heading">
+              Official Remarks
             </h2>
 
-            <div className="space-y-4">
-
-              <div className="min-h-[80px] border border-slate-300 p-4">
-                <p className="text-xs font-bold uppercase text-slate-500">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="min-h-[90px] border border-slate-300 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                   Class Teacher's Remark
                 </p>
 
@@ -1150,8 +1155,8 @@ export default function ReportCardPage() {
                 </p>
               </div>
 
-              <div className="min-h-[80px] border border-slate-300 p-4">
-                <p className="text-xs font-bold uppercase text-slate-500">
+              <div className="min-h-[90px] border border-slate-300 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                   HOD / Head's Remark
                 </p>
 
@@ -1160,49 +1165,49 @@ export default function ReportCardPage() {
                     'No HOD / Head remark entered.'}
                 </p>
               </div>
-
             </div>
           </section>
 
           {/* Next Term */}
           <section className="mt-5 border border-slate-300 p-4">
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-xs font-bold uppercase text-slate-500">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                   Next Term Begins
                 </p>
 
-                <p className="mt-1 font-bold text-slate-900">
+                <p className="mt-1 text-sm font-bold text-slate-900">
                   {formatDate(student.next_term_begins)}
                 </p>
               </div>
 
               <div>
-                <p className="text-xs font-bold uppercase text-slate-500">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                   Overall Result
                 </p>
 
-                <p className="mt-1 font-bold text-slate-900">
+                <p
+                  className={`mt-1 text-sm font-black ${
+                    overallAverage >= 50
+                      ? 'text-green-700'
+                      : 'text-red-700'
+                  }`}
+                >
                   {overallAverage >= 50
                     ? 'PASS'
                     : 'FAIL'}
                 </p>
               </div>
-
             </div>
           </section>
 
           {/* Grading Key */}
           <section className="mt-5">
-
-            <h2 className="mb-2 text-xs font-bold uppercase text-slate-600">
+            <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
               Grading Key
             </h2>
 
             <div className="grid grid-cols-2 border border-slate-300 text-xs sm:grid-cols-6">
-
               {[
                 ['A', '80–100', 'Excellent'],
                 ['B', '70–79', 'Very Good'],
@@ -1215,46 +1220,90 @@ export default function ReportCardPage() {
                   key={grade}
                   className="border-b border-slate-200 p-2 text-center sm:border-r"
                 >
-                  <p className="font-black">{grade}</p>
+                  <p className="font-black">
+                    {grade}
+                  </p>
                   <p>{range}</p>
-                  <p className="text-[10px] text-slate-500">
+                  <p className="text-[9px] text-slate-500">
                     {description}
                   </p>
                 </div>
               ))}
-
             </div>
           </section>
 
           {/* Signatures */}
           <section className="mt-10 grid grid-cols-1 gap-10 sm:grid-cols-3">
-
-            <div className="border-t border-slate-500 pt-2 text-center text-xs">
+            <div className="signature-line">
               Class Teacher
             </div>
 
-            <div className="border-t border-slate-500 pt-2 text-center text-xs">
+            <div className="signature-line">
               HOD
             </div>
 
-            <div className="border-t border-slate-500 pt-2 text-center text-xs">
+            <div className="signature-line">
               Head of Institution
             </div>
-
           </section>
 
-          <footer className="mt-8 border-t border-slate-300 pt-3 text-center text-[10px] text-slate-500">
+          <footer className="mt-8 border-t border-slate-300 pt-3 text-center text-[9px] text-slate-500">
             Biriwa Technical Institute • Official Student Academic Report
           </footer>
-
         </div>
       </main>
 
       <style jsx global>{`
+        .section-heading {
+          margin-bottom: 0.75rem;
+          background: #0f172a;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.75rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: white;
+        }
+
+        .summary-box {
+          border: 1px solid #cbd5e1;
+          padding: 0.75rem;
+          text-align: center;
+        }
+
+        .summary-label {
+          font-size: 10px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          color: #64748b;
+        }
+
+        .summary-value {
+          margin-top: 0.25rem;
+          font-size: 1.25rem;
+          font-weight: 900;
+          color: #0f172a;
+        }
+
+        .attendance-box {
+          border-right: 1px solid #e2e8f0;
+          border-bottom: 1px solid #e2e8f0;
+          padding: 0.75rem;
+          text-align: center;
+        }
+
+        .signature-line {
+          border-top: 1px solid #64748b;
+          padding-top: 0.5rem;
+          text-align: center;
+          font-size: 0.75rem;
+        }
+
         @media print {
           @page {
             size: A4;
-            margin: 10mm;
+            margin: 8mm;
           }
 
           html,
@@ -1277,6 +1326,12 @@ export default function ReportCardPage() {
             border-radius: 0 !important;
           }
 
+          section,
+          header,
+          footer {
+            page-break-inside: avoid;
+          }
+
           table {
             page-break-inside: auto;
           }
@@ -1286,11 +1341,13 @@ export default function ReportCardPage() {
             page-break-after: auto;
           }
 
-          section {
-            page-break-inside: avoid;
+          .section-heading {
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
           }
         }
-      `}</style>
+      `}
+      </style>
     </>
   );
 }
