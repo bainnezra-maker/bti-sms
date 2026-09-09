@@ -17,6 +17,7 @@ export default function AddStudentPage() {
     guardian_phone: '',
     address: '',
     admission_date: '',
+    jhs_aggregate: '',
   });
 
   const [error, setError] = useState('');
@@ -87,6 +88,9 @@ export default function AddStudentPage() {
         guardian_phone: form.guardian_phone.trim() || null,
         address: form.address.trim() || null,
         admission_date: form.admission_date,
+        jhs_aggregate: form.jhs_aggregate
+          ? Number(form.jhs_aggregate)
+          : null,
       });
 
     if (insertError) {
@@ -205,6 +209,30 @@ export default function AddStudentPage() {
                 <option value="Male">Male</option>
                 <option value="Female">Female</option>
               </select>
+            </div>
+
+            {/* JHS Aggregate */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                JHS Aggregate
+              </label>
+
+              <input
+                type="number"
+                min="1"
+                max="100"
+                step="0.01"
+                value={form.jhs_aggregate}
+                onChange={(e) =>
+                  updateField('jhs_aggregate', e.target.value)
+                }
+                placeholder="e.g. 15"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+
+              <p className="mt-1 text-xs text-slate-400">
+                Aggregate obtained at JHS and used for admission into BTI.
+              </p>
             </div>
 
             {/* Guardian Name */}
