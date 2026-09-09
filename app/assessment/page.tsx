@@ -1,8 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 type AcademicYear = {
@@ -50,18 +48,34 @@ type AssessmentRecord = {
   score: number;
   max_score: number;
   term: string | null;
-  created_at: string;
 };
 
 type ScoreEntry = {
-  student_id: string;
+  student: Student;
   score: string;
   existingId: string | null;
 };
 
+const supabase = createClient();
+
+const CA_TYPES = [
+  { value: 'Exercise 1', label: 'Exercise 1', max: 10 },
+  { value: 'Exercise 2', label: 'Exercise 2', max: 10 },
+  { value: 'Exercise 3', label: 'Exercise 3', max: 10 },
+  { value: 'Exercise 4', label: 'Exercise 4', max: 10 },
+  { value: 'Class Test 1', label: 'Class Test 1', max: 20 },
+  { value: 'Class Test 2', label: 'Class Test 2', max: 20 },
+  { value: 'Class Test 3', label: 'Class Test 3', max: 20 },
+];
+
+const EXAM_TYPE = {
+  value: 'Examination',
+  label: 'Examination',
+  max: 100,
+};
+
 function getPercentage(score: number, maxScore: number) {
-  if (!maxScore || maxScore <= 0) return 0;
-  return (score / maxScore) * 100;
+  return maxScore > 0 ? (score / maxScore) * 100 : 0;
 }
 
 function getGrade(percentage: number) {
@@ -78,550 +92,620 @@ function getStatus(percentage: number) {
 }
 
 export default function AssessmentPage() {
-  const router = useRouter();
-  const supabase = createClient();
-
   const [schoolId, setSchoolId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
 
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+
   const [students, setStudents] = useState<Student[]>([]);
-  const [records, setRecords] = useState<AssessmentRecord[]>([]);
+  const [existingAssessments, setExistingAssessments] = useState<
+    AssessmentRecord[]
+  >([]);
 
-  const [academicYearId, setAcademicYearId] = useState('');
-  const [termId, setTermId] = useState('');
-  const [programmeId, setProgrammeId] = useState('');
-  const [classId, setClassId] = useState('');
-  const [subjectId, setSubjectId] = useState('');
-  const [assessmentType, setAssessmentType] = useState('CA1');
-  const [maxScore, setMaxScore] = useState('30');
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState('');
+  const [selectedTerm, setSelectedTerm] = useState('');
+  const [selectedProgramme, setSelectedProgramme] = useState('');
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
+  const [selectedAssessmentType, setSelectedAssessmentType] = useState('');
 
-  const [scores, setScores] = useState<ScoreEntry[]>([]);
+  const [scores, setScores] = useState<Record<string, string>>({});
 
-  const [loading, setLoading] = useState(true);
-  const [loadingScores, setLoadingScores] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingStudents, setLoadingStudents] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
-  async function loadRecords(school_id: string) {
-    const { data } = await supabase
-      .from('assessments')
-      .select(
-        'id, student_id, subject, assessment_type, score, max_score, term, created_at'
-      )
-      .eq('school_id', school_id)
-      .order('created_at', { ascending: false })
-      .limit(20);
-
-    setRecords(data ?? []);
-  }
-
+  /*
+   * ---------------------------------------------------------
+   * GET CURRENT USER + SCHOOL
+   * ---------------------------------------------------------
+   */
   useEffect(() => {
-    async function load() {
+    async function loadProfile() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (!user) {
-        router.push('/login');
-        return;
-      }
+      if (!user) return;
 
-      setUserId(user.id);
-
-      const { data: profile } = await supabase
+      const { data, error: profileError } = await supabase
         .from('users')
         .select('school_id')
         .eq('id', user.id)
         .single();
 
-      if (!profile) {
-        setLoading(false);
+      if (profileError) {
+        setError(profileError.message);
         return;
       }
 
-      setSchoolId(profile.school_id);
+      setSchoolId(data?.school_id ?? null);
+    }
+
+    loadProfile();
+  }, []);
+
+  /*
+   * ---------------------------------------------------------
+   * LOAD ACADEMIC YEARS, PROGRAMMES, SUBJECTS AND CLASSES
+   * ---------------------------------------------------------
+   */
+  useEffect(() => {
+    if (!schoolId) return;
+
+    async function loadAcademicData() {
+      setLoading(true);
+      setError('');
 
       const [
         academicYearsResult,
         programmesResult,
-        classesResult,
         subjectsResult,
+        classesResult,
       ] = await Promise.all([
         supabase
           .from('academic_years')
           .select('id, name')
-          .eq('school_id', profile.school_id)
-          .order('name', { ascending: false }),
+          .eq('school_id', schoolId)
+          .order('start_date', { ascending: false }),
 
         supabase
           .from('programmes')
           .select('id, name, code')
-          .eq('school_id', profile.school_id)
-          .order('name'),
-
-        supabase
-          .from('classes')
-          .select('id, name, level, programme_id, academic_year_id')
-          .eq('school_id', profile.school_id)
+          .eq('school_id', schoolId)
           .order('name'),
 
         supabase
           .from('subjects')
           .select('id, name, code')
-          .eq('school_id', profile.school_id)
+          .eq('school_id', schoolId)
+          .order('name'),
+
+        supabase
+          .from('classes')
+          .select(
+            'id, name, level, programme_id, academic_year_id'
+          )
+          .eq('school_id', schoolId)
           .order('name'),
       ]);
 
-      const years = academicYearsResult.data ?? [];
-
-      setAcademicYears(years);
-      setProgrammes(programmesResult.data ?? []);
-      setClasses(classesResult.data ?? []);
-      setSubjects(subjectsResult.data ?? []);
-
-      const currentYear =
-        years.find((year) => year.name === '2026/2027') ??
-        years[0];
-
-      if (currentYear) {
-        setAcademicYearId(currentYear.id);
-
-        const { data: termRows } = await supabase
-          .from('terms')
-          .select('id, name, academic_year_id')
-          .eq('academic_year_id', currentYear.id)
-          .order('start_date');
-
-        setTerms(termRows ?? []);
-
-        const currentTerm =
-          termRows?.find((term) => term.name === 'Term 1') ??
-          termRows?.[0];
-
-        if (currentTerm) {
-          setTermId(currentTerm.id);
-        }
+      if (academicYearsResult.error) {
+        setError(academicYearsResult.error.message);
+      } else {
+        setAcademicYears(academicYearsResult.data ?? []);
       }
 
-      await loadRecords(profile.school_id);
+      if (programmesResult.error) {
+        setError(programmesResult.error.message);
+      } else {
+        setProgrammes(programmesResult.data ?? []);
+      }
+
+      if (subjectsResult.error) {
+        setError(subjectsResult.error.message);
+      } else {
+        setSubjects(subjectsResult.data ?? []);
+      }
+
+      if (classesResult.error) {
+        setError(classesResult.error.message);
+      } else {
+        setClasses(classesResult.data ?? []);
+      }
 
       setLoading(false);
     }
 
-    load();
-  }, []);
+    loadAcademicData();
+  }, [schoolId]);
 
+  /*
+   * ---------------------------------------------------------
+   * LOAD TERMS WHEN ACADEMIC YEAR CHANGES
+   * ---------------------------------------------------------
+   */
   useEffect(() => {
+    if (!selectedAcademicYear) {
+      setTerms([]);
+      setSelectedTerm('');
+      return;
+    }
+
     async function loadTerms() {
-      if (!academicYearId) {
+      setError('');
+
+      const { data, error: termsError } = await supabase
+        .from('terms')
+        .select('id, name, academic_year_id')
+        .eq('academic_year_id', selectedAcademicYear)
+        .order('start_date');
+
+      if (termsError) {
+        setError(termsError.message);
         setTerms([]);
-        setTermId('');
         return;
       }
 
-      const { data } = await supabase
-        .from('terms')
-        .select('id, name, academic_year_id')
-        .eq('academic_year_id', academicYearId)
-        .order('start_date');
-
       setTerms(data ?? []);
-
-      if (data && data.length > 0) {
-        setTermId(data[0].id);
-      } else {
-        setTermId('');
-      }
     }
 
     loadTerms();
-  }, [academicYearId]);
+  }, [selectedAcademicYear]);
 
+  /*
+   * ---------------------------------------------------------
+   * FILTER CLASSES BY PROGRAMME + ACADEMIC YEAR
+   * ---------------------------------------------------------
+   */
+  const filteredClasses = useMemo(() => {
+    return classes.filter((item) => {
+      const matchesProgramme =
+        !selectedProgramme ||
+        item.programme_id === selectedProgramme;
+
+      const matchesAcademicYear =
+        !selectedAcademicYear ||
+        !item.academic_year_id ||
+        item.academic_year_id === selectedAcademicYear;
+
+      return matchesProgramme && matchesAcademicYear;
+    });
+  }, [
+    classes,
+    selectedProgramme,
+    selectedAcademicYear,
+  ]);
+
+  /*
+   * ---------------------------------------------------------
+   * RESET CLASS WHEN PROGRAMME / YEAR CHANGES
+   * ---------------------------------------------------------
+   */
   useEffect(() => {
-    async function loadStudentsAndScores() {
-      if (!classId || !academicYearId) {
-        setStudents([]);
-        setScores([]);
-        return;
-      }
+    if (
+      selectedClass &&
+      !filteredClasses.some((item) => item.id === selectedClass)
+    ) {
+      setSelectedClass('');
+    }
+  }, [filteredClasses, selectedClass]);
 
-      setLoadingScores(true);
-      setMessage('');
+  /*
+   * ---------------------------------------------------------
+   * LOAD STUDENTS FOR SELECTED CLASS
+   * ---------------------------------------------------------
+   */
+  useEffect(() => {
+    if (
+      !selectedClass ||
+      !selectedAcademicYear
+    ) {
+      setStudents([]);
+      setScores({});
+      setExistingAssessments([]);
+      return;
+    }
 
-      const { data: enrollmentRows, error: enrollmentError } =
+    async function loadStudents() {
+      setLoadingStudents(true);
+      setError('');
+
+      const { data: enrollmentData, error: enrollmentError } =
         await supabase
           .from('enrollments')
           .select('student_id')
-          .eq('class_id', classId)
-          .eq('academic_year_id', academicYearId)
+          .eq('class_id', selectedClass)
+          .eq('academic_year_id', selectedAcademicYear)
           .eq('status', 'active');
 
       if (enrollmentError) {
-        setMessage(
-          `Error loading class: ${enrollmentError.message}`
-        );
-        setLoadingScores(false);
+        setError(enrollmentError.message);
+        setLoadingStudents(false);
         return;
       }
 
       const studentIds =
-        enrollmentRows?.map((row) => row.student_id) ?? [];
+        enrollmentData?.map((item) => item.student_id) ?? [];
 
       if (studentIds.length === 0) {
         setStudents([]);
-        setScores([]);
-        setLoadingScores(false);
+        setScores({});
+        setExistingAssessments([]);
+        setLoadingStudents(false);
         return;
       }
 
-      const { data: studentRows, error: studentError } =
+      const { data: studentData, error: studentError } =
         await supabase
           .from('students')
           .select('id, full_name, admission_number')
           .in('id', studentIds)
+          .eq('school_id', schoolId)
           .eq('status', 'active')
           .order('full_name');
 
       if (studentError) {
-        setMessage(
-          `Error loading students: ${studentError.message}`
-        );
-        setLoadingScores(false);
+        setError(studentError.message);
+        setLoadingStudents(false);
         return;
       }
 
-      const loadedStudents = studentRows ?? [];
-
-      setStudents(loadedStudents);
-
-      setScores(
-        loadedStudents.map((student) => ({
-          student_id: student.id,
-          score: '',
-          existingId: null,
-        }))
-      );
-
-      setLoadingScores(false);
+      setStudents(studentData ?? []);
+      setLoadingStudents(false);
     }
 
-    loadStudentsAndScores();
-  }, [classId, academicYearId]);
+    loadStudents();
+  }, [
+    selectedClass,
+    selectedAcademicYear,
+    schoolId,
+  ]);
 
+  /*
+   * ---------------------------------------------------------
+   * LOAD EXISTING SCORES
+   * ---------------------------------------------------------
+   */
   useEffect(() => {
+    if (
+      !schoolId ||
+      !selectedClass ||
+      !selectedAcademicYear ||
+      !selectedTerm ||
+      !selectedSubject ||
+      !selectedAssessmentType ||
+      students.length === 0
+    ) {
+      setExistingAssessments([]);
+      setScores({});
+      return;
+    }
+
     async function loadExistingScores() {
-      if (
-        !classId ||
-        !academicYearId ||
-        !termId ||
-        !subjectId ||
-        students.length === 0
-      ) {
-        return;
-      }
+      setError('');
 
-      const selectedSubject = subjects.find(
-        (subject) => subject.id === subjectId
-      );
-
-      const selectedTerm = terms.find(
-        (term) => term.id === termId
-      );
-
-      if (!selectedSubject || !selectedTerm) return;
-
-      setLoadingScores(true);
-
-      const { data, error } = await supabase
-        .from('assessments')
-        .select(
-          'id, student_id, subject, assessment_type, score, max_score, term, created_at'
-        )
-        .eq('school_id', schoolId)
-        .eq('subject', selectedSubject.name)
-        .eq('assessment_type', assessmentType)
-        .eq('term', selectedTerm.name)
-        .in(
-          'student_id',
-          students.map((student) => student.id)
-        );
-
-      if (error) {
-        setMessage(
-          `Error loading existing scores: ${error.message}`
-        );
-        setLoadingScores(false);
-        return;
-      }
-
-      const existingRecords = data ?? [];
-
-      setScores(
-        students.map((student) => {
-          const existing = existingRecords.find(
-            (record) =>
-              record.student_id === student.id
+      const { data, error: assessmentError } =
+        await supabase
+          .from('assessments')
+          .select(
+            `
+              id,
+              student_id,
+              subject,
+              assessment_type,
+              score,
+              max_score,
+              term
+            `
+          )
+          .eq('school_id', schoolId)
+          .eq('subject', selectedSubject)
+          .eq(
+            'assessment_type',
+            selectedAssessmentType
+          )
+          .eq('term', selectedTerm)
+          .in(
+            'student_id',
+            students.map((student) => student.id)
           );
 
-          return {
-            student_id: student.id,
-            score:
-              existing && existing.score !== null
-                ? String(existing.score)
-                : '',
-            existingId: existing?.id ?? null,
-          };
-        })
-      );
+      if (assessmentError) {
+        setError(assessmentError.message);
+        return;
+      }
 
-      setLoadingScores(false);
+      const records = (data ?? []) as AssessmentRecord[];
+
+      setExistingAssessments(records);
+
+      const scoreMap: Record<string, string> = {};
+
+      records.forEach((record) => {
+        scoreMap[record.student_id] =
+          String(record.score);
+      });
+
+      setScores(scoreMap);
     }
 
     loadExistingScores();
   }, [
-    classId,
-    academicYearId,
-    termId,
-    subjectId,
-    assessmentType,
-    students,
     schoolId,
+    selectedClass,
+    selectedAcademicYear,
+    selectedTerm,
+    selectedSubject,
+    selectedAssessmentType,
+    students,
   ]);
 
-  function updateScore(
+  /*
+   * ---------------------------------------------------------
+   * CURRENT MAX SCORE
+   * ---------------------------------------------------------
+   */
+  const currentAssessment = useMemo(() => {
+    if (
+      selectedAssessmentType === EXAM_TYPE.value
+    ) {
+      return EXAM_TYPE;
+    }
+
+    return (
+      CA_TYPES.find(
+        (item) =>
+          item.value === selectedAssessmentType
+      ) ?? null
+    );
+  }, [selectedAssessmentType]);
+
+  const maxScore = currentAssessment?.max ?? 0;
+
+  /*
+   * ---------------------------------------------------------
+   * SCORE CHANGE
+   * ---------------------------------------------------------
+   */
+  function handleScoreChange(
     studentId: string,
     value: string
   ) {
-    setScores((current) =>
-      current.map((entry) =>
-        entry.student_id === studentId
-          ? {
-              ...entry,
-              score: value,
-            }
-          : entry
-      )
-    );
+    if (value === '') {
+      setScores((previous) => ({
+        ...previous,
+        [studentId]: '',
+      }));
+      return;
+    }
+
+    const numericValue = Number(value);
+
+    if (Number.isNaN(numericValue)) return;
+
+    if (numericValue > maxScore) {
+      setScores((previous) => ({
+        ...previous,
+        [studentId]: String(maxScore),
+      }));
+      return;
+    }
+
+    if (numericValue < 0) {
+      setScores((previous) => ({
+        ...previous,
+        [studentId]: '0',
+      }));
+      return;
+    }
+
+    setScores((previous) => ({
+      ...previous,
+      [studentId]: value,
+    }));
   }
 
-  function fillAllScores(value: string) {
-    setScores((current) =>
-      current.map((entry) => ({
-        ...entry,
-        score: value,
-      }))
-    );
-  }
+  /*
+   * ---------------------------------------------------------
+   * SAVE ALL SCORES
+   * ---------------------------------------------------------
+   */
+  async function saveScores() {
+    if (!schoolId) {
+      setError('School information could not be found.');
+      return;
+    }
 
-  async function handleSaveAll(e: React.FormEvent) {
-    e.preventDefault();
-    setMessage('');
-
-    if (!schoolId || !userId) {
-      setMessage(
-        'Your school profile could not be found.'
+    if (
+      !selectedAcademicYear ||
+      !selectedTerm ||
+      !selectedClass ||
+      !selectedSubject ||
+      !selectedAssessmentType
+    ) {
+      setError(
+        'Please select Academic Year, Term, Class, Subject and Assessment Type.'
       );
       return;
     }
 
-    if (!academicYearId) {
-      setMessage('Please select an academic year.');
+    if (!currentAssessment) {
+      setError('Please select an assessment type.');
       return;
     }
 
-    if (!termId) {
-      setMessage('Please select a term.');
+    if (students.length === 0) {
+      setError('There are no students in this class.');
       return;
-    }
-
-    if (!programmeId) {
-      setMessage('Please select a programme.');
-      return;
-    }
-
-    if (!classId) {
-      setMessage('Please select a class.');
-      return;
-    }
-
-    if (!subjectId) {
-      setMessage('Please select a subject.');
-      return;
-    }
-
-    const selectedSubject = subjects.find(
-      (subject) => subject.id === subjectId
-    );
-
-    const selectedTerm = terms.find(
-      (term) => term.id === termId
-    );
-
-    if (!selectedSubject || !selectedTerm) {
-      setMessage(
-        'Subject or term could not be found.'
-      );
-      return;
-    }
-
-    const maximum = Number(maxScore);
-
-    if (!maximum || maximum <= 0) {
-      setMessage(
-        'Maximum score must be greater than 0.'
-      );
-      return;
-    }
-
-    const enteredScores = scores.filter(
-      (entry) => entry.score.trim() !== ''
-    );
-
-    if (enteredScores.length === 0) {
-      setMessage(
-        'Please enter at least one score.'
-      );
-      return;
-    }
-
-    for (const entry of enteredScores) {
-      const value = Number(entry.score);
-
-      if (
-        Number.isNaN(value) ||
-        value < 0 ||
-        value > maximum
-      ) {
-        const student = students.find(
-          (s) => s.id === entry.student_id
-        );
-
-        setMessage(
-          `Invalid score for ${
-            student?.full_name ?? 'student'
-          }. Score must be between 0 and ${maximum}.`
-        );
-
-        return;
-      }
     }
 
     setSaving(true);
+    setError('');
+    setMessage('');
 
     try {
-      for (const entry of enteredScores) {
-        const numericScore = Number(entry.score);
+      for (const student of students) {
+        const rawValue = scores[student.id];
 
-        if (entry.existingId) {
-          const { error } = await supabase
-            .from('assessments')
-            .update({
-              score: numericScore,
-              max_score: maximum,
-              recorded_by: userId,
-            })
-            .eq('id', entry.existingId);
+        if (
+          rawValue === undefined ||
+          rawValue === ''
+        ) {
+          continue;
+        }
 
-          if (error) {
-            throw error;
+        const numericScore = Number(rawValue);
+
+        if (
+          Number.isNaN(numericScore) ||
+          numericScore < 0 ||
+          numericScore > currentAssessment.max
+        ) {
+          throw new Error(
+            `Invalid score for ${student.full_name}.`
+          );
+        }
+
+        const existing = existingAssessments.find(
+          (record) =>
+            record.student_id === student.id
+        );
+
+        if (existing) {
+          const { error: updateError } =
+            await supabase
+              .from('assessments')
+              .update({
+                score: numericScore,
+                max_score: currentAssessment.max,
+              })
+              .eq('id', existing.id)
+              .eq('school_id', schoolId);
+
+          if (updateError) {
+            throw updateError;
           }
         } else {
-          const { error } = await supabase
-            .from('assessments')
-            .insert({
-              school_id: schoolId,
-              student_id: entry.student_id,
-              subject: selectedSubject.name,
-              assessment_type: assessmentType,
-              score: numericScore,
-              max_score: maximum,
-              term: selectedTerm.name,
-              recorded_by: userId,
-            });
+          const { error: insertError } =
+            await supabase
+              .from('assessments')
+              .insert({
+                school_id: schoolId,
+                student_id: student.id,
+                subject: selectedSubject,
+                assessment_type:
+                  selectedAssessmentType,
+                score: numericScore,
+                max_score:
+                  currentAssessment.max,
+                term: selectedTerm,
+              });
 
-          if (error) {
-            throw error;
+          if (insertError) {
+            throw insertError;
           }
         }
       }
 
       setMessage(
-        `${enteredScores.length} score${
-          enteredScores.length === 1
-            ? ''
-            : 's'
-        } saved successfully.`
+        'All entered scores have been saved successfully.'
       );
 
-      await loadRecords(schoolId);
-
-      const { data: refreshed } = await supabase
-        .from('assessments')
-        .select(
-          'id, student_id, subject, assessment_type, score, max_score, term, created_at'
-        )
-        .eq('school_id', schoolId)
-        .eq('subject', selectedSubject.name)
-        .eq('assessment_type', assessmentType)
-        .eq('term', selectedTerm.name)
-        .in(
-          'student_id',
-          students.map((student) => student.id)
-        );
-
-      const refreshedRecords = refreshed ?? [];
-
-      setScores(
-        students.map((student) => {
-          const existing = refreshedRecords.find(
-            (record) =>
-              record.student_id === student.id
+      /*
+       * Reload existing records so that the screen
+       * immediately reflects saved data.
+       */
+      const { data, error: reloadError } =
+        await supabase
+          .from('assessments')
+          .select(
+            `
+              id,
+              student_id,
+              subject,
+              assessment_type,
+              score,
+              max_score,
+              term
+            `
+          )
+          .eq('school_id', schoolId)
+          .eq('subject', selectedSubject)
+          .eq(
+            'assessment_type',
+            selectedAssessmentType
+          )
+          .eq('term', selectedTerm)
+          .in(
+            'student_id',
+            students.map((student) => student.id)
           );
 
-          return {
-            student_id: student.id,
-            score:
-              existing
-                ? String(existing.score)
-                : '',
-            existingId:
-              existing?.id ?? null,
-          };
-        })
-      );
-    } catch (error: any) {
-      setMessage(
-        `Error: ${error.message}`
+      if (!reloadError) {
+        setExistingAssessments(
+          (data ?? []) as AssessmentRecord[]
+        );
+      }
+    } catch (saveError: any) {
+      setError(
+        saveError?.message ??
+          'Something went wrong while saving scores.'
       );
     } finally {
       setSaving(false);
     }
   }
 
-  function studentName(id: string) {
-    return (
-      students.find(
-        (student) => student.id === id
-      )?.full_name ?? 'Unknown'
+  /*
+   * ---------------------------------------------------------
+   * QUICK FILL
+   * ---------------------------------------------------------
+   */
+  function quickFill(value: number) {
+    if (!maxScore || students.length === 0) return;
+
+    const adjustedValue = Math.min(
+      value,
+      maxScore
     );
+
+    const newScores: Record<string, string> = {};
+
+    students.forEach((student) => {
+      newScores[student.id] =
+        String(adjustedValue);
+    });
+
+    setScores(newScores);
   }
 
-  const statistics = useMemo(() => {
-    const completed = scores
-      .filter(
-        (entry) => entry.score.trim() !== ''
-      )
-      .map((entry) => Number(entry.score))
-      .filter((value) => !Number.isNaN(value));
+  /*
+   * ---------------------------------------------------------
+   * CLEAR SCORES
+   * ---------------------------------------------------------
+   */
+  function clearScores() {
+    setScores({});
+  }
 
-    if (completed.length === 0) {
+  /*
+   * ---------------------------------------------------------
+   * STATISTICS
+   * ---------------------------------------------------------
+   */
+  const statistics = useMemo(() => {
+    if (
+      students.length === 0 ||
+      !maxScore
+    ) {
       return {
-        count: 0,
+        entered: 0,
         average: 0,
         highest: 0,
         lowest: 0,
@@ -629,11 +713,41 @@ export default function AssessmentPage() {
       };
     }
 
-    const maximum = Number(maxScore) || 1;
+    const enteredScores = students
+      .map((student) => {
+        const value = scores[student.id];
 
-    const percentages = completed.map(
+        if (
+          value === undefined ||
+          value === ''
+        ) {
+          return null;
+        }
+
+        const numeric = Number(value);
+
+        return Number.isNaN(numeric)
+          ? null
+          : numeric;
+      })
+      .filter(
+        (value): value is number =>
+          value !== null
+      );
+
+    if (enteredScores.length === 0) {
+      return {
+        entered: 0,
+        average: 0,
+        highest: 0,
+        lowest: 0,
+        passRate: 0,
+      };
+    }
+
+    const percentages = enteredScores.map(
       (score) =>
-        getPercentage(score, maximum)
+        getPercentage(score, maxScore)
     );
 
     const average =
@@ -642,223 +756,240 @@ export default function AssessmentPage() {
         0
       ) / percentages.length;
 
-    const highest = Math.max(...percentages);
-    const lowest = Math.min(...percentages);
+    const highest = Math.max(
+      ...percentages
+    );
 
-    const passes = percentages.filter(
+    const lowest = Math.min(
+      ...percentages
+    );
+
+    const passed = percentages.filter(
       (percentage) => percentage >= 50
     ).length;
 
+    const passRate =
+      (passed / percentages.length) * 100;
+
     return {
-      count: completed.length,
+      entered: enteredScores.length,
       average,
       highest,
       lowest,
-      passRate:
-        (passes / completed.length) * 100,
+      passRate,
     };
-  }, [scores, maxScore]);
+  }, [students, scores, maxScore]);
 
-  const filteredClasses = classes.filter(
-    (item) => {
-      const programmeMatches =
-        !programmeId ||
-        item.programme_id === programmeId;
+  /*
+   * ---------------------------------------------------------
+   * CA SUMMARY
+   *
+   * This section calculates the student's current
+   * seven-component CA total.
+   * ---------------------------------------------------------
+   */
+  const caSummary = useMemo(() => {
+    return students.map((student) => {
+      const studentAssessments =
+        existingAssessments.filter(
+          (record) =>
+            record.student_id === student.id
+        );
 
-      const yearMatches =
-        !academicYearId ||
-        !item.academic_year_id ||
-        item.academic_year_id ===
-          academicYearId;
+      let rawTotal = 0;
 
-      return (
-        programmeMatches &&
-        yearMatches
-      );
-    }
-  );
+      CA_TYPES.forEach((type) => {
+        const record =
+          studentAssessments.find(
+            (item) =>
+              item.assessment_type ===
+              type.value
+          );
 
-  if (loading) {
-    return (
-      <p
-        style={{
-          textAlign: 'center',
-          marginTop: 60,
-        }}
-      >
-        Loading…
-      </p>
-    );
-  }
+        if (record) {
+          rawTotal += Number(record.score);
+        }
+      });
+
+      const caContribution =
+        (rawTotal / 100) * 30;
+
+      const examRecord =
+        studentAssessments.find(
+          (item) =>
+            item.assessment_type ===
+            EXAM_TYPE.value
+        );
+
+      const examRaw = examRecord
+        ? Number(examRecord.score)
+        : 0;
+
+      const examContribution =
+        (examRaw / 100) * 70;
+
+      const finalScore =
+        caContribution +
+        examContribution;
+
+      return {
+        studentId: student.id,
+        rawTotal,
+        caContribution,
+        examRaw,
+        examContribution,
+        finalScore,
+      };
+    });
+  }, [students, existingAssessments]);
 
   return (
-    <div
-      style={{
-        maxWidth: 1100,
-        margin: '0 auto',
-        padding: '24px 16px 50px',
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent:
-            'space-between',
-          alignItems: 'center',
-          gap: 12,
-          marginBottom: 20,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div>
-          <h1
-            style={{
-              fontSize: 26,
-              fontWeight: 700,
-              margin: 0,
-            }}
-          >
-            Assessment Management
+    <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+
+        {/* HEADER */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-900">
+            Assessment
           </h1>
 
-          <p
-            style={{
-              margin:
-                '4px 0 0',
-              color: '#666',
-              fontSize: 14,
-            }}
-          >
-            Enter, update and monitor
-            class assessment scores
+                    <p className="mt-1 text-sm text-slate-600">
+            Enter BTI continuous assessment and
+            examination scores.
           </p>
         </div>
 
-        <Link href="/students">
-          <button type="button">
-            Student records
-          </button>
-        </Link>
-      </div>
+        {/* BTI MARKING STRUCTURE */}
+        <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <h2 className="font-semibold text-blue-900">
+            BTI Marking Structure
+          </h2>
 
-      {/* Assessment Setup */}
-      <div
-        style={{
-          background: 'white',
-          border:
-            '1px solid #e5e7eb',
-          borderRadius: 12,
-          padding: 18,
-          marginBottom: 20,
-        }}
-      >
-        <h2
-          style={{
-            fontSize: 18,
-            fontWeight: 600,
-            marginBottom: 16,
-          }}
-        >
-          Assessment Setup
-        </h2>
+          <div className="mt-2 grid gap-2 text-sm text-blue-800 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              Exercises: <strong>4 × 10 = 40</strong>
+            </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns:
-              'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: 14,
-          }}
-        >
-          <div>
-            <label style={labelStyle}>
-              Academic Year
-            </label>
+            <div>
+              Class Tests: <strong>3 × 20 = 60</strong>
+            </div>
 
-            <select
-              value={academicYearId}
-              onChange={(e) => {
-                setAcademicYearId(
-                  e.target.value
-                );
-                setClassId('');
-                setStudents([]);
-                setScores([]);
-              }}
-              style={inputStyle}
-            >
-              <option value="">
-                Select academic year
-              </option>
+            <div>
+              CA: <strong>100 → 30%</strong>
+            </div>
 
-              {academicYears.map(
-                (year) => (
+            <div>
+              Examination: <strong>100 → 70%</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* ERROR */}
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* SUCCESS */}
+        {message && (
+          <div className="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+            {message}
+          </div>
+        )}
+
+        {/* SELECTION PANEL */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <h2 className="mb-4 text-lg font-semibold text-slate-900">
+            Select Class and Assessment
+          </h2>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+
+            {/* ACADEMIC YEAR */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Academic Year
+              </label>
+
+              <select
+                value={selectedAcademicYear}
+                onChange={(event) => {
+                  setSelectedAcademicYear(
+                    event.target.value
+                  );
+                  setSelectedTerm('');
+                  setSelectedClass('');
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">
+                  Select Academic Year
+                </option>
+
+                {academicYears.map((year) => (
                   <option
                     key={year.id}
                     value={year.id}
                   >
                     {year.name}
                   </option>
-                )
-              )}
-            </select>
-          </div>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label style={labelStyle}>
-              Term
-            </label>
+            {/* TERM */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Term
+              </label>
 
-            <select
-              value={termId}
-              onChange={(e) =>
-                setTermId(
-                  e.target.value
-                )
-              }
-              style={inputStyle}
-            >
-              <option value="">
-                Select term
-              </option>
+              <select
+                value={selectedTerm}
+                onChange={(event) =>
+                  setSelectedTerm(
+                    event.target.value
+                  )
+                }
+                disabled={!selectedAcademicYear}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none disabled:bg-slate-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">
+                  Select Term
+                </option>
 
-              {terms.map(
-                (term) => (
+                {terms.map((term) => (
                   <option
                     key={term.id}
-                    value={term.id}
+                    value={term.name}
                   >
                     {term.name}
                   </option>
-                )
-              )}
-            </select>
-          </div>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label style={labelStyle}>
-              Programme
-            </label>
+            {/* PROGRAMME */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Programme
+              </label>
 
-            <select
-              value={programmeId}
-              onChange={(e) => {
-                setProgrammeId(
-                  e.target.value
-                );
-                setClassId('');
-                setStudents([]);
-                setScores([]);
-              }}
-              style={inputStyle}
-            >
-              <option value="">
-                Select programme
-              </option>
+              <select
+                value={selectedProgramme}
+                onChange={(event) => {
+                  setSelectedProgramme(
+                    event.target.value
+                  );
+                  setSelectedClass('');
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">
+                  Select Programme
+                </option>
 
-              {programmes.map(
-                (programme) => (
+                {programmes.map((programme) => (
                   <option
                     key={programme.id}
                     value={programme.id}
@@ -868,557 +999,432 @@ export default function AssessmentPage() {
                       ? ` (${programme.code})`
                       : ''}
                   </option>
-                )
-              )}
-            </select>
-          </div>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label style={labelStyle}>
-              Class
-            </label>
+            {/* CLASS */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Class
+              </label>
 
-            <select
-              value={classId}
-              onChange={(e) =>
-                setClassId(
-                  e.target.value
-                )
-              }
-              style={inputStyle}
-            >
-              <option value="">
-                Select class
-              </option>
+              <select
+                value={selectedClass}
+                onChange={(event) =>
+                  setSelectedClass(
+                    event.target.value
+                  )
+                }
+                disabled={!selectedAcademicYear}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none disabled:bg-slate-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">
+                  Select Class
+                </option>
 
-              {filteredClasses.map(
-                (item) => (
+                {filteredClasses.map((item) => (
                   <option
                     key={item.id}
                     value={item.id}
                   >
                     {item.name}
-                    {item.level
-                      ? ` — ${item.level}`
-                      : ''}
                   </option>
-                )
-              )}
-            </select>
-          </div>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label style={labelStyle}>
-              Subject
-            </label>
+            {/* SUBJECT */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Subject
+              </label>
 
-            <select
-              value={subjectId}
-              onChange={(e) =>
-                setSubjectId(
-                  e.target.value
-                )
-              }
-              style={inputStyle}
-            >
-              <option value="">
-                Select subject
-              </option>
+              <select
+                value={selectedSubject}
+                onChange={(event) =>
+                  setSelectedSubject(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">
+                  Select Subject
+                </option>
 
-              {subjects.map(
-                (subject) => (
+                {subjects.map((subject) => (
                   <option
                     key={subject.id}
-                    value={subject.id}
+                    value={subject.name}
                   >
                     {subject.name}
                     {subject.code
                       ? ` (${subject.code})`
                       : ''}
                   </option>
-                )
-              )}
-            </select>
-          </div>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label style={labelStyle}>
-              Assessment Type
-            </label>
+            {/* ASSESSMENT TYPE */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Assessment Type
+              </label>
 
-            <select
-              value={assessmentType}
-              onChange={(e) =>
-                setAssessmentType(
-                  e.target.value
-                )
-              }
-              style={inputStyle}
-            >
-              <option value="CA1">
-                CA1
-              </option>
-              <option value="CA2">
-                CA2
-              </option>
-              <option value="CA3">
-                CA3
-              </option>
-              <option value="Exam">
-                Exam
-              </option>
-            </select>
-          </div>
+              <select
+                value={selectedAssessmentType}
+                onChange={(event) =>
+                  setSelectedAssessmentType(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">
+                  Select Assessment
+                </option>
 
-          <div>
-            <label style={labelStyle}>
-              Maximum Score
-            </label>
+                <optgroup label="Continuous Assessment">
+                  {CA_TYPES.map((type) => (
+                    <option
+                      key={type.value}
+                      value={type.value}
+                    >
+                      {type.label} — /{type.max}
+                    </option>
+                  ))}
+                </optgroup>
 
-            <input
-              type="number"
-              min="1"
-              value={maxScore}
-              onChange={(e) =>
-                setMaxScore(
-                  e.target.value
-                )
-              }
-              style={inputStyle}
-            />
+                <optgroup label="Examination">
+                  <option
+                    value={EXAM_TYPE.value}
+                  >
+                    {EXAM_TYPE.label} — /100
+                  </option>
+                </optgroup>
+              </select>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Message */}
-      {message && (
-        <div
-          style={{
-            padding: 12,
-            marginBottom: 16,
-            borderRadius: 8,
-            background:
-              message.startsWith(
-                'Error'
-              )
-                ? '#fef2f2'
-                : '#f0fdf4',
-            color:
-              message.startsWith(
-                'Error'
-              )
-                ? '#b91c1c'
-                : '#166534',
-            fontSize: 14,
-          }}
-        >
-          {message}
-        </div>
-      )}
+        {/* CLASS STATISTICS */}
+        {students.length > 0 &&
+          selectedAssessmentType && (
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
 
-      {/* Statistics */}
-      {classId &&
-        students.length > 0 && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns:
-                'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: 10,
-              marginBottom: 20,
-            }}
-          >
-            <StatCard
-              title="Entered"
-              value={`${statistics.count}/${students.length}`}
-            />
-
-            <StatCard
-              title="Class Average"
-              value={`${statistics.average.toFixed(
-                1
-              )}%`}
-            />
-
-            <StatCard
-              title="Highest"
-              value={`${statistics.highest.toFixed(
-                1
-              )}%`}
-            />
-
-            <StatCard
-              title="Lowest"
-              value={`${statistics.lowest.toFixed(
-                1
-              )}%`}
-            />
-
-            <StatCard
-              title="Pass Rate"
-              value={`${statistics.passRate.toFixed(
-                1
-              )}%`}
-            />
-          </div>
-        )}
-
-      {/* Score Sheet */}
-      {classId && (
-        <form onSubmit={handleSaveAll}>
-          <div
-            style={{
-              background: 'white',
-              border:
-                '1px solid #e5e7eb',
-              borderRadius: 12,
-              overflow: 'hidden',
-              marginBottom: 24,
-            }}
-          >
-            <div
-              style={{
-                padding: 16,
-                borderBottom:
-                  '1px solid #e5e7eb',
-                display: 'flex',
-                justifyContent:
-                  'space-between',
-                alignItems: 'center',
-                gap: 10,
-                flexWrap: 'wrap',
-              }}
-            >
-              <div>
-                <h2
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 600,
-                    margin: 0,
-                  }}
-                >
-                  Class Score Sheet
-                </h2>
-
-                <p
-                  style={{
-                    margin:
-                      '4px 0 0',
-                    color: '#666',
-                    fontSize: 13,
-                  }}
-                >
-                  Existing scores are
-                  loaded automatically.
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-medium text-slate-500">
+                  Students
+                </p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">
+                  {students.length}
                 </p>
               </div>
 
-              {students.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    fillAllScores('')
-                  }
-                >
-                  Clear scores
-                </button>
-              )}
-            </div>
-
-            {loadingScores ? (
-              <p
-                style={{
-                  padding: 24,
-                  textAlign: 'center',
-                  color: '#666',
-                }}
-              >
-                Loading scores…
-              </p>
-            ) : students.length ===
-              0 ? (
-              <div
-                style={{
-                  padding: 24,
-                  textAlign: 'center',
-                  color: '#666',
-                }}
-              >
-                No students are enrolled
-                in this class for the
-                selected academic year.
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-medium text-slate-500">
+                  Scores Entered
+                </p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">
+                  {statistics.entered}
+                </p>
               </div>
-            ) : (
-              <>
-                <div
-                  style={{
-                    padding: 12,
-                    background:
-                      '#f8fafc',
-                    borderBottom:
-                      '1px solid #e5e7eb',
-                    display: 'flex',
-                    gap: 8,
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 13,
-                      color: '#666',
-                    }}
-                  >
-                    Quick fill:
-                  </span>
 
-                  {[0, 5, 10, 15, 20, 25, 30].map(
-                    (value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() =>
-                          fillAllScores(
-                            String(
-                              Math.min(
-                                value,
-                                Number(
-                                  maxScore
-                                ) ||
-                                  value
-                              )
-                            )
-                          )
-                        }
-                        style={{
-                          padding:
-                            '5px 9px',
-                          fontSize: 12,
-                        }}
-                      >
-                        {value}
-                      </button>
-                    )
-                  )}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-medium text-slate-500">
+                  Average
+                </p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">
+                  {statistics.average.toFixed(1)}%
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-medium text-slate-500">
+                  Highest
+                </p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">
+                  {statistics.highest.toFixed(1)}%
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-medium text-slate-500">
+                  Pass Rate
+                </p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">
+                  {statistics.passRate.toFixed(1)}%
+                </p>
+              </div>
+            </div>
+          )}
+
+        {/* SCORE SHEET */}
+        {selectedAssessmentType &&
+          selectedSubject &&
+          selectedClass &&
+          selectedTerm &&
+          selectedAcademicYear && (
+            <div className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+
+              <div className="border-b border-slate-200 p-4 sm:p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">
+                      Score Sheet
+                    </h2>
+
+                    <p className="mt-1 text-sm text-slate-600">
+                      {selectedSubject} •{' '}
+                      {selectedAssessmentType} •{' '}
+                      Maximum: {maxScore}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        quickFill(0)
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Fill 0
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        quickFill(5)
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Fill 5
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        quickFill(10)
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Fill 10
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        quickFill(15)
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Fill 15
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        quickFill(20)
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Fill 20
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        quickFill(25)
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Fill 25
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        quickFill(30)
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Fill 30
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={clearScores}
+                      className="rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
+              </div>
 
-                <div
-                  style={{
-                    overflowX: 'auto',
-                  }}
-                >
-                  <table
-                    style={{
-                      width: '100%',
-                      borderCollapse:
-                        'collapse',
-                      minWidth: 800,
-                    }}
-                  >
-                    <thead>
-                      <tr
-                        style={{
-                          background:
-                            '#f8fafc',
-                        }}
-                      >
-                        <th
-                          style={thStyle}
-                        >
+              {loadingStudents ? (
+                <div className="p-8 text-center text-sm text-slate-500">
+                  Loading class students...
+                </div>
+              ) : students.length === 0 ? (
+                <div className="p-8 text-center text-sm text-slate-500">
+                  No active students are enrolled
+                  in this class for the selected
+                  academic year.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">
                           #
                         </th>
 
-                        <th
-                          style={thStyle}
-                        >
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">
                           Student
                         </th>
 
-                        <th
-                          style={thStyle}
-                        >
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">
                           Admission No.
                         </th>
 
-                        <th
-                          style={thStyle}
-                        >
-                          Score /{' '}
-                          {maxScore ||
-                            '—'}
+                        <th className="px-4 py-3 text-center font-semibold text-slate-700">
+                          Score /{maxScore}
                         </th>
 
-                        <th
-                          style={thStyle}
-                        >
+                        <th className="px-4 py-3 text-center font-semibold text-slate-700">
                           %
                         </th>
 
-                        <th
-                          style={thStyle}
-                        >
+                        <th className="px-4 py-3 text-center font-semibold text-slate-700">
                           Grade
                         </th>
 
-                        <th
-                          style={thStyle}
-                        >
+                        <th className="px-4 py-3 text-center font-semibold text-slate-700">
                           Status
                         </th>
                       </tr>
                     </thead>
 
-                    <tbody>
+                    <tbody className="divide-y divide-slate-100">
                       {students.map(
-                        (
-                          student,
-                          index
-                        ) => {
-                          const scoreEntry =
-                            scores.find(
-                              (
-                                entry
-                              ) =>
-                                entry.student_id ===
+                        (student, index) => {
+                          const rawScore =
+                            scores[student.id] ??
+                            '';
+
+                          const numericScore =
+                            rawScore === ''
+                              ? 0
+                              : Number(
+                                  rawScore
+                                );
+
+                          const percentage =
+                            rawScore === ''
+                              ? 0
+                              : getPercentage(
+                                  numericScore,
+                                  maxScore
+                                );
+
+                          const grade =
+                            rawScore === ''
+                              ? '-'
+                              : getGrade(
+                                  percentage
+                                );
+
+                          const status =
+                            rawScore === ''
+                              ? '-'
+                              : getStatus(
+                                  percentage
+                                );
+
+                          const existing =
+                            existingAssessments.find(
+                              (record) =>
+                                record.student_id ===
                                 student.id
                             );
 
-                          const numericScore =
-                            scoreEntry?.score
-                              ? Number(
-                                  scoreEntry.score
-                                )
-                              : null;
-
-                          const maximum =
-                            Number(
-                              maxScore
-                            ) || 0;
-
-                          const percentage =
-                            numericScore !==
-                              null &&
-                            maximum > 0
-                              ? getPercentage(
-                                  numericScore,
-                                  maximum
-                                )
-                              : null;
-
                           return (
                             <tr
-                              key={
-                                student.id
-                              }
+                              key={student.id}
+                              className="hover:bg-slate-50"
                             >
-                              <td
-                                style={
-                                  tdStyle
-                                }
-                              >
-                                {index +
-                                  1}
+                              <td className="whitespace-nowrap px-4 py-3 text-slate-500">
+                                {index + 1}
                               </td>
 
-                              <td
-                                style={{
-                                  ...tdStyle,
-                                  fontWeight:
-                                    500,
-                                }}
-                              >
-                                {
-                                  student.full_name
-                                }
+                              <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+                                {student.full_name}
                               </td>
 
-                              <td
-                                style={
-                                  tdStyle
-                                }
-                              >
-                                {
-                                  student.admission_number
-                                }
+                              <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                                {student.admission_number}
                               </td>
 
-                              <td
-                                style={
-                                  tdStyle
-                                }
-                              >
+                              <td className="px-4 py-3 text-center">
                                 <input
                                   type="number"
                                   min="0"
-                                  max={
-                                    maximum ||
-                                    undefined
-                                  }
+                                  max={maxScore}
                                   step="0.01"
-                                  value={
-                                    scoreEntry?.score ??
-                                    ''
-                                  }
-                                  onChange={(
-                                    e
-                                  ) =>
-                                    updateScore(
+                                  value={rawScore}
+                                  onChange={(event) =>
+                                    handleScoreChange(
                                       student.id,
-                                      e.target
-                                        .value
+                                      event.target.value
                                     )
                                   }
-                                  placeholder="Score"
-                                  style={{
-                                    width: 110,
-                                    padding: 9,
-                                    border:
-                                      '1px solid #d1d5db',
-                                    borderRadius: 6,
-                                    fontSize: 14,
-                                  }}
+                                  className="w-24 rounded-lg border border-slate-300 px-2 py-2 text-center outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                                 />
                               </td>
 
-                              <td
-                                style={
-                                  tdStyle
-                                }
-                              >
-                                {percentage !==
-                                null
-                                  ? `${percentage.toFixed(
+                              <td className="whitespace-nowrap px-4 py-3 text-center font-medium text-slate-700">
+                                {rawScore === ''
+                                  ? '-'
+                                  : `${percentage.toFixed(
                                       1
-                                    )}%`
-                                  : '—'}
+                                    )}%`}
                               </td>
 
-                              <td
-                                style={{
-                                  ...tdStyle,
-                                  fontWeight:
-                                    600,
-                                }}
-                              >
-                                {percentage !==
-                                null
-                                  ? getGrade(
-                                      percentage
-                                    )
-                                  : '—'}
+                              <td className="px-4 py-3 text-center">
+                                <span className="font-semibold text-slate-800">
+                                  {grade}
+                                </span>
                               </td>
 
-                              <td
-                                style={
-                                  tdStyle
-                                }
-                              >
-                                {percentage !==
-                                null
-                                  ? getStatus(
-                                      percentage
-                                    )
-                                  : '—'}
+                              <td className="px-4 py-3 text-center">
+                                {status === '-' ? (
+                                  <span className="text-slate-400">
+                                    -
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                      status ===
+                                      'Pass'
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-red-100 text-red-700'
+                                    }`}
+                                  >
+                                    {status}
+                                  </span>
+                                )}
+
+                                {existing && (
+                                  <div className="mt-1 text-[10px] text-slate-400">
+                                    Saved
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );
@@ -1427,248 +1433,180 @@ export default function AssessmentPage() {
                     </tbody>
                   </table>
                 </div>
+              )}
 
-                <div
-                  style={{
-                    padding: 16,
-                    borderTop:
-                      '1px solid #e5e7eb',
-                    display: 'flex',
-                    justifyContent:
-                      'flex-end',
-                  }}
-                >
+              {students.length > 0 && (
+                <div className="flex flex-col gap-3 border-t border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                  <p className="text-xs text-slate-500">
+                    Entered scores are automatically
+                    limited to the maximum mark of{' '}
+                    {maxScore}.
+                  </p>
+
                   <button
-                    type="submit"
+                    type="button"
+                    onClick={saveScores}
                     disabled={saving}
-                    style={{
-                      padding:
-                        '11px 20px',
-                      fontWeight: 600,
-                    }}
+                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {saving
-                      ? 'Saving scores…'
-                      : 'Save / Update All Scores'}
+                      ? 'Saving...'
+                      : 'Save All Scores'}
                   </button>
                 </div>
-              </>
-            )}
+              )}
+            </div>
+          )}
+
+        {/* CA CALCULATION PREVIEW */}
+        {students.length > 0 && (
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 p-4 sm:p-6">
+              <h2 className="text-lg font-semibold text-slate-900">
+                Results Calculation Preview
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-600">
+                The system keeps the seven CA
+                components and calculates the official
+                30% + 70% result automatically.
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                      Student
+                    </th>
+
+                    <th className="px-4 py-3 text-center font-semibold text-slate-700">
+                      CA Raw /100
+                    </th>
+
+                    <th className="px-4 py-3 text-center font-semibold text-slate-700">
+                      CA /30
+                    </th>
+
+                    <th className="px-4 py-3 text-center font-semibold text-slate-700">
+                      Exam /100
+                    </th>
+
+                    <th className="px-4 py-3 text-center font-semibold text-slate-700">
+                      Exam /70
+                    </th>
+
+                    <th className="px-4 py-3 text-center font-semibold text-slate-700">
+                      Final /100
+                    </th>
+
+                    <th className="px-4 py-3 text-center font-semibold text-slate-700">
+                      Grade
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {caSummary.map((item) => {
+                    const student =
+                      students.find(
+                        (studentItem) =>
+                          studentItem.id ===
+                          item.studentId
+                      );
+
+                    const grade =
+                      item.finalScore > 0
+                        ? getGrade(
+                            item.finalScore
+                          )
+                        : '-';
+
+                    return (
+                      <tr
+                        key={item.studentId}
+                        className="hover:bg-slate-50"
+                      >
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+                          {student?.full_name}
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          {item.rawTotal.toFixed(1)}
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          {item.caContribution.toFixed(
+                            1
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          {item.examRaw.toFixed(1)}
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          {item.examContribution.toFixed(
+                            1
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-center font-bold text-slate-900">
+                          {item.finalScore.toFixed(
+                            1
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-center font-bold">
+                          {grade}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </form>
-      )}
+        )}
 
-      {/* Recent Scores */}
-      <div>
-        <h2
-          style={{
-            fontSize: 18,
-            fontWeight: 600,
-            marginBottom: 10,
-          }}
-        >
-          Recent Scores
-        </h2>
+        {/* MARKING FORMULA */}
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <h2 className="text-lg font-semibold text-slate-900">
+            BTI Result Formula
+          </h2>
 
-        {records.length === 0 ? (
-          <p style={{ color: '#666' }}>
-            No scores recorded yet.
-          </p>
-        ) : (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection:
-                'column',
-              gap: 8,
-            }}
-          >
-            {records.map(
-              (record) => {
-                const percentage =
-                  getPercentage(
-                    Number(
-                      record.score
-                    ),
-                    Number(
-                      record.max_score
-                    )
-                  );
+          <div className="mt-4 space-y-3 text-sm text-slate-700">
+            <p>
+              <strong>CA Raw:</strong> Exercise 1 +
+              Exercise 2 + Exercise 3 + Exercise 4 +
+              Class Test 1 + Class Test 2 + Class Test
+              3 = /100
+            </p>
 
-                return (
-                  <div
-                    key={
-                      record.id
-                    }
-                    style={{
-                      display:
-                        'flex',
-                      justifyContent:
-                        'space-between',
-                      alignItems:
-                        'center',
-                      gap: 12,
-                      padding: 12,
-                      background:
-                        'white',
-                      border:
-                        '1px solid #e5e7eb',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <div>
-                      <p
-                        style={{
-                          margin: 0,
-                          fontWeight:
-                            500,
-                        }}
-                      >
-                        {studentName(
-                          record.student_id
-                        )}
-                      </p>
+            <p>
+              <strong>CA Contribution:</strong> (CA
+              Raw ÷ 100) × 30 = /30
+            </p>
 
-                      <p
-                        style={{
-                          margin:
-                            '3px 0 0',
-                          fontSize: 13,
-                          color:
-                            '#666',
-                        }}
-                      >
-                        {
-                          record.subject
-                        }{' '}
-                        ·{' '}
-                        {
-                          record.assessment_type
-                        }
-                        {record.term
-                          ? ` · ${record.term}`
-                          : ''}
-                      </p>
-                    </div>
+            <p>
+              <strong>Exam Contribution:</strong> (Exam
+              Raw ÷ 100) × 70 = /70
+            </p>
 
-                    <div
-                      style={{
-                        textAlign:
-                          'right',
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 14,
-                          fontWeight:
-                            600,
-                        }}
-                      >
-                        {
-                          record.score
-                        }
-                        /
-                        {
-                          record.max_score
-                        }
-                      </div>
+            <p>
+              <strong>Final Score:</strong> CA
+              Contribution + Exam Contribution = /100
+            </p>
+          </div>
+        </div>
 
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color:
-                            '#666',
-                        }}
-                      >
-                        {percentage.toFixed(
-                          1
-                        )}
-                        % ·{' '}
-                        {getGrade(
-                          percentage
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-            )}
+        {loading && (
+          <div className="mt-6 text-center text-sm text-slate-500">
+            Loading academic information...
           </div>
         )}
       </div>
     </div>
   );
 }
-
-function StatCard({
-  title,
-  value,
-}: {
-  title: string;
-  value: string;
-}) {
-  return (
-    <div
-      style={{
-        background: 'white',
-        border:
-          '1px solid #e5e7eb',
-        borderRadius: 10,
-        padding: 14,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 12,
-          color: '#6b7280',
-          marginBottom: 5,
-        }}
-      >
-        {title}
-      </div>
-
-      <div
-        style={{
-          fontSize: 20,
-          fontWeight: 700,
-        }}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 13,
-  fontWeight: 500,
-  color: '#4b5563',
-  marginBottom: 6,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '10px 11px',
-  border: '1px solid #d1d5db',
-  borderRadius: 7,
-  background: 'white',
-  fontSize: 14,
-};
-
-const thStyle: React.CSSProperties = {
-  textAlign: 'left',
-  padding: 12,
-  fontSize: 13,
-  fontWeight: 600,
-  color: '#4b5563',
-  borderBottom:
-    '1px solid #e5e7eb',
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: 12,
-  fontSize: 14,
-  borderBottom:
-    '1px solid #f0f0f0',
-};
