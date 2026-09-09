@@ -10,7 +10,6 @@ export default function AddStudentPage() {
   const router = useRouter();
 
   const [form, setForm] = useState({
-    admission_number: '',
     full_name: '',
     date_of_birth: '',
     gender: '',
@@ -35,13 +34,9 @@ export default function AddStudentPage() {
 
     setError('');
 
-    if (
-      !form.admission_number ||
-      !form.full_name ||
-      !form.admission_date
-    ) {
+    if (!form.full_name.trim() || !form.admission_date) {
       setError(
-        'Admission number, full name and admission date are required.'
+        'Full name and admission date are required.'
       );
       return;
     }
@@ -57,23 +52,34 @@ export default function AddStudentPage() {
       return;
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('school_id')
-      .eq('id', user.id)
-      .single();
+    const { data: profile, error: profileError } =
+      await supabase
+        .from('users')
+        .select('school_id')
+        .eq('id', user.id)
+        .single();
 
-    if (!profile) {
+    if (profileError || !profile) {
       setError('Could not find your school profile.');
       setLoading(false);
       return;
     }
 
+    /*
+     * Admission number is intentionally NOT supplied here.
+     *
+     * The Supabase database trigger automatically generates:
+     *
+     * BTI/2026/0001
+     * BTI/2026/0002
+     * BTI/2026/0003
+     *
+     * based on the student's admission date.
+     */
     const { error: insertError } = await supabase
       .from('students')
       .insert({
         school_id: profile.school_id,
-        admission_number: form.admission_number.trim(),
         full_name: form.full_name.trim(),
         date_of_birth: form.date_of_birth || null,
         gender: form.gender || null,
@@ -130,25 +136,26 @@ export default function AddStudentPage() {
             </p>
           </div>
 
+          {/* Automatic Admission Number Notice */}
+          <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-sm font-semibold text-blue-900">
+              Admission Number
+            </p>
+
+            <p className="mt-1 text-sm text-blue-700">
+              The system will automatically generate the student's
+              unique admission number after registration.
+            </p>
+
+            <p className="mt-2 text-xs text-blue-600">
+              Example: BTI/2026/0001
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
-                Admission Number *
-              </label>
-
-              <input
-                type="text"
-                value={form.admission_number}
-                onChange={(e) =>
-                  updateField('admission_number', e.target.value)
-                }
-                placeholder="e.g. BTI/2026/001"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-
-            <div>
+            {/* Full Name */}
+            <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Full Name *
               </label>
@@ -160,10 +167,12 @@ export default function AddStudentPage() {
                   updateField('full_name', e.target.value)
                 }
                 placeholder="Student full name"
+                required
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
+            {/* Date of Birth */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Date of Birth
@@ -175,10 +184,11 @@ export default function AddStudentPage() {
                 onChange={(e) =>
                   updateField('date_of_birth', e.target.value)
                 }
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
+            {/* Gender */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Gender
@@ -197,6 +207,7 @@ export default function AddStudentPage() {
               </select>
             </div>
 
+            {/* Guardian Name */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Guardian Name
@@ -213,6 +224,7 @@ export default function AddStudentPage() {
               />
             </div>
 
+            {/* Guardian Phone */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Guardian Phone
@@ -229,6 +241,7 @@ export default function AddStudentPage() {
               />
             </div>
 
+            {/* Address */}
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Address
@@ -245,6 +258,7 @@ export default function AddStudentPage() {
               />
             </div>
 
+            {/* Admission Date */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Admission Date *
@@ -256,8 +270,14 @@ export default function AddStudentPage() {
                 onChange={(e) =>
                   updateField('admission_date', e.target.value)
                 }
+                required
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
               />
+
+              <p className="mt-1 text-xs text-slate-400">
+                The admission year will be used for the automatic
+                admission number.
+              </p>
             </div>
           </div>
 
@@ -280,7 +300,9 @@ export default function AddStudentPage() {
               disabled={loading}
               className="rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? 'Registering...' : 'Register Student'}
+              {loading
+                ? 'Registering...'
+                : 'Register Student'}
             </button>
           </div>
         </form>
