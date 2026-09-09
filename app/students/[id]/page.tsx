@@ -799,7 +799,7 @@ export default function StudentProfilePage() {
                   : 'Not provided'}
               </p>
 
-                            <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1 text-xs text-slate-400">
                 Aggregate used for admission into BTI.
               </p>
             </div>
@@ -1449,7 +1449,7 @@ export default function StudentProfilePage() {
 
                   <h3 className="font-bold text-slate-900">
                     Recent Assessments
-                                     </h3>
+                  </h3>
 
                   <p className="text-xs text-slate-500">
                     Latest recorded scores
@@ -1561,7 +1561,7 @@ export default function StudentProfilePage() {
         </div>
 
         {/* Bottom Actions */}
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
+        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
 
           <Link
             href="/students"
@@ -1572,9 +1572,16 @@ export default function StudentProfilePage() {
 
           <Link
             href={`/students/${student.id}/edit`}
-            className="rounded-xl bg-blue-600 px-6 py-3 text-center font-semibold text-white shadow-sm hover:bg-blue-700"
+            className="rounded-xl bg-blue-600 px-6 py-3 text-center font-semibold text-white hover:bg-blue-700"
           >
-            Edit Student
+            ✏️ Edit Student
+          </Link>
+
+          <Link
+            href={`/report-card/${student.id}`}
+            className="rounded-xl bg-slate-900 px-6 py-3 text-center font-semibold text-white hover:bg-slate-800"
+          >
+            📄 Report Card
           </Link>
 
         </div>
