@@ -26,9 +26,7 @@ type Enrollment = {
   academic_year_id: string;
   class_id: string;
   programme_id: string | null;
-  academic_year: {
-    name: string;
-  }[] | null;
+  academic_year: { name: string }[] | null;
   class: {
     name: string;
     level: string | null;
@@ -46,6 +44,16 @@ type AttendanceRecord = {
   class_id: string;
 };
 
+type Assessment = {
+  id: string;
+  subject: string;
+  assessment_type: string;
+  score: number;
+  max_score: number;
+  term: string | null;
+  created_at: string;
+};
+
 export default function StudentProfilePage() {
   const supabase = createClient();
   const params = useParams();
@@ -56,10 +64,12 @@ export default function StudentProfilePage() {
   const [student, setStudent] = useState<Student | null>(null);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [assessments, setAssessments] = useState<Assessment[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [enrollmentLoading, setEnrollmentLoading] = useState(true);
   const [attendanceLoading, setAttendanceLoading] = useState(true);
+  const [resultsLoading, setResultsLoading] = useState(true);
 
   const [error, setError] = useState('');
 
@@ -112,6 +122,7 @@ export default function StudentProfilePage() {
     await Promise.all([
       loadEnrollments(studentId),
       loadAttendance(studentId),
+      loadAssessments(studentId),
     ]);
   }
 
@@ -178,6 +189,35 @@ export default function StudentProfilePage() {
     }
 
     setAttendanceLoading(false);
+  }
+
+  async function loadAssessments(id: string) {
+    setResultsLoading(true);
+
+    const { data, error: assessmentError } = await supabase
+      .from('assessments')
+      .select(`
+        id,
+        subject,
+        assessment_type,
+        score,
+        max_score,
+        term,
+        created_at
+      `)
+      .eq('student_id', id)
+      .order('created_at', {
+        ascending: false,
+      });
+
+    if (assessmentError) {
+      console.error(assessmentError);
+      setAssessments([]);
+    } else {
+      setAssessments((data ?? []) as Assessment[]);
+    }
+
+    setResultsLoading(false);
   }
 
   useEffect(() => {
@@ -279,6 +319,33 @@ export default function StudentProfilePage() {
     return '•';
   }
 
+  function getScorePercentage(
+    score: number,
+    maxScore: number
+  ) {
+    if (!maxScore || maxScore <= 0) return 0;
+
+    return Math.round(
+      (Number(score) / Number(maxScore)) * 100
+    );
+  }
+
+  function getResultClasses(percentage: number) {
+    if (percentage >= 80) {
+      return 'bg-green-100 text-green-700';
+    }
+
+    if (percentage >= 60) {
+      return 'bg-blue-100 text-blue-700';
+    }
+
+    if (percentage >= 50) {
+      return 'bg-yellow-100 text-yellow-700';
+    }
+
+    return 'bg-red-100 text-red-700';
+  }
+
   const totalAttendance = attendance.length;
 
   const presentCount = attendance.filter(
@@ -307,6 +374,77 @@ export default function StudentProfilePage() {
           (presentCount / totalAttendance) * 100
         )
       : 0;
+
+  const totalAssessments = assessments.length;
+
+  const totalScore = assessments.reduce(
+    (sum, assessment) =>
+      sum + Number(assessment.score),
+    0
+  );
+
+  const totalMaxScore = assessments.reduce(
+    (sum, assessment) =>
+      sum + Number(assessment.max_score),
+    0
+  );
+
+  const overallPercentage =
+    totalMaxScore > 0
+      ? Math.round(
+          (totalScore / totalMaxScore) * 100
+        )
+      : 0;
+
+  const subjectNames = Array.from(
+    new Set(
+      assessments.map(
+        (assessment) => assessment.subject
+      )
+    )
+  );
+
+  const subjectAverages = subjectNames.map(
+    (subject) => {
+      const subjectResults = assessments.filter(
+        (assessment) =>
+          assessment.subject === subject
+      );
+
+      const subjectScore = subjectResults.reduce(
+        (sum, assessment) =>
+          sum + Number(assessment.score),
+        0
+      );
+
+      const subjectMax = subjectResults.reduce(
+        (sum, assessment) =>
+          sum + Number(assessment.max_score),
+        0
+      );
+
+      const percentage =
+        subjectMax > 0
+          ? Math.round(
+              (subjectScore / subjectMax) * 100
+            )
+          : 0;
+
+      return {
+        subject,
+        percentage,
+        count: subjectResults.length,
+      };
+    }
+  );
+
+  const bestSubject =
+    subjectAverages.length > 0
+      ? [...subjectAverages].sort(
+          (a, b) =>
+            b.percentage - a.percentage
+        )[0]
+      : null;
 
   if (loading) {
     return (
@@ -353,7 +491,8 @@ export default function StudentProfilePage() {
 
   const currentEnrollment =
     enrollments.find(
-      (enrollment) => enrollment.status === 'active'
+      (enrollment) =>
+        enrollment.status === 'active'
     ) || null;
 
   return (
@@ -660,7 +799,7 @@ export default function StudentProfilePage() {
                   : 'Not provided'}
               </p>
 
-              <p className="mt-1 text-xs text-slate-400">
+                            <p className="mt-1 text-xs text-slate-400">
                 Aggregate used for admission into BTI.
               </p>
             </div>
@@ -763,7 +902,7 @@ export default function StudentProfilePage() {
                 No enrollment history
               </p>
 
-                            <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-500">
                 Enrollment records will appear here once the
                 student is enrolled.
               </p>
@@ -913,11 +1052,9 @@ export default function StudentProfilePage() {
 
             <>
 
-              {/* Attendance Summary */}
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                     Recorded
                   </p>
@@ -929,11 +1066,9 @@ export default function StudentProfilePage() {
                   <p className="mt-1 text-xs text-slate-500">
                     Days
                   </p>
-
                 </div>
 
                 <div className="rounded-xl border border-green-100 bg-green-50 p-4">
-
                   <p className="text-xs font-medium uppercase tracking-wide text-green-600">
                     Present
                   </p>
@@ -941,11 +1076,9 @@ export default function StudentProfilePage() {
                   <p className="mt-2 text-2xl font-bold text-green-700">
                     {presentCount}
                   </p>
-
                 </div>
 
                 <div className="rounded-xl border border-red-100 bg-red-50 p-4">
-
                   <p className="text-xs font-medium uppercase tracking-wide text-red-600">
                     Absent
                   </p>
@@ -953,11 +1086,9 @@ export default function StudentProfilePage() {
                   <p className="mt-2 text-2xl font-bold text-red-700">
                     {absentCount}
                   </p>
-
                 </div>
 
                 <div className="rounded-xl border border-yellow-100 bg-yellow-50 p-4">
-
                   <p className="text-xs font-medium uppercase tracking-wide text-yellow-700">
                     Late
                   </p>
@@ -965,11 +1096,9 @@ export default function StudentProfilePage() {
                   <p className="mt-2 text-2xl font-bold text-yellow-700">
                     {lateCount}
                   </p>
-
                 </div>
 
                 <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-
                   <p className="text-xs font-medium uppercase tracking-wide text-blue-600">
                     Attendance
                   </p>
@@ -977,12 +1106,10 @@ export default function StudentProfilePage() {
                   <p className="mt-2 text-2xl font-bold text-blue-700">
                     {attendancePercentage}%
                   </p>
-
                 </div>
 
               </div>
 
-              {/* Attendance Progress */}
               <div className="mt-6">
 
                 <div className="mb-2 flex items-center justify-between">
@@ -1010,37 +1137,23 @@ export default function StudentProfilePage() {
 
               </div>
 
-              {/* Excused */}
               {excusedCount > 0 && (
-                <div className="mt-4">
-
-                  <p className="text-xs text-slate-500">
-                    Excused absences: {excusedCount}
-                  </p>
-
-                </div>
+                <p className="mt-4 text-xs text-slate-500">
+                  Excused absences: {excusedCount}
+                </p>
               )}
 
-              {/* Recent Attendance */}
               <div className="mt-8">
 
-                <div className="mb-4 flex items-center justify-between">
+                <h3 className="font-bold text-slate-900">
+                  Recent Attendance
+                </h3>
 
-                  <div>
+                <p className="text-xs text-slate-500">
+                  Latest attendance records
+                </p>
 
-                    <h3 className="font-bold text-slate-900">
-                      Recent Attendance
-                    </h3>
-
-                    <p className="text-xs text-slate-500">
-                      Latest attendance records
-                    </p>
-
-                  </div>
-
-                </div>
-
-                <div className="space-y-3">
+                <div className="mt-4 space-y-3">
 
                   {attendance
                     .slice(0, 10)
@@ -1102,21 +1215,348 @@ export default function StudentProfilePage() {
         {/* Results */}
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
 
-          <h2 className="text-xl font-bold text-slate-900">
-            Results
-          </h2>
+          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 
-          <p className="mt-1 text-sm text-slate-500">
-            Assessment and academic results will appear here.
-          </p>
+            <div>
 
-          <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
+              <h2 className="text-xl font-bold text-slate-900">
+                Academic Results
+              </h2>
 
-            <p className="text-sm text-slate-400">
-              Coming next
-            </p>
+              <p className="mt-1 text-sm text-slate-500">
+                Assessment performance for this student.
+              </p>
+
+            </div>
+
+            <Link
+              href="/assessment"
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Manage Assessments
+            </Link>
 
           </div>
+
+          {resultsLoading ? (
+
+            <div className="rounded-xl bg-slate-50 p-5">
+              <p className="text-sm text-slate-500">
+                Loading results...
+              </p>
+            </div>
+
+          ) : totalAssessments === 0 ? (
+
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+
+              <div className="mb-2 text-3xl">
+                📊
+              </div>
+
+              <p className="font-medium text-slate-700">
+                No assessment results
+              </p>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Assessment results will appear here once
+                scores have been recorded for this student.
+              </p>
+
+              <Link
+                href="/assessment"
+                className="mt-4 inline-block rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Record Assessment
+              </Link>
+
+            </div>
+
+          ) : (
+
+            <>
+
+              {/* Results Summary */}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                    Assessments
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-slate-900">
+                    {totalAssessments}
+                  </p>
+
+                </div>
+
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-blue-600">
+                    Overall Average
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-blue-700">
+                    {overallPercentage}%
+                  </p>
+
+                </div>
+
+                <div className="rounded-xl border border-green-100 bg-green-50 p-5">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-green-600">
+                    Subjects
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-green-700">
+                    {subjectNames.length}
+                  </p>
+
+                </div>
+
+                <div className="rounded-xl border border-purple-100 bg-purple-50 p-5">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-purple-600">
+                    Best Subject
+                  </p>
+
+                  <p className="mt-2 truncate text-lg font-bold text-purple-700">
+                    {bestSubject?.subject || '—'}
+                  </p>
+
+                  {bestSubject && (
+                    <p className="mt-1 text-xs text-purple-500">
+                      {bestSubject.percentage}%
+                    </p>
+                  )}
+
+                </div>
+
+              </div>
+
+              {/* Overall Progress */}
+              <div className="mt-6">
+
+                <div className="mb-2 flex items-center justify-between">
+
+                  <p className="text-sm font-medium text-slate-700">
+                    Overall Performance
+                  </p>
+
+                  <p className="text-sm font-bold text-blue-700">
+                    {overallPercentage}%
+                  </p>
+
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+
+                  <div
+                    className="h-full rounded-full bg-blue-600 transition-all"
+                    style={{
+                      width: `${Math.min(
+                        overallPercentage,
+                        100
+                      )}%`,
+                    }}
+                  />
+
+                </div>
+
+              </div>
+
+              {/* Subject Performance */}
+              {subjectAverages.length > 0 && (
+
+                <div className="mt-8">
+
+                  <h3 className="font-bold text-slate-900">
+                    Subject Performance
+                  </h3>
+
+                  <p className="text-xs text-slate-500">
+                    Average performance by subject
+                  </p>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+                    {subjectAverages
+                      .sort(
+                        (a, b) =>
+                          b.percentage -
+                          a.percentage
+                      )
+                      .map((subject) => (
+
+                        <div
+                          key={subject.subject}
+                          className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                        >
+
+                          <div className="flex items-center justify-between gap-3">
+
+                            <p className="truncate text-sm font-semibold text-slate-800">
+                              {subject.subject}
+                            </p>
+
+                            <span
+                              className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${getResultClasses(
+                                subject.percentage
+                              )}`}
+                            >
+                              {subject.percentage}%
+                            </span>
+
+                          </div>
+
+                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+
+                            <div
+                              className="h-full rounded-full bg-blue-600"
+                              style={{
+                                width: `${Math.min(
+                                  subject.percentage,
+                                  100
+                                )}%`,
+                              }}
+                            />
+
+                          </div>
+
+                          <p className="mt-2 text-xs text-slate-400">
+                            {subject.count}{' '}
+                            assessment
+                            {subject.count !== 1
+                              ? 's'
+                              : ''}
+                          </p>
+
+                        </div>
+
+                      ))}
+
+                  </div>
+
+                </div>
+
+              )}
+
+              {/* Recent Results */}
+              <div className="mt-8">
+
+                <div className="mb-4">
+
+                  <h3 className="font-bold text-slate-900">
+                    Recent Assessments
+                                     </h3>
+
+                  <p className="text-xs text-slate-500">
+                    Latest recorded scores
+                  </p>
+
+                </div>
+
+                <div className="space-y-3">
+
+                  {assessments
+                    .slice(0, 10)
+                    .map((assessment) => {
+
+                      const percentage =
+                        getScorePercentage(
+                          Number(
+                            assessment.score
+                          ),
+                          Number(
+                            assessment.max_score
+                          )
+                        );
+
+                      return (
+                        <div
+                          key={assessment.id}
+                          className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                        >
+
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
+                            <div>
+
+                              <p className="font-semibold text-slate-800">
+                                {assessment.subject}
+                              </p>
+
+                              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+
+                                <span>
+                                  {assessment.assessment_type}
+                                </span>
+
+                                {assessment.term && (
+                                  <>
+                                    <span>•</span>
+                                    <span>
+                                      {assessment.term}
+                                    </span>
+                                  </>
+                                )}
+
+                                <span>•</span>
+
+                                <span>
+                                  {formatDate(
+                                    assessment.created_at
+                                  )}
+                                </span>
+
+                              </div>
+
+                            </div>
+
+                            <div className="flex items-center gap-3">
+
+                              <div className="text-right">
+
+                                <p className="font-bold text-slate-800">
+                                  {Number(
+                                    assessment.score
+                                  )}{' '}
+                                  /{' '}
+                                  {Number(
+                                    assessment.max_score
+                                  )}
+                                </p>
+
+                                <p className="text-xs text-slate-400">
+                                  Score
+                                </p>
+
+                              </div>
+
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-bold ${getResultClasses(
+                                  percentage
+                                )}`}
+                              >
+                                {percentage}%
+                              </span>
+
+                            </div>
+
+                          </div>
+
+                        </div>
+                      );
+                    })}
+
+                </div>
+
+              </div>
+
+            </>
+
+          )}
 
         </div>
 
