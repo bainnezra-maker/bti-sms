@@ -6,11 +6,17 @@ import { createClient } from '@/lib/supabase/client';
 
 type Student = {
   id: string;
-  full_name: string;
   admission_number: string;
-  gender: string | null;
+  full_name: string;
   date_of_birth: string | null;
+  gender: string | null;
   jhs_aggregate: number | null;
+  photo_url: string | null;
+  conduct: string | null;
+  promotion_status: string | null;
+  class_teacher_remark: string | null;
+  hod_remark: string | null;
+  next_term_begins: string | null;
 };
 
 type AcademicYear = {
@@ -28,21 +34,20 @@ type Term = {
 type Enrollment = {
   id: string;
   class_id: string;
-  academic_year_id: string;
   programme_id: string | null;
-  status: string | null;
-};
-
-type ClassItem = {
-  id: string;
-  name: string;
-  level: string | null;
-};
-
-type Programme = {
-  id: string;
-  name: string;
-  code: string | null;
+  academic_year_id: string;
+  enrollment_date: string;
+  status: string;
+  class: {
+    id: string;
+    name: string;
+    level: string | null;
+  }[] | null;
+  programme: {
+    id: string;
+    name: string;
+    code: string | null;
+  }[] | null;
 };
 
 type Assessment = {
@@ -66,17 +71,6 @@ type StudentClassAverage = {
   average: number;
 };
 
-type SubjectResult = {
-  subject: string;
-  caRaw: number;
-  caContribution: number;
-  examRaw: number;
-  examContribution: number;
-  finalScore: number;
-  grade: string;
-  status: string;
-};
-
 const CA_TYPES = [
   'Exercise 1',
   'Exercise 2',
@@ -96,720 +90,515 @@ function getGrade(score: number) {
   return 'F';
 }
 
-function getRemark(score: number) {
-  if (score >= 80) return 'Excellent';
-  if (score >= 70) return 'Very Good';
-  if (score >= 60) return 'Good';
-  if (score >= 50) return 'Pass';
-  if (score >= 40) return 'Fair';
-  return 'Needs Improvement';
-}
-
-function getPositionLabel(position: number | null) {
-  if (!position) return '—';
-
-  if (position % 100 >= 11 && position % 100 <= 13) {
-    return `${position}th`;
-  }
-
-  switch (position % 10) {
-    case 1:
-      return `${position}st`;
-    case 2:
-      return `${position}nd`;
-    case 3:
-      return `${position}rd`;
+function getGradeDescription(grade: string) {
+  switch (grade) {
+    case 'A':
+      return 'Excellent';
+    case 'B':
+      return 'Very Good';
+    case 'C':
+      return 'Good';
+    case 'D':
+      return 'Credit';
+    case 'E':
+      return 'Pass';
+    case 'F':
+      return 'Fail';
     default:
-      return `${position}th`;
+      return '';
   }
 }
 
-export default function StudentReportCardPage() {
+function formatDate(date: string | null) {
+  if (!date) return '—';
+
+  const value = new Date(date);
+
+  if (Number.isNaN(value.getTime())) {
+    return date;
+  }
+
+  return value.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+export default function ReportCardPage() {
   const params = useParams();
   const router = useRouter();
-
-  const studentId = params?.id as string;
-
   const supabase = createClient();
 
-  const [loading, setLoading] = useState(true);
-  const [calculating, setCalculating] = useState(false);
-  const [error, setError] = useState('');
+  const studentId = params.id as string;
 
   const [student, setStudent] = useState<Student | null>(null);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
-
-  const [selectedYear, setSelectedYear] = useState('');
-  const [selectedTerm, setSelectedTerm] = useState('');
-
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
-  const [classItem, setClassItem] = useState<ClassItem | null>(null);
-  const [programme, setProgramme] = useState<Programme | null>(null);
 
   const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [results, setResults] = useState<SubjectResult[]>([]);
-
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [classAverages, setClassAverages] = useState<
     StudentClassAverage[]
   >([]);
 
+  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedTerm, setSelectedTerm] = useState('');
+
+  const [loading, setLoading] = useState(true);
+  const [loadingResults, setLoadingResults] = useState(false);
+
   useEffect(() => {
-    if (!studentId) return;
-
-    async function loadInitialData() {
-      setLoading(true);
-      setError('');
-
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          router.push('/login');
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from('users')
-          .select('school_id')
-          .eq('id', user.id)
-          .single();
-
-        if (profileError || !profile?.school_id) {
-          throw new Error('Unable to identify the school.');
-        }
-
-        const schoolId = profile.school_id;
-
-        const { data: studentData, error: studentError } =
-          await supabase
-            .from('students')
-            .select(`
-              id,
-              full_name,
-              admission_number,
-              gender,
-              date_of_birth,
-              jhs_aggregate
-            `)
-            .eq('id', studentId)
-            .eq('school_id', schoolId)
-            .single();
-
-        if (studentError || !studentData) {
-          throw new Error('Student could not be found.');
-        }
-
-        setStudent(studentData);
-
-        const { data: years, error: yearsError } = await supabase
-          .from('academic_years')
-          .select('id, name, is_current')
-          .eq('school_id', schoolId)
-          .order('name', { ascending: false });
-
-        if (yearsError) {
-          throw new Error(yearsError.message);
-        }
-
-        setAcademicYears(years || []);
-
-        const currentYear =
-          years?.find((year) => year.is_current) || years?.[0];
-
-        if (currentYear) {
-          setSelectedYear(currentYear.id);
-        }
-      } catch (err: any) {
-        setError(err.message || 'Something went wrong.');
-      } finally {
-        setLoading(false);
-      }
-    }
-
     loadInitialData();
   }, [studentId]);
 
   useEffect(() => {
-    if (!selectedYear) {
-      setTerms([]);
-      setSelectedTerm('');
+    if (selectedYear && student) {
+      loadTerms(selectedYear);
+    }
+  }, [selectedYear, student]);
+
+  useEffect(() => {
+    if (selectedYear && selectedTerm && student) {
+      loadReportData();
+    }
+  }, [selectedYear, selectedTerm, student]);
+
+  async function getSchoolId() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      router.push('/login');
+      return null;
+    }
+
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('school_id')
+      .eq('id', user.id)
+      .single();
+
+    return userProfile?.school_id || null;
+  }
+
+  async function loadInitialData() {
+    setLoading(true);
+
+    const schoolId = await getSchoolId();
+
+    if (!schoolId) {
+      setLoading(false);
       return;
     }
 
-    async function loadTerms() {
-      const { data, error } = await supabase
-        .from('terms')
-        .select('id, name, is_current')
-        .eq('academic_year_id', selectedYear)
-        .order('start_date', { ascending: true });
+    const { data: studentData, error: studentError } =
+      await supabase
+        .from('students')
+        .select(`
+          id,
+          admission_number,
+          full_name,
+          date_of_birth,
+          gender,
+          jhs_aggregate,
+          photo_url,
+          conduct,
+          promotion_status,
+          class_teacher_remark,
+          hod_remark,
+          next_term_begins
+        `)
+        .eq('id', studentId)
+        .eq('school_id', schoolId)
+        .single();
 
-      if (error) {
-        setError(error.message);
-        return;
-      }
-
-      setTerms(data || []);
-
-      const currentTerm =
-        data?.find((term) => term.is_current) || data?.[0];
-
-      setSelectedTerm(currentTerm?.id || '');
+    if (studentError || !studentData) {
+      setLoading(false);
+      return;
     }
 
-    loadTerms();
-  }, [selectedYear]);
+    setStudent(studentData);
 
-  useEffect(() => {
-    if (!studentId || !selectedYear || !selectedTerm) return;
+    const { data: yearsData } = await supabase
+      .from('academic_years')
+      .select('id, name, is_current')
+      .eq('school_id', schoolId)
+      .order('start_date', { ascending: false });
 
-    async function loadReportCard() {
-      setCalculating(true);
-      setError('');
+    const years = (yearsData || []) as AcademicYear[];
 
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+    setAcademicYears(years);
 
-        if (!user) {
-          router.push('/login');
-          return;
-        }
+    const currentYear =
+      years.find((year) => year.is_current) || years[0];
 
-        const { data: profile, error: profileError } =
-          await supabase
-            .from('users')
-            .select('school_id')
-            .eq('id', user.id)
-            .single();
+    if (currentYear) {
+      setSelectedYear(currentYear.id);
 
-        if (profileError || !profile?.school_id) {
-          throw new Error('Unable to identify school.');
-        }
-
-        const schoolId = profile.school_id;
-
-        const selectedTermObject = terms.find(
-          (term) => term.id === selectedTerm
-        );
-
-        if (!selectedTermObject) {
-          return;
-        }
-
-        /*
-         * ---------------------------------------------------------
-         * STUDENT ENROLLMENT
-         * ---------------------------------------------------------
-         */
-
-        const { data: enrollmentData, error: enrollmentError } =
-          await supabase
-            .from('enrollments')
-            .select(`
-              id,
-              class_id,
-              academic_year_id,
-              programme_id,
-              status
-            `)
-            .eq('student_id', studentId)
-            .eq('academic_year_id', selectedYear)
-            .eq('status', 'active')
-            .maybeSingle();
-
-        if (enrollmentError) {
-          throw new Error(enrollmentError.message);
-        }
-
-        if (!enrollmentData) {
-          setEnrollment(null);
-          setClassItem(null);
-          setProgramme(null);
-          setAssessments([]);
-          setResults([]);
-          setAttendance([]);
-          setClassAverages([]);
-          return;
-        }
-
-        setEnrollment(enrollmentData);
-
-        /*
-         * ---------------------------------------------------------
-         * CLASS
-         * ---------------------------------------------------------
-         */
-
-        const { data: classData, error: classError } =
-          await supabase
-            .from('classes')
-            .select('id, name, level')
-            .eq('id', enrollmentData.class_id)
-            .eq('school_id', schoolId)
-            .maybeSingle();
-
-        if (classError) {
-          throw new Error(classError.message);
-        }
-
-        setClassItem(classData);
-
-        /*
-         * ---------------------------------------------------------
-         * PROGRAMME
-         * ---------------------------------------------------------
-         */
-
-        if (enrollmentData.programme_id) {
-          const { data: programmeData, error: programmeError } =
-            await supabase
-              .from('programmes')
-              .select('id, name, code')
-              .eq('id', enrollmentData.programme_id)
-              .eq('school_id', schoolId)
-              .maybeSingle();
-
-          if (programmeError) {
-            throw new Error(programmeError.message);
-          }
-
-          setProgramme(programmeData);
-        } else {
-          setProgramme(null);
-        }
-
-        /*
-         * ---------------------------------------------------------
-         * STUDENT ASSESSMENTS
-         * ---------------------------------------------------------
-         */
-
-        const { data: assessmentData, error: assessmentError } =
-          await supabase
-            .from('assessments')
-            .select(`
-              id,
-              student_id,
-              subject,
-              assessment_type,
-              score,
-              max_score,
-              term
-            `)
-            .eq('student_id', studentId)
-            .eq('school_id', schoolId)
-            .eq('term', selectedTermObject.name)
-            .order('subject', { ascending: true });
-
-        if (assessmentError) {
-          throw new Error(assessmentError.message);
-        }
-
-        const safeAssessments: Assessment[] =
-          (assessmentData || []).map((item) => ({
-            ...item,
-            score: Number(item.score) || 0,
-            max_score: Number(item.max_score) || 0,
-          }));
-
-        setAssessments(safeAssessments);
-
-        /*
-         * ---------------------------------------------------------
-         * CALCULATE SUBJECT RESULTS
-         * ---------------------------------------------------------
-         */
-
-        const subjectNames = Array.from(
-          new Set(
-            safeAssessments
-              .map((item) => item.subject)
-              .filter(Boolean)
+      const { data: enrollmentData } = await supabase
+        .from('enrollments')
+        .select(`
+          id,
+          class_id,
+          programme_id,
+          academic_year_id,
+          enrollment_date,
+          status,
+          class:classes (
+            id,
+            name,
+            level
+          ),
+          programme:programmes (
+            id,
+            name,
+            code
           )
-        );
+        `)
+        .eq('student_id', studentId)
+        .eq('academic_year_id', currentYear.id)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle();
 
-        const calculated: SubjectResult[] = subjectNames.map(
-          (subject) => {
-            const subjectAssessments = safeAssessments.filter(
-              (item) => item.subject === subject
-            );
-
-            let caRaw = 0;
-
-            CA_TYPES.forEach((type) => {
-              const assessment = subjectAssessments.find(
-                (item) => item.assessment_type === type
-              );
-
-              if (assessment) {
-                caRaw += assessment.score;
-              }
-            });
-
-            const caContribution = (caRaw / 100) * 30;
-
-            const examination = subjectAssessments.find(
-              (item) => item.assessment_type === 'Examination'
-            );
-
-            const examRaw = examination
-              ? examination.score
-              : 0;
-
-            const examContribution = (examRaw / 100) * 70;
-
-            const finalScore =
-              caContribution + examContribution;
-
-            return {
-              subject,
-              caRaw,
-              caContribution,
-              examRaw,
-              examContribution,
-              finalScore,
-              grade: getGrade(finalScore),
-              status:
-                finalScore >= 50 ? 'Pass' : 'Fail',
-            };
-          }
-        );
-
-        calculated.sort((a, b) =>
-          a.subject.localeCompare(b.subject)
-        );
-
-        setResults(calculated);
-
-        /*
-         * ---------------------------------------------------------
-         * ATTENDANCE
-         * ---------------------------------------------------------
-         *
-         * Attendance is taken from the existing attendance table.
-         * The system uses the student's attendance records for the
-         * selected academic report period.
-         */
-
-        const { data: attendanceData, error: attendanceError } =
-          await supabase
-            .from('attendance')
-            .select(`
-              id,
-              date,
-              status
-            `)
-            .eq('student_id', studentId)
-            .order('date', { ascending: false });
-
-        if (attendanceError) {
-          throw new Error(attendanceError.message);
-        }
-
-        setAttendance(attendanceData || []);
-
-        /*
-         * ---------------------------------------------------------
-         * CLASS POSITION
-         * ---------------------------------------------------------
-         *
-         * First get all active students in the same class/year.
-         * Then get their assessments for the selected term.
-         * Position is based on overall average final score.
-         */
-
-        const { data: classEnrollmentData, error: classEnrollmentError } =
-          await supabase
-            .from('enrollments')
-            .select('student_id')
-            .eq('class_id', enrollmentData.class_id)
-            .eq('academic_year_id', selectedYear)
-            .eq('status', 'active');
-
-        if (classEnrollmentError) {
-          throw new Error(classEnrollmentError.message);
-        }
-
-        const classStudentIds = Array.from(
-          new Set(
-            (classEnrollmentData || [])
-              .map((item) => item.student_id)
-              .filter(Boolean)
-          )
-        );
-
-        if (classStudentIds.length > 0) {
-          const { data: classAssessmentData, error: classAssessmentError } =
-            await supabase
-              .from('assessments')
-              .select(`
-                student_id,
-                subject,
-                assessment_type,
-                score
-              `)
-              .eq('school_id', schoolId)
-              .eq('term', selectedTermObject.name)
-              .in('student_id', classStudentIds);
-
-          if (classAssessmentError) {
-            throw new Error(classAssessmentError.message);
-          }
-
-          const classAssessmentRows = classAssessmentData || [];
-
-          const studentSubjectScores: Record<
-            string,
-            Record<string, number>
-          > = {};
-
-          classStudentIds.forEach((id) => {
-            studentSubjectScores[id] = {};
-          });
-
-          const classSubjects = Array.from(
-            new Set(
-              classAssessmentRows
-                .map((item) => item.subject)
-                .filter(Boolean)
-            )
-          );
-
-          classSubjects.forEach((subject) => {
-            classStudentIds.forEach((id) => {
-              const rows = classAssessmentRows.filter(
-                (item) =>
-                  item.student_id === id &&
-                  item.subject === subject
-              );
-
-              let caRaw = 0;
-
-              CA_TYPES.forEach((type) => {
-                const row = rows.find(
-                  (item) =>
-                    item.assessment_type === type
-                );
-
-                if (row) {
-                  caRaw += Number(row.score) || 0;
-                }
-              });
-
-              const exam = rows.find(
-                (item) =>
-                  item.assessment_type === 'Examination'
-              );
-
-              const examRaw = exam
-                ? Number(exam.score) || 0
-                : 0;
-
-              const finalScore =
-                (caRaw / 100) * 30 +
-                (examRaw / 100) * 70;
-
-              if (!studentSubjectScores[id]) {
-                studentSubjectScores[id] = {};
-              }
-
-              studentSubjectScores[id][subject] =
-                finalScore;
-            });
-          });
-
-          const calculatedAverages: StudentClassAverage[] =
-            classStudentIds.map((id) => {
-              const subjectScores =
-                Object.values(
-                  studentSubjectScores[id] || {}
-                );
-
-              const average =
-                subjectScores.length > 0
-                  ? subjectScores.reduce(
-                      (sum, value) => sum + value,
-                      0
-                    ) / subjectScores.length
-                  : 0;
-
-              return {
-                student_id: id,
-                average,
-              };
-            });
-
-          calculatedAverages.sort(
-            (a, b) => b.average - a.average
-          );
-
-          setClassAverages(calculatedAverages);
-        } else {
-          setClassAverages([]);
-        }
-      } catch (err: any) {
-        setError(
-          err.message ||
-            'Unable to generate report card.'
-        );
-      } finally {
-        setCalculating(false);
+      if (enrollmentData) {
+        setEnrollment(enrollmentData as Enrollment);
       }
     }
 
-    loadReportCard();
-  }, [
-    studentId,
-    selectedYear,
-    selectedTerm,
-    terms,
-  ]);
+    setLoading(false);
+  }
 
-  /*
-   * -------------------------------------------------------------
-   * SUMMARY
-   * -------------------------------------------------------------
-   */
+  async function loadTerms(yearId: string) {
+    const { data } = await supabase
+      .from('terms')
+      .select('id, name, is_current')
+      .eq('academic_year_id', yearId)
+      .order('start_date', { ascending: true });
 
-  const summary = useMemo(() => {
-    const totalSubjects = results.length;
+    const loadedTerms = (data || []) as Term[];
 
-    const totalFinal = results.reduce(
-      (sum, result) => sum + result.finalScore,
-      0
+    setTerms(loadedTerms);
+
+    const currentTerm =
+      loadedTerms.find((term) => term.is_current) ||
+      loadedTerms[0];
+
+    if (currentTerm) {
+      setSelectedTerm(currentTerm.id);
+    }
+  }
+
+  async function loadReportData() {
+    if (!student || !selectedTerm || !selectedYear) return;
+
+    setLoadingResults(true);
+
+    const selectedTermObject = terms.find(
+      (term) => term.id === selectedTerm
     );
 
-    const average =
-      totalSubjects > 0
-        ? totalFinal / totalSubjects
-        : 0;
+    if (!selectedTermObject) {
+      setLoadingResults(false);
+      return;
+    }
 
-    const passed = results.filter(
-      (result) => result.status === 'Pass'
-    ).length;
+    const termName = selectedTermObject.name;
 
-    const failed = results.filter(
-      (result) => result.status === 'Fail'
-    ).length;
+    const { data: assessmentData } = await supabase
+      .from('assessments')
+      .select(`
+        id,
+        student_id,
+        subject,
+        assessment_type,
+        score,
+        max_score,
+        term
+      `)
+      .eq('student_id', student.id)
+      .eq('term', termName);
 
-    return {
-      totalSubjects,
-      totalFinal,
-      average,
-      passed,
-      failed,
-    };
-  }, [results]);
+    setAssessments((assessmentData || []) as Assessment[]);
 
-  /*
-   * -------------------------------------------------------------
-   * CLASS POSITION
-   * -------------------------------------------------------------
-   */
+    const { data: attendanceData } = await supabase
+      .from('attendance')
+      .select(`
+        id,
+        date,
+        status
+      `)
+      .eq('student_id', student.id)
+      .order('date', { ascending: false });
+
+    setAttendance((attendanceData || []) as AttendanceRecord[]);
+
+    if (enrollment) {
+      await loadClassAverages(
+        enrollment.class_id,
+        selectedYear,
+        termName,
+        student.id
+      );
+    }
+
+    setLoadingResults(false);
+  }
+
+  async function loadClassAverages(
+    classId: string,
+    yearId: string,
+    termName: string,
+    currentStudentId: string
+  ) {
+    const { data: classEnrollmentData } = await supabase
+      .from('enrollments')
+      .select('student_id')
+      .eq('class_id', classId)
+      .eq('academic_year_id', yearId)
+      .eq('status', 'active');
+
+    if (!classEnrollmentData?.length) {
+      setClassAverages([]);
+      return;
+    }
+
+    const studentIds = classEnrollmentData.map(
+      (item) => item.student_id
+    );
+
+    const { data: classAssessmentData } = await supabase
+      .from('assessments')
+      .select(`
+        id,
+        student_id,
+        subject,
+        assessment_type,
+        score,
+        max_score,
+        term
+      `)
+      .in('student_id', studentIds)
+      .eq('term', termName);
+
+    if (!classAssessmentData) {
+      setClassAverages([]);
+      return;
+    }
+
+    const studentSubjectMap: Record<
+      string,
+      Record<
+        string,
+        {
+          caRaw: number;
+          examRaw: number;
+        }
+      >
+    > = {};
+
+    classAssessmentData.forEach((assessment) => {
+      const studentId = assessment.student_id;
+
+      if (!studentSubjectMap[studentId]) {
+        studentSubjectMap[studentId] = {};
+      }
+
+      if (!studentSubjectMap[studentId][assessment.subject]) {
+        studentSubjectMap[studentId][assessment.subject] = {
+          caRaw: 0,
+          examRaw: 0,
+        };
+      }
+
+      if (CA_TYPES.includes(assessment.assessment_type)) {
+        studentSubjectMap[studentId][
+          assessment.subject
+        ].caRaw += Number(assessment.score);
+      }
+
+      if (assessment.assessment_type === 'Examination') {
+        studentSubjectMap[studentId][
+          assessment.subject
+        ].examRaw = Number(assessment.score);
+      }
+    });
+
+    const averages: StudentClassAverage[] = [];
+
+    Object.entries(studentSubjectMap).forEach(
+      ([studentId, subjects]) => {
+        const subjectScores = Object.values(subjects);
+
+        if (subjectScores.length === 0) return;
+
+        const finalScores = subjectScores.map((item) => {
+          const ca = (item.caRaw / 100) * 30;
+          const exam = (item.examRaw / 100) * 70;
+
+          return ca + exam;
+        });
+
+        const average =
+          finalScores.reduce((sum, value) => sum + value, 0) /
+          finalScores.length;
+
+        averages.push({
+          student_id: studentId,
+          average,
+        });
+      }
+    );
+
+    setClassAverages(averages);
+  }
+
+  const subjectResults = useMemo(() => {
+    const subjectMap: Record<
+      string,
+      {
+        caRaw: number;
+        examRaw: number;
+      }
+    > = {};
+
+    assessments.forEach((assessment) => {
+      if (!subjectMap[assessment.subject]) {
+        subjectMap[assessment.subject] = {
+          caRaw: 0,
+          examRaw: 0,
+        };
+      }
+
+      if (CA_TYPES.includes(assessment.assessment_type)) {
+        subjectMap[assessment.subject].caRaw += Number(
+          assessment.score
+        );
+      }
+
+      if (assessment.assessment_type === 'Examination') {
+        subjectMap[assessment.subject].examRaw = Number(
+          assessment.score
+        );
+      }
+    });
+
+    return Object.entries(subjectMap)
+      .map(([subject, values]) => {
+        const caRaw = values.caRaw;
+        const caContribution = (caRaw / 100) * 30;
+
+        const examRaw = values.examRaw;
+        const examContribution = (examRaw / 100) * 70;
+
+        const finalScore =
+          caContribution + examContribution;
+
+        return {
+          subject,
+          caRaw,
+          caContribution,
+          examRaw,
+          examContribution,
+          finalScore,
+          grade: getGrade(finalScore),
+          status: finalScore >= 50 ? 'Pass' : 'Fail',
+        };
+      })
+      .sort((a, b) => a.subject.localeCompare(b.subject));
+  }, [assessments]);
+
+  const totalFinal = subjectResults.reduce(
+    (sum, item) => sum + item.finalScore,
+    0
+  );
+
+  const overallAverage =
+    subjectResults.length > 0
+      ? totalFinal / subjectResults.length
+      : 0;
+
+  const passedSubjects = subjectResults.filter(
+    (item) => item.status === 'Pass'
+  ).length;
+
+  const failedSubjects = subjectResults.filter(
+    (item) => item.status === 'Fail'
+  ).length;
 
   const classPosition = useMemo(() => {
-    if (!studentId || classAverages.length === 0) {
-      return null;
-    }
+    if (!student) return null;
+
+    const currentAverage = overallAverage;
+
+    if (classAverages.length === 0) return null;
 
     const sorted = [...classAverages].sort(
       (a, b) => b.average - a.average
     );
 
-    const studentIndex = sorted.findIndex(
-      (item) => item.student_id === studentId
-    );
-
-    if (studentIndex === -1) {
-      return null;
-    }
-
-    /*
-     * Competition ranking:
-     * 1st, 2nd, 2nd, 4th
-     */
-
-    const studentAverage =
-      sorted[studentIndex].average;
-
-    const position =
+    return (
       sorted.filter(
-        (item) => item.average > studentAverage
-      ).length + 1;
+        (item) => item.average > currentAverage
+      ).length + 1
+    );
+  }, [classAverages, overallAverage, student]);
 
-    return {
-      position,
-      totalStudents: sorted.length,
-      average: studentAverage,
-    };
-  }, [studentId, classAverages]);
+  const classSize = classAverages.length;
 
-  /*
-   * -------------------------------------------------------------
-   * ATTENDANCE SUMMARY
-   * -------------------------------------------------------------
-   */
+  const totalAttendance = attendance.length;
 
-  const attendanceSummary = useMemo(() => {
-    const total = attendance.length;
+  const presentCount = attendance.filter(
+    (item) => item.status.toLowerCase() === 'present'
+  ).length;
 
-    const present = attendance.filter(
-      (item) =>
-        item.status.toLowerCase() === 'present'
-    ).length;
+  const absentCount = attendance.filter(
+    (item) => item.status.toLowerCase() === 'absent'
+  ).length;
 
-    const absent = attendance.filter(
-      (item) =>
-        item.status.toLowerCase() === 'absent'
-    ).length;
+  const lateCount = attendance.filter(
+    (item) => item.status.toLowerCase() === 'late'
+  ).length;
 
-    const late = attendance.filter(
-      (item) =>
-        item.status.toLowerCase() === 'late'
-    ).length;
+  const excusedCount = attendance.filter(
+    (item) => item.status.toLowerCase() === 'excused'
+  ).length;
 
-    const excused = attendance.filter(
-      (item) =>
-        item.status.toLowerCase() === 'excused'
-    ).length;
+  const attendancePercentage =
+    totalAttendance > 0
+      ? (presentCount / totalAttendance) * 100
+      : 0;
 
-    const attendancePercentage =
-      total > 0 ? (present / total) * 100 : 0;
+  const overallGrade = getGrade(overallAverage);
 
-    return {
-      total,
-      present,
-      absent,
-      late,
-      excused,
-      attendancePercentage,
-    };
-  }, [attendance]);
+  const overallRemark =
+    overallAverage >= 80
+      ? 'Excellent performance. Keep up the good work.'
+      : overallAverage >= 70
+        ? 'Very good performance. Continue to work hard.'
+        : overallAverage >= 60
+          ? 'Good performance. There is room for further improvement.'
+          : overallAverage >= 50
+            ? 'Satisfactory performance. More effort is encouraged.'
+            : 'Performance needs improvement. Greater effort is required.';
 
-  const selectedYearName =
-    academicYears.find(
-      (year) => year.id === selectedYear
-    )?.name || '';
+  const currentClass =
+    enrollment?.class?.[0]?.name || 'Not enrolled';
 
-  const selectedTermName =
-    terms.find(
-      (term) => term.id === selectedTerm
-    )?.name || '';
+  const currentLevel =
+    enrollment?.class?.[0]?.level || '—';
+
+  const currentProgramme =
+    enrollment?.programme?.[0]?.name || '—';
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-6xl">
-          <div className="rounded-2xl bg-white p-8 shadow-sm">
-            <p className="text-slate-600">
-              Loading student report card...
-            </p>
-          </div>
+      <div className="min-h-screen bg-slate-100 p-6">
+        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-8 shadow-sm">
+          Loading report card...
         </div>
       </div>
     );
@@ -817,20 +606,18 @@ export default function StudentReportCardPage() {
 
   if (!student) {
     return (
-      <div className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-6xl">
-          <div className="rounded-2xl bg-white p-8 shadow-sm">
-            <h1 className="text-xl font-bold text-slate-900">
-              Student Not Found
-            </h1>
+      <div className="min-h-screen bg-slate-100 p-6">
+        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-8">
+          <h1 className="text-xl font-bold">
+            Student not found
+          </h1>
 
-            <button
-              onClick={() => router.push('/students')}
-              className="mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-            >
-              Back to Students
-            </button>
-          </div>
+          <button
+            onClick={() => router.push('/students')}
+            className="mt-4 rounded-lg bg-blue-600 px-5 py-2 text-white"
+          >
+            Back to Students
+          </button>
         </div>
       </div>
     );
@@ -838,679 +625,630 @@ export default function StudentReportCardPage() {
 
   return (
     <>
-      <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
-        <div className="mx-auto max-w-6xl">
+      {/* Screen Controls */}
+      <div className="print:hidden bg-slate-100 px-4 py-4">
+        <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
-          {/* TOP NAVIGATION */}
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
-            <div>
-              <button
-                onClick={() =>
-                  router.push(
-                    `/students/${student.id}`
-                  )
-                }
-                className="text-sm font-medium text-blue-600 hover:underline"
-              >
-                ← Back to Student Profile
-              </button>
+          <button
+            onClick={() => router.back()}
+            className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700"
+          >
+            ← Back
+          </button>
 
-              <h1 className="mt-2 text-2xl font-bold text-slate-900">
-                Individual Student Report Card
-              </h1>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <select
+              value={selectedYear}
+              onChange={(e) => {
+                setSelectedYear(e.target.value);
+                setSelectedTerm('');
+                setTerms([]);
+                setEnrollment(null);
+              }}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3"
+            >
+              <option value="">Select Academic Year</option>
 
-              <p className="text-sm text-slate-500">
-                Official academic performance summary
-              </p>
-            </div>
+              {academicYears.map((year) => (
+                <option key={year.id} value={year.id}>
+                  {year.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedTerm}
+              onChange={(e) =>
+                setSelectedTerm(e.target.value)
+              }
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3"
+            >
+              <option value="">Select Term</option>
+
+              {terms.map((term) => (
+                <option key={term.id} value={term.id}>
+                  {term.name}
+                </option>
+              ))}
+            </select>
 
             <button
               onClick={() => window.print()}
-              className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+              className="rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white"
             >
               🖨️ Print Report Card
             </button>
           </div>
-
-          {error && (
-            <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 print:hidden">
-              {error}
-            </div>
-          )}
-
-          {/* REPORT PERIOD */}
-          <div className="mb-6 rounded-2xl bg-white p-5 shadow-sm print:hidden">
-            <h2 className="mb-4 text-lg font-bold text-slate-900">
-              Report Period
-            </h2>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Academic Year
-                </label>
-
-                <select
-                  value={selectedYear}
-                  onChange={(e) =>
-                    setSelectedYear(e.target.value)
-                  }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                >
-                  <option value="">
-                    Select academic year
-                  </option>
-
-                  {academicYears.map((year) => (
-                    <option
-                      key={year.id}
-                      value={year.id}
-                    >
-                      {year.name}
-                      {year.is_current
-                        ? ' (Current)'
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Term
-                </label>
-
-                <select
-                  value={selectedTerm}
-                  onChange={(e) =>
-                    setSelectedTerm(e.target.value)
-                  }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                >
-                  <option value="">
-                    Select term
-                  </option>
-
-                  {terms.map((term) => (
-                    <option
-                      key={term.id}
-                      value={term.id}
-                    >
-                      {term.name}
-                      {term.is_current
-                        ? ' (Current)'
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {calculating ? (
-            <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
-              <p className="text-slate-600">
-                Calculating report card...
-              </p>
-            </div>
-          ) : (
-            <div className="report-card mx-auto rounded-2xl bg-white p-5 shadow-sm sm:p-8">
-
-              {/* =================================================
-                  SCHOOL HEADER
-                 ================================================= */}
-
-              <div className="border-2 border-slate-900 p-5 text-center">
-
-                <div className="flex items-center justify-center">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-slate-900 text-center text-xs font-bold">
-                    BTI
-                  </div>
-                </div>
-
-                <h2 className="mt-3 text-3xl font-extrabold uppercase tracking-wide text-slate-900">
-                  Biriwa Technical Institute
-                </h2>
-
-                <p className="mt-1 text-xs font-semibold uppercase tracking-widest text-slate-600">
-                  Student Academic Report
-                </p>
-
-                <div className="mx-auto mt-3 h-px max-w-xl bg-slate-400" />
-
-                <p className="mt-3 text-sm font-bold text-slate-900">
-                  {selectedYearName}
-                </p>
-
-                <p className="text-sm text-slate-600">
-                  {selectedTermName}
-                </p>
-              </div>
-
-              {/* =================================================
-                  STUDENT INFORMATION
-                 ================================================= */}
-
-              <div className="mt-6 border border-slate-400">
-
-                <div className="bg-slate-900 px-4 py-2">
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-white">
-                    Student Information
-                  </h3>
-                </div>
-
-                <div className="grid gap-0 sm:grid-cols-2 lg:grid-cols-4">
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">
-                      Student Name
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {student.full_name}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">
-                      Admission Number
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {student.admission_number}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">
-                      Class
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {classItem?.name || '—'}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-slate-300 p-3">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">
-                      Programme
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {programme?.name || '—'}
-                    </p>
-                  </div>
-
-                  <div className="border-r border-slate-300 p-3">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">
-                      Level
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {classItem?.level || '—'}
-                    </p>
-                  </div>
-
-                  <div className="border-r border-slate-300 p-3">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">
-                      Gender
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {student.gender || '—'}
-                    </p>
-                  </div>
-
-                  <div className="border-r border-slate-300 p-3">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">
-                      JHS Aggregate
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {student.jhs_aggregate ?? '—'}
-                    </p>
-                  </div>
-
-                  <div className="p-3">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">
-                      Report Status
-                    </p>
-                    <p
-                      className={`mt-1 text-sm font-bold ${
-                        results.length > 0
-                          ? 'text-green-700'
-                          : 'text-red-700'
-                      }`}
-                    >
-                      {results.length > 0
-                        ? 'Available'
-                        : 'No Results'}
-                    </p>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* =================================================
-                  RESULTS
-                 ================================================= */}
-
-              <div className="mt-7">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-bold uppercase text-slate-900">
-                    Academic Performance
-                  </h3>
-
-                  <p className="text-xs text-slate-500">
-                    CA 30% + Examination 70%
-                  </p>
-                </div>
-
-                {results.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center">
-                    <p className="font-medium text-slate-700">
-                      No results available for this term.
-                    </p>
-
-                    <p className="mt-1 text-sm text-slate-500">
-                      Enter the student's assessments first.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto border border-slate-400">
-                    <table className="w-full min-w-[850px] border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-slate-200 text-left">
-                          <th className="border border-slate-400 px-2 py-2 text-center">
-                            #
-                          </th>
-
-                          <th className="border border-slate-400 px-2 py-2">
-                            Subject
-                          </th>
-
-                          <th className="border border-slate-400 px-2 py-2 text-center">
-                            CA /100
-                          </th>
-
-                          <th className="border border-slate-400 px-2 py-2 text-center">
-                            CA /30
-                          </th>
-
-                          <th className="border border-slate-400 px-2 py-2 text-center">
-                            Exam /100
-                          </th>
-
-                          <th className="border border-slate-400 px-2 py-2 text-center">
-                            Exam /70
-                          </th>
-
-                          <th className="border border-slate-400 px-2 py-2 text-center">
-                            Final /100
-                          </th>
-
-                          <th className="border border-slate-400 px-2 py-2 text-center">
-                            Grade
-                          </th>
-
-                          <th className="border border-slate-400 px-2 py-2 text-center">
-                            Status
-                          </th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {results.map((result, index) => (
-                          <tr key={result.subject}>
-                            <td className="border border-slate-300 px-2 py-2 text-center">
-                              {index + 1}
-                            </td>
-
-                            <td className="border border-slate-300 px-2 py-2 font-semibold">
-                              {result.subject}
-                            </td>
-
-                            <td className="border border-slate-300 px-2 py-2 text-center">
-                              {result.caRaw.toFixed(2)}
-                            </td>
-
-                            <td className="border border-slate-300 px-2 py-2 text-center">
-                              {result.caContribution.toFixed(2)}
-                            </td>
-
-                            <td className="border border-slate-300 px-2 py-2 text-center">
-                              {result.examRaw.toFixed(2)}
-                            </td>
-
-                            <td className="border border-slate-300 px-2 py-2 text-center">
-                              {result.examContribution.toFixed(2)}
-                            </td>
-
-                            <td className="border border-slate-300 px-2 py-2 text-center font-bold">
-                              {result.finalScore.toFixed(2)}
-                            </td>
-
-                            <td className="border border-slate-300 px-2 py-2 text-center font-bold">
-                              {result.grade}
-                            </td>
-
-                            <td className="border border-slate-300 px-2 py-2 text-center">
-                              <span
-                                className={
-                                  result.status === 'Pass'
-                                    ? 'font-bold text-green-700'
-                                    : 'font-bold text-red-700'
-                                }
-                              >
-                                {result.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              {/* =================================================
-                  PERFORMANCE SUMMARY
-                 ================================================= */}
-
-              <div className="mt-7 border border-slate-400">
-
-                <div className="bg-slate-900 px-4 py-2">
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-white">
-                    Performance Summary
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-2 gap-0 sm:grid-cols-3 lg:grid-cols-6">
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Subjects
-                    </p>
-                    <p className="mt-1 text-xl font-bold">
-                      {summary.totalSubjects}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Total
-                    </p>
-                    <p className="mt-1 text-xl font-bold">
-                      {summary.totalFinal.toFixed(2)}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Average
-                    </p>
-                    <p className="mt-1 text-xl font-bold">
-                      {summary.average.toFixed(2)}%
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Passed
-                    </p>
-                    <p className="mt-1 text-xl font-bold text-green-700">
-                      {summary.passed}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Failed
-                    </p>
-                    <p className="mt-1 text-xl font-bold text-red-700">
-                      {summary.failed}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Class Position
-                    </p>
-
-                    <p className="mt-1 text-xl font-bold">
-                      {getPositionLabel(
-                        classPosition?.position || null
-                      )}
-                    </p>
-
-                    <p className="text-[10px] text-slate-500">
-                      of {classPosition?.totalStudents || '—'}
-                    </p>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* =================================================
-                  ATTENDANCE
-                 ================================================= */}
-
-              <div className="mt-7 border border-slate-400">
-
-                <div className="bg-slate-900 px-4 py-2">
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-white">
-                    Attendance Record
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-2 gap-0 sm:grid-cols-5">
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Recorded
-                    </p>
-                    <p className="mt-1 text-lg font-bold">
-                      {attendanceSummary.total}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Present
-                    </p>
-                    <p className="mt-1 text-lg font-bold text-green-700">
-                      {attendanceSummary.present}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Absent
-                    </p>
-                    <p className="mt-1 text-lg font-bold text-red-700">
-                      {attendanceSummary.absent}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-r border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Late
-                    </p>
-                    <p className="mt-1 text-lg font-bold">
-                      {attendanceSummary.late}
-                    </p>
-                  </div>
-
-                  <div className="border-b border-slate-300 p-3">
-                    <p className="text-[10px] uppercase text-slate-500">
-                      Attendance
-                    </p>
-                    <p className="mt-1 text-lg font-bold">
-                      {attendanceSummary.attendancePercentage.toFixed(
-                        1
-                      )}
-                      %
-                    </p>
-                  </div>
-
-                </div>
-
-                <div className="border-t border-slate-300 p-4">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-medium text-slate-600">
-                      Attendance Performance
-                    </span>
-
-                    <span className="font-bold">
-                      {attendanceSummary.attendancePercentage.toFixed(
-                        1
-                      )}
-                      %
-                    </span>
-                  </div>
-
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full bg-slate-900"
-                      style={{
-                        width: `${Math.min(
-                          attendanceSummary.attendancePercentage,
-                          100
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* =================================================
-                  OVERALL PERFORMANCE
-                 ================================================= */}
-
-              <div className="mt-7 border border-slate-400 p-5">
-
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold uppercase text-slate-900">
-                    Overall Performance
-                  </h3>
-
-                  <span className="text-2xl font-extrabold">
-                    {summary.average.toFixed(2)}%
-                  </span>
-                </div>
-
-                <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200">
-                  <div
-                    className="h-full bg-slate-900"
-                    style={{
-                      width: `${Math.min(
-                        summary.average,
-                        100
-                      )}%`,
-                    }}
-                  />
-                </div>
-
-                <div className="mt-3 flex flex-wrap justify-between gap-2 text-sm">
-                  <p className="text-slate-600">
-                    Overall Remark:
-                    <span className="ml-1 font-bold text-slate-900">
-                      {getRemark(summary.average)}
-                    </span>
-                  </p>
-
-                  <p className="text-slate-600">
-                    Class Position:
-                    <span className="ml-1 font-bold text-slate-900">
-                      {getPositionLabel(
-                        classPosition?.position || null
-                      )}{' '}
-                      of{' '}
-                      {classPosition?.totalStudents || '—'}
-                    </span>
-                  </p>
-                </div>
-              </div>
-
-              {/* =================================================
-                  REMARKS
-                 ================================================= */}
-
-              <div className="mt-7 grid gap-6 sm:grid-cols-2">
-
-                <div>
-                  <h3 className="text-sm font-bold uppercase text-slate-900">
-                    Class Teacher's Remarks
-                  </h3>
-
-                  <div className="mt-3 h-28 border border-slate-400">
-                    <div className="h-full" />
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-bold uppercase text-slate-900">
-                    Head of Department / Head of Institution's Remarks
-                  </h3>
-
-                  <div className="mt-3 h-28 border border-slate-400">
-                    <div className="h-full" />
-                  </div>
-                </div>
-
-              </div>
-
-              {/* =================================================
-                  SIGNATURES
-                 ================================================= */}
-
-              <div className="mt-12 grid gap-10 sm:grid-cols-3">
-
-                <div>
-                  <div className="border-b border-slate-500 pb-2" />
-                  <p className="mt-2 text-center text-xs font-medium">
-                    Class Teacher
-                  </p>
-                  <p className="text-center text-[10px] text-slate-500">
-                    Signature & Date
-                  </p>
-                </div>
-
-                <div>
-                  <div className="border-b border-slate-500 pb-2" />
-                  <p className="mt-2 text-center text-xs font-medium">
-                    Head of Department
-                  </p>
-                  <p className="text-center text-[10px] text-slate-500">
-                    Signature & Date
-                  </p>
-                </div>
-
-                <div>
-                  <div className="border-b border-slate-500 pb-2" />
-                  <p className="mt-2 text-center text-xs font-medium">
-                    Head of Institution
-                  </p>
-                  <p className="text-center text-[10px] text-slate-500">
-                    Signature & Date
-                  </p>
-                </div>
-
-              </div>
-
-              {/* FOOTER */}
-
-              <div className="mt-10 border-t border-slate-300 pt-4 text-center">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                  Biriwa Technical Institute
-                </p>
-
-                <p className="mt-1 text-[9px] text-slate-400">
-                  Generated by BTI School Management System
-                </p>
-              </div>
-
-            </div>
-          )}
         </div>
       </div>
 
-      {/* =========================================================
-          PRINT STYLING
-         ========================================================= */}
+      {/* Report Card */}
+      <main className="bg-slate-100 px-3 py-6 sm:px-6">
+
+        <div
+          id="report-card"
+          className="report-card mx-auto max-w-5xl bg-white p-5 shadow-lg sm:p-8"
+        >
+
+          {/* School Header */}
+          <header className="border-b-4 border-slate-900 pb-5">
+
+            <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:items-center sm:text-left">
+
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border-4 border-slate-900 bg-white">
+                <span className="text-2xl font-black text-slate-900">
+                  BTI
+                </span>
+              </div>
+
+              <div className="flex-1">
+                <h1 className="text-2xl font-black uppercase tracking-wide text-slate-900 sm:text-3xl">
+                  Biriwa Technical Institute
+                </h1>
+
+                <p className="mt-1 text-sm font-medium text-slate-600">
+                  STUDENT ACADEMIC REPORT CARD
+                </p>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  Academic Year:{' '}
+                  {academicYears.find(
+                    (year) => year.id === selectedYear
+                  )?.name || '—'}
+                  {' • '}
+                  Term:{' '}
+                  {terms.find(
+                    (term) => term.id === selectedTerm
+                  )?.name || '—'}
+                </p>
+              </div>
+
+              {student.photo_url ? (
+                <img
+                  src={student.photo_url}
+                  alt={student.full_name}
+                  className="h-28 w-24 rounded-lg border-2 border-slate-300 object-cover"
+                />
+              ) : (
+                <div className="flex h-28 w-24 items-center justify-center rounded-lg border-2 border-slate-300 bg-slate-50 text-3xl">
+                  👤
+                </div>
+              )}
+
+            </div>
+          </header>
+
+          {/* Student Information */}
+          <section className="mt-5">
+
+            <h2 className="mb-3 bg-slate-900 px-3 py-2 text-sm font-bold uppercase tracking-wide text-white">
+              Student Information
+            </h2>
+
+            <div className="grid grid-cols-1 border border-slate-300 sm:grid-cols-2 lg:grid-cols-4">
+
+              <div className="border-b border-slate-200 p-3 sm:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Student Name
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {student.full_name}
+                </p>
+              </div>
+
+              <div className="border-b border-slate-200 p-3 lg:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Admission No.
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {student.admission_number}
+                </p>
+              </div>
+
+              <div className="border-b border-slate-200 p-3 sm:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Class
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {currentClass}
+                </p>
+              </div>
+
+              <div className="border-b border-slate-200 p-3">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Programme
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {currentProgramme}
+                </p>
+              </div>
+
+              <div className="p-3 sm:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Level
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {currentLevel}
+                </p>
+              </div>
+
+              <div className="p-3 lg:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Gender
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {student.gender || '—'}
+                </p>
+              </div>
+
+              <div className="p-3 sm:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  JHS Aggregate
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {student.jhs_aggregate ?? '—'}
+                </p>
+              </div>
+
+              <div className="p-3">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Report Status
+                </p>
+                <p className="mt-1 text-sm font-bold text-green-700">
+                  {student.promotion_status || '—'}
+                </p>
+              </div>
+
+            </div>
+          </section>
+
+          {/* Academic Results */}
+          <section className="mt-5">
+
+            <h2 className="mb-3 bg-slate-900 px-3 py-2 text-sm font-bold uppercase tracking-wide text-white">
+              Academic Performance
+            </h2>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] border-collapse border border-slate-400 text-xs">
+
+                <thead>
+                  <tr className="bg-slate-100">
+
+                    <th
+                      rowSpan={2}
+                      className="border border-slate-400 px-2 py-2 text-left"
+                    >
+                      Subject
+                    </th>
+
+                    <th
+                      colSpan={2}
+                      className="border border-slate-400 px-2 py-2 text-center"
+                    >
+                      Continuous Assessment
+                    </th>
+
+                    <th
+                      colSpan={2}
+                      className="border border-slate-400 px-2 py-2 text-center"
+                    >
+                      Examination
+                    </th>
+
+                    <th
+                      rowSpan={2}
+                      className="border border-slate-400 px-2 py-2 text-center"
+                    >
+                      Final
+                      <br />
+                      /100
+                    </th>
+
+                    <th
+                      rowSpan={2}
+                      className="border border-slate-400 px-2 py-2 text-center"
+                    >
+                      Grade
+                    </th>
+
+                    <th
+                      rowSpan={2}
+                      className="border border-slate-400 px-2 py-2 text-center"
+                    >
+                      Status
+                    </th>
+
+                  </tr>
+
+                  <tr className="bg-slate-50">
+
+                    <th className="border border-slate-400 px-2 py-1 text-center">
+                      Raw /100
+                    </th>
+
+                    <th className="border border-slate-400 px-2 py-1 text-center">
+                      /30
+                    </th>
+
+                    <th className="border border-slate-400 px-2 py-1 text-center">
+                      Raw /100
+                    </th>
+
+                    <th className="border border-slate-400 px-2 py-1 text-center">
+                      /70
+                    </th>
+
+                  </tr>
+                </thead>
+
+                <tbody>
+
+                  {subjectResults.map((result) => (
+                    <tr key={result.subject}>
+
+                      <td className="border border-slate-400 px-2 py-2 font-semibold">
+                        {result.subject}
+                      </td>
+
+                      <td className="border border-slate-400 px-2 py-2 text-center">
+                        {result.caRaw.toFixed(1)}
+                      </td>
+
+                      <td className="border border-slate-400 px-2 py-2 text-center">
+                        {result.caContribution.toFixed(1)}
+                      </td>
+
+                      <td className="border border-slate-400 px-2 py-2 text-center">
+                        {result.examRaw.toFixed(1)}
+                      </td>
+
+                      <td className="border border-slate-400 px-2 py-2 text-center">
+                        {result.examContribution.toFixed(1)}
+                      </td>
+
+                      <td className="border border-slate-400 px-2 py-2 text-center font-bold">
+                        {result.finalScore.toFixed(1)}
+                      </td>
+
+                      <td className="border border-slate-400 px-2 py-2 text-center font-bold">
+                        {result.grade}
+                      </td>
+
+                      <td className="border border-slate-400 px-2 py-2 text-center font-semibold">
+                        {result.status}
+                      </td>
+
+                    </tr>
+                  ))}
+
+                  {subjectResults.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="border border-slate-400 px-4 py-6 text-center text-slate-500"
+                      >
+                        No results recorded for this term.
+                      </td>
+                    </tr>
+                  )}
+
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* Performance Summary */}
+          <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+
+            <div className="border border-slate-300 p-3 text-center">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Subjects
+              </p>
+              <p className="mt-1 text-xl font-black">
+                {subjectResults.length}
+              </p>
+            </div>
+
+            <div className="border border-slate-300 p-3 text-center">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Average
+              </p>
+              <p className="mt-1 text-xl font-black">
+                {overallAverage.toFixed(1)}%
+              </p>
+            </div>
+
+            <div className="border border-slate-300 p-3 text-center">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Grade
+              </p>
+              <p className="mt-1 text-xl font-black">
+                {overallGrade}
+              </p>
+            </div>
+
+            <div className="border border-slate-300 p-3 text-center">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Position
+              </p>
+              <p className="mt-1 text-xl font-black">
+                {classPosition
+                  ? `${classPosition}/${classSize}`
+                  : '—'}
+              </p>
+            </div>
+
+            <div className="border border-slate-300 p-3 text-center">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Passed
+              </p>
+              <p className="mt-1 text-xl font-black text-green-700">
+                {passedSubjects}
+              </p>
+            </div>
+
+          </section>
+
+          {/* Overall Performance */}
+          <section className="mt-5">
+
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-bold uppercase text-slate-700">
+                Overall Performance
+              </h3>
+
+              <span className="text-sm font-bold">
+                {overallAverage.toFixed(1)}%
+              </span>
+            </div>
+
+            <div className="h-4 overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-slate-900"
+                style={{
+                  width: `${Math.min(
+                    Math.max(overallAverage, 0),
+                    100
+                  )}%`,
+                }}
+              />
+            </div>
+
+            <p className="mt-2 text-sm text-slate-600">
+              {overallRemark}
+            </p>
+
+          </section>
+
+          {/* Attendance */}
+          <section className="mt-5">
+
+            <h2 className="mb-3 bg-slate-900 px-3 py-2 text-sm font-bold uppercase tracking-wide text-white">
+              Attendance
+            </h2>
+
+            <div className="grid grid-cols-2 border border-slate-300 sm:grid-cols-5">
+
+              <div className="border-b border-slate-200 p-3 text-center sm:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Days Recorded
+                </p>
+                <p className="mt-1 text-lg font-bold">
+                  {totalAttendance}
+                </p>
+              </div>
+
+              <div className="border-b border-slate-200 p-3 text-center sm:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Present
+                </p>
+                <p className="mt-1 text-lg font-bold text-green-700">
+                  {presentCount}
+                </p>
+              </div>
+
+              <div className="border-b border-slate-200 p-3 text-center sm:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Absent
+                </p>
+                <p className="mt-1 text-lg font-bold text-red-700">
+                  {absentCount}
+                </p>
+              </div>
+
+              <div className="border-b border-slate-200 p-3 text-center sm:border-r">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Late
+                </p>
+                <p className="mt-1 text-lg font-bold">
+                  {lateCount}
+                </p>
+              </div>
+
+              <div className="p-3 text-center">
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Attendance
+                </p>
+                <p className="mt-1 text-lg font-bold">
+                  {attendancePercentage.toFixed(1)}%
+                </p>
+              </div>
+
+            </div>
+
+            {excusedCount > 0 && (
+              <p className="mt-2 text-xs text-slate-500">
+                Excused absences: {excusedCount}
+              </p>
+            )}
+
+          </section>
+
+          {/* Conduct and Promotion */}
+          <section className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+
+            <div className="border border-slate-300 p-4">
+              <h3 className="text-xs font-bold uppercase text-slate-500">
+                Conduct / Attitude
+              </h3>
+
+              <p className="mt-2 font-semibold text-slate-900">
+                {student.conduct || 'Not provided'}
+              </p>
+            </div>
+
+            <div className="border border-slate-300 p-4">
+              <h3 className="text-xs font-bold uppercase text-slate-500">
+                Promotion Status
+              </h3>
+
+              <p className="mt-2 font-semibold text-slate-900">
+                {student.promotion_status || 'Not provided'}
+              </p>
+            </div>
+
+          </section>
+
+          {/* Remarks */}
+          <section className="mt-5">
+
+            <h2 className="mb-3 bg-slate-900 px-3 py-2 text-sm font-bold uppercase tracking-wide text-white">
+              Remarks
+            </h2>
+
+            <div className="space-y-4">
+
+              <div className="min-h-[80px] border border-slate-300 p-4">
+                <p className="text-xs font-bold uppercase text-slate-500">
+                  Class Teacher's Remark
+                </p>
+
+                <p className="mt-3 text-sm leading-6 text-slate-800">
+                  {student.class_teacher_remark ||
+                    'No class teacher remark entered.'}
+                </p>
+              </div>
+
+              <div className="min-h-[80px] border border-slate-300 p-4">
+                <p className="text-xs font-bold uppercase text-slate-500">
+                  HOD / Head's Remark
+                </p>
+
+                <p className="mt-3 text-sm leading-6 text-slate-800">
+                  {student.hod_remark ||
+                    'No HOD / Head remark entered.'}
+                </p>
+              </div>
+
+            </div>
+          </section>
+
+          {/* Next Term */}
+          <section className="mt-5 border border-slate-300 p-4">
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+
+              <div>
+                <p className="text-xs font-bold uppercase text-slate-500">
+                  Next Term Begins
+                </p>
+
+                <p className="mt-1 font-bold text-slate-900">
+                  {formatDate(student.next_term_begins)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-bold uppercase text-slate-500">
+                  Overall Result
+                </p>
+
+                <p className="mt-1 font-bold text-slate-900">
+                  {overallAverage >= 50
+                    ? 'PASS'
+                    : 'FAIL'}
+                </p>
+              </div>
+
+            </div>
+          </section>
+
+          {/* Grading Key */}
+          <section className="mt-5">
+
+            <h2 className="mb-2 text-xs font-bold uppercase text-slate-600">
+              Grading Key
+            </h2>
+
+            <div className="grid grid-cols-2 border border-slate-300 text-xs sm:grid-cols-6">
+
+              {[
+                ['A', '80–100', 'Excellent'],
+                ['B', '70–79', 'Very Good'],
+                ['C', '60–69', 'Good'],
+                ['D', '50–59', 'Credit'],
+                ['E', '40–49', 'Pass'],
+                ['F', '0–39', 'Fail'],
+              ].map(([grade, range, description]) => (
+                <div
+                  key={grade}
+                  className="border-b border-slate-200 p-2 text-center sm:border-r"
+                >
+                  <p className="font-black">{grade}</p>
+                  <p>{range}</p>
+                  <p className="text-[10px] text-slate-500">
+                    {description}
+                  </p>
+                </div>
+              ))}
+
+            </div>
+          </section>
+
+          {/* Signatures */}
+          <section className="mt-10 grid grid-cols-1 gap-10 sm:grid-cols-3">
+
+            <div className="border-t border-slate-500 pt-2 text-center text-xs">
+              Class Teacher
+            </div>
+
+            <div className="border-t border-slate-500 pt-2 text-center text-xs">
+              HOD
+            </div>
+
+            <div className="border-t border-slate-500 pt-2 text-center text-xs">
+              Head of Institution
+            </div>
+
+          </section>
+
+          <footer className="mt-8 border-t border-slate-300 pt-3 text-center text-[10px] text-slate-500">
+            Biriwa Technical Institute • Official Student Academic Report
+          </footer>
+
+        </div>
+      </main>
 
       <style jsx global>{`
         @media print {
@@ -1526,11 +1264,6 @@ export default function StudentReportCardPage() {
             padding: 0 !important;
           }
 
-          body {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
           .print\\:hidden {
             display: none !important;
           }
@@ -1544,19 +1277,16 @@ export default function StudentReportCardPage() {
             border-radius: 0 !important;
           }
 
-          button {
-            display: none !important;
-          }
-
           table {
-            page-break-inside: avoid;
+            page-break-inside: auto;
           }
 
           tr {
             page-break-inside: avoid;
+            page-break-after: auto;
           }
 
-          .report-card > div {
+          section {
             page-break-inside: avoid;
           }
         }
