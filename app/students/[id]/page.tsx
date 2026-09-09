@@ -28,15 +28,15 @@ type Enrollment = {
   programme_id: string | null;
   academic_year: {
     name: string;
-  } | null;
+  }[] | null;
   class: {
     name: string;
     level: string | null;
-  } | null;
+  }[] | null;
   programme: {
     name: string;
     code: string | null;
-  } | null;
+  }[] | null;
 };
 
 export default function StudentProfilePage() {
@@ -134,7 +134,7 @@ export default function StudentProfilePage() {
       console.error(enrollmentError);
       setEnrollments([]);
     } else {
-      setEnrollments(data ?? []);
+      setEnrollments((data ?? []) as Enrollment[]);
     }
 
     setEnrollmentLoading(false);
@@ -298,6 +298,7 @@ export default function StudentProfilePage() {
                   {student.status}
                 </span>
               </div>
+
             </div>
           </div>
 
@@ -347,6 +348,7 @@ export default function StudentProfilePage() {
                   : 'Not provided'}
               </p>
             </div>
+
           </div>
         </div>
 
@@ -354,6 +356,7 @@ export default function StudentProfilePage() {
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
 
           <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+
             <div>
               <h2 className="text-xl font-bold text-slate-900">
                 Current Enrollment
@@ -370,6 +373,7 @@ export default function StudentProfilePage() {
             >
               Manage Enrollment
             </Link>
+
           </div>
 
           {enrollmentLoading ? (
@@ -379,55 +383,69 @@ export default function StudentProfilePage() {
               </p>
             </div>
           ) : currentEnrollment ? (
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
 
+              {/* Academic Year */}
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
+
                 <p className="text-xs font-medium uppercase tracking-wide text-blue-500">
                   Academic Year
                 </p>
 
                 <p className="mt-2 font-bold text-blue-900">
-                  {currentEnrollment.academic_year?.name ||
+                  {currentEnrollment.academic_year?.[0]?.name ||
                     'Not provided'}
                 </p>
+
               </div>
 
+              {/* Programme */}
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                   Programme
                 </p>
 
                 <p className="mt-2 font-bold text-slate-800">
-                  {currentEnrollment.programme?.name ||
+                  {currentEnrollment.programme?.[0]?.name ||
                     'Not provided'}
                 </p>
 
-                {currentEnrollment.programme?.code && (
+                {currentEnrollment.programme?.[0]?.code && (
                   <p className="mt-1 text-xs text-slate-500">
-                    {currentEnrollment.programme.code}
+                    {currentEnrollment.programme[0].code}
                   </p>
                 )}
+
               </div>
 
+              {/* Class */}
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                   Class
                 </p>
 
                 <p className="mt-2 font-bold text-slate-800">
-                  {currentEnrollment.class?.name ||
+                  {currentEnrollment.class?.[0]?.name ||
                     'Not provided'}
                 </p>
 
-                {currentEnrollment.class?.level && (
+                {currentEnrollment.class?.[0]?.level && (
                   <p className="mt-1 text-xs text-slate-500">
-                    {currentEnrollment.class.level}
+                    {currentEnrollment.class[0].level}
                   </p>
                 )}
+
               </div>
+
             </div>
+
           ) : (
+
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+
               <div className="mb-2 text-3xl">
                 🎓
               </div>
@@ -447,14 +465,18 @@ export default function StudentProfilePage() {
               >
                 Enroll Student
               </Link>
+
             </div>
+
           )}
+
         </div>
 
         {/* Personal Information */}
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
 
           <div className="mb-6">
+
             <h2 className="text-xl font-bold text-slate-900">
               Personal Information
             </h2>
@@ -462,6 +484,7 @@ export default function StudentProfilePage() {
             <p className="mt-1 text-sm text-slate-500">
               Basic information about the student.
             </p>
+
           </div>
 
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -531,6 +554,7 @@ export default function StudentProfilePage() {
                 {student.status}
               </p>
             </div>
+
           </div>
         </div>
 
@@ -538,6 +562,7 @@ export default function StudentProfilePage() {
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
 
           <div className="mb-6">
+
             <h2 className="text-xl font-bold text-slate-900">
               Guardian Information
             </h2>
@@ -545,6 +570,7 @@ export default function StudentProfilePage() {
             <p className="mt-1 text-sm text-slate-500">
               Parent or guardian contact information.
             </p>
+
           </div>
 
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -578,6 +604,7 @@ export default function StudentProfilePage() {
                 {student.address || 'Not provided'}
               </p>
             </div>
+
           </div>
         </div>
 
@@ -585,6 +612,7 @@ export default function StudentProfilePage() {
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
 
           <div className="mb-6">
+
             <h2 className="text-xl font-bold text-slate-900">
               Enrollment History
             </h2>
@@ -592,16 +620,21 @@ export default function StudentProfilePage() {
             <p className="mt-1 text-sm text-slate-500">
               The student's academic journey at BTI.
             </p>
+
           </div>
 
           {enrollmentLoading ? (
+
             <div className="rounded-xl bg-slate-50 p-5">
               <p className="text-sm text-slate-500">
                 Loading enrollment history...
               </p>
             </div>
+
           ) : enrollments.length === 0 ? (
+
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+
               <p className="font-medium text-slate-700">
                 No enrollment history
               </p>
@@ -610,10 +643,15 @@ export default function StudentProfilePage() {
                 Enrollment records will appear here once the
                 student is enrolled.
               </p>
+
             </div>
+
           ) : (
+
             <div className="space-y-4">
+
               {enrollments.map((enrollment, index) => (
+
                 <div
                   key={enrollment.id}
                   className={`rounded-xl border p-5 ${
@@ -623,12 +661,15 @@ export default function StudentProfilePage() {
                       : 'border-slate-200 bg-white'
                   }`}
                 >
+
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
                     <div>
+
                       <div className="flex flex-wrap items-center gap-2">
+
                         <h3 className="font-bold text-slate-900">
-                          {enrollment.academic_year?.name ||
+                          {enrollment.academic_year?.[0]?.name ||
                             'Academic Year'}
                         </h3>
 
@@ -638,20 +679,23 @@ export default function StudentProfilePage() {
                               Current
                             </span>
                           )}
+
                       </div>
 
                       <p className="mt-1 text-sm font-medium text-slate-700">
-                        {enrollment.class?.name ||
+                        {enrollment.class?.[0]?.name ||
                           'Class not provided'}
                       </p>
 
                       <p className="mt-1 text-sm text-slate-500">
-                        {enrollment.programme?.name ||
+                        {enrollment.programme?.[0]?.name ||
                           'Programme not provided'}
                       </p>
+
                     </div>
 
                     <div className="flex flex-col gap-2 lg:items-end">
+
                       <span
                         className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${getStatusClasses(
                           enrollment.status
@@ -661,74 +705,87 @@ export default function StudentProfilePage() {
                       </span>
 
                       <p className="text-xs text-slate-400">
-  Enrolled:{' '}
-  {formatDate(enrollment.enrollment_date)}
-</p>
-</div>
-</div>
-</div>
-))}
-</div>
-)}
-</div>
+                        Enrolled:{' '}
+                        {formatDate(
+                          enrollment.enrollment_date
+                        )}
+                      </p>
 
-{/* Attendance and Results */}
-<div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                    </div>
 
-  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-    <h2 className="text-lg font-bold text-slate-900">
-      Attendance
-    </h2>
+                  </div>
 
-    <p className="mt-1 text-sm text-slate-500">
-      Attendance summary will appear here.
-    </p>
+                </div>
 
-    <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
-      <p className="text-sm text-slate-400">
-        Coming next
-      </p>
+              ))}
+
+            </div>
+
+          )}
+
+        </div>
+
+        {/* Attendance and Results */}
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+
+            <h2 className="text-lg font-bold text-slate-900">
+              Attendance
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Attendance summary will appear here.
+            </p>
+
+            <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
+              <p className="text-sm text-slate-400">
+                Coming next
+              </p>
+            </div>
+
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+
+            <h2 className="text-lg font-bold text-slate-900">
+              Results
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Assessment and academic results will appear here.
+            </p>
+
+            <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
+              <p className="text-sm text-slate-400">
+                Coming next
+              </p>
+            </div>
+
+          </div>
+
+        </div>
+
+        {/* Bottom Actions */}
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
+
+          <Link
+            href="/students"
+            className="rounded-xl border border-slate-300 px-6 py-3 text-center font-medium text-slate-700 hover:bg-white"
+          >
+            ← Back to Students
+          </Link>
+
+          <Link
+            href={`/students/${student.id}/edit`}
+            className="rounded-xl bg-blue-600 px-6 py-3 text-center font-semibold text-white shadow-sm hover:bg-blue-700"
+          >
+            Edit Student
+          </Link>
+
+        </div>
+
+      </div>
     </div>
-  </div>
-
-  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-    <h2 className="text-lg font-bold text-slate-900">
-      Results
-    </h2>
-
-    <p className="mt-1 text-sm text-slate-500">
-      Assessment and academic results will appear here.
-    </p>
-
-    <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
-      <p className="text-sm text-slate-400">
-        Coming next
-      </p>
-    </div>
-  </div>
-
-</div>
-
-{/* Bottom Actions */}
-<div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
-
-  <Link
-    href="/students"
-    className="rounded-xl border border-slate-300 px-6 py-3 text-center font-medium text-slate-700 hover:bg-white"
-  >
-    ← Back to Students
-  </Link>
-
-  <Link
-    href={`/students/${student.id}/edit`}
-    className="rounded-xl bg-blue-600 px-6 py-3 text-center font-semibold text-white shadow-sm hover:bg-blue-700"
-  >
-    Edit Student
-  </Link>
-
-</div>
-
-</div>
-</div>
-);
+  );
 }
