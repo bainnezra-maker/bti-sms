@@ -18,11 +18,14 @@ type ClassItem = {
   id: string;
   name: string;
   level: string | null;
+  programme_id?: string | null;
+  academic_year_id?: string | null;
 };
 
 type AcademicYear = {
   id: string;
   name: string;
+  is_current?: boolean;
 };
 
 type Enrollment = {
@@ -62,159 +65,183 @@ export default function EnrollmentPage() {
   const [error, setError] = useState('');
 
   async function loadData() {
-  setLoading(true);
-  setError('');
+    setLoading(true);
+    setError('');
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  if (!user) {
-    window.location.href = '/login';
-    return;
-  }
+    if (!user) {
+      window.location.href = '/login';
+      return;
+    }
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('school_id')
-    .eq('id', user.id)
-    .single();
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .select('school_id')
+      .eq('id', user.id)
+      .single();
 
-  if (!profile) {
-    setError('School profile could not be found.');
+    if (profileError) {
+      setError(`Profile error: ${profileError.message}`);
+      setLoading(false);
+      return;
+    }
+
+    if (!profile) {
+      setError('School profile could not be found.');
+      setLoading(false);
+      return;
+    }
+
+    const schoolId = profile.school_id;
+
+    const [
+      studentsResult,
+      programmesResult,
+      classesResult,
+      yearsResult,
+    ] = await Promise.all([
+      supabase
+        .from('students')
+        .select('id, full_name, admission_number')
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .order('full_name'),
+
+      supabase
+        .from('programmes')
+        .select('id, name')
+        .eq('school_id', schoolId)
+        .order('name'),
+
+      supabase
+        .from('classes')
+        .select(
+          'id, name, level, programme_id, academic_year_id'
+        )
+        .eq('school_id', schoolId)
+        .order('name'),
+
+      supabase
+        .from('academic_years')
+        .select('id, name, is_current')
+        .eq('school_id', schoolId)
+        .order('name', { ascending: false }),
+    ]);
+
+    if (studentsResult.error) {
+      setError(
+        `Students error: ${studentsResult.error.message}`
+      );
+    } else {
+      setStudents(studentsResult.data || []);
+    }
+
+    if (programmesResult.error) {
+      setError(
+        `Programmes error: ${programmesResult.error.message}`
+      );
+    } else {
+      setProgrammes(programmesResult.data || []);
+    }
+
+    if (classesResult.error) {
+      setError(
+        `Classes error: ${classesResult.error.message}`
+      );
+    } else {
+      setClasses(classesResult.data || []);
+    }
+
+    if (yearsResult.error) {
+      setError(
+        `Academic years error: ${yearsResult.error.message}`
+      );
+    } else {
+      setAcademicYears(yearsResult.data || []);
+
+      const currentYear = yearsResult.data?.find(
+        (year) => year.is_current
+      );
+
+      if (currentYear) {
+        setAcademicYearId(currentYear.id);
+      }
+    }
+
+    await loadEnrollments(studentsResult.data || []);
+
     setLoading(false);
-    return;
   }
 
-  const schoolId = profile.school_id;
-
-  const [
-    studentsResult,
-    programmesResult,
-    classesResult,
-    yearsResult,
-  ] = await Promise.all([
-    supabase
-      .from('students')
-      .select('id, full_name, admission_number')
-      .eq('school_id', schoolId)
-      .eq('status', 'active')
-      .order('full_name'),
-
-    supabase
-      .from('programmes')
-      .select('id, name')
-      .eq('school_id', schoolId)
-      .order('name'),
-
-    supabase
-      .from('classes')
-      .select('id, name, level, programme_id, academic_year_id')
-      .eq('school_id', schoolId)
-      .order('name'),
-
-    supabase
-      .from('academic_years')
-      .select('id, name, is_current')
-      .eq('school_id', schoolId)
-      .order('name', { ascending: false }),
-  ]);
-
-  if (studentsResult.error) {
-    setError(studentsResult.error.message);
-  } else {
-    setStudents(studentsResult.data || []);
-  }
-
-  if (programmesResult.error) {
-    setError(programmesResult.error.message);
-  } else {
-    setProgrammes(programmesResult.data || []);
-  }
-
-  if (classesResult.error) {
-    setError(`Classes error: ${classesResult.error.message}`);
-  } else {
-    setClasses(classesResult.data || []);
-    console.log('CLASSES LOADED:', classesResult.data);
-  }
-
-  if (yearsResult.error) {
-    setError(yearsResult.error.message);
-  } else {
-    setAcademicYears(yearsResult.data || []);
-
-    const currentYear = yearsResult.data?.find(
-      (year: any) => year.is_current
+  async function loadEnrollments(
+    studentList: Student[]
+  ) {
+    const studentIds = studentList.map(
+      (student) => student.id
     );
 
-    if (currentYear) {
-      setAcademicYearId(currentYear.id);
+    if (studentIds.length === 0) {
+      setEnrollments([]);
+      return;
     }
-  }
 
-  await loadEnrollments(schoolId);
+    const { data, error: enrollmentError } =
+      await supabase
+        .from('enrollments')
+        .select(`
+          id,
+          student_id,
+          class_id,
+          academic_year_id,
+          programme_id,
+          enrollment_date,
+          status,
+          student:students (
+            id,
+            full_name,
+            admission_number
+          ),
+          class:classes (
+            id,
+            name,
+            level
+          ),
+          programme:programmes (
+            id,
+            name
+          ),
+          academic_year:academic_years (
+            id,
+            name
+          )
+        `)
+        .in('student_id', studentIds);
 
-  setLoading(false);
-  }
+    if (enrollmentError) {
+      setError(enrollmentError.message);
+      return;
+    }
 
-  async function loadEnrollments(schoolId: string) {
-  const studentIds = students.map((student) => student.id);
-
-  if (studentIds.length === 0) {
-    setEnrollments([]);
-    return;
-  }
-
-  const { data, error: enrollmentError } = await supabase
-    .from('enrollments')
-    .select(`
-      id,
-      student_id,
-      class_id,
-      academic_year_id,
-      programme_id,
-      enrollment_date,
-      status,
-      student:students (
-        id,
-        full_name,
-        admission_number
-      ),
-      class:classes (
-        id,
-        name,
-        level
-      ),
-      programme:programmes (
-        id,
-        name
-      ),
-      academic_year:academic_years (
-        id,
-        name
-      )
-    `)
-    .in('student_id', studentIds);
-
-  if (enrollmentError) {
-    setError(enrollmentError.message);
-    return;
-  }
-
-  setEnrollments((data as any) || []);
+    setEnrollments((data as any) || []);
   }
 
   useEffect(() => {
     loadData();
   }, []);
 
-  async function addEnrollment(e: React.FormEvent) {
+  async function addEnrollment(
+    e: React.FormEvent
+  ) {
     e.preventDefault();
     setError('');
 
     if (!studentId || !classId || !academicYearId) {
-      setError('Please select a student, class and academic year.');
+      setError(
+        'Please select a student, class and academic year.'
+      );
       return;
     }
 
@@ -245,16 +272,24 @@ export default function EnrollmentPage() {
     );
 
     await loadData();
+
     setSaving(false);
   }
 
   async function deleteEnrollment(id: string) {
-    if (!window.confirm('Delete this enrollment?')) return;
+    if (
+      !window.confirm(
+        'Delete this enrollment?'
+      )
+    ) {
+      return;
+    }
 
-    const { error: deleteError } = await supabase
-      .from('enrollments')
-      .delete()
-      .eq('id', id);
+    const { error: deleteError } =
+      await supabase
+        .from('enrollments')
+        .delete()
+        .eq('id', id);
 
     if (deleteError) {
       setError(deleteError.message);
@@ -262,34 +297,43 @@ export default function EnrollmentPage() {
     }
 
     setEnrollments((current) =>
-      current.filter((item) => item.id !== id)
+      current.filter(
+        (item) => item.id !== id
+      )
     );
   }
 
   const filteredEnrollments = useMemo(() => {
-    const query = search.toLowerCase().trim();
+    const query = search
+      .toLowerCase()
+      .trim();
 
-    if (!query) return enrollments;
+    if (!query) {
+      return enrollments;
+    }
 
-    return enrollments.filter((item: any) =>
-      [
-        item.student?.full_name,
-        item.student?.admission_number,
-        item.class?.name,
-        item.programme?.name,
-        item.academic_year?.name,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(query)
+    return enrollments.filter(
+      (item: any) =>
+        [
+          item.student?.full_name,
+          item.student?.admission_number,
+          item.class?.name,
+          item.programme?.name,
+          item.academic_year?.name,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(query)
     );
   }, [enrollments, search]);
 
   if (loading) {
     return (
       <div className="p-6 lg:p-10">
-        <p className="text-slate-500">Loading enrollment system...</p>
+        <p className="text-slate-500">
+          Loading enrollment system...
+        </p>
       </div>
     );
   }
@@ -318,6 +362,61 @@ export default function EnrollmentPage() {
           </div>
         )}
 
+        {/* Data Loading Diagnostic */}
+        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Programmes Loaded
+            </p>
+
+            <p className="mt-1 text-2xl font-bold text-slate-900">
+              {programmes.length}
+            </p>
+
+            <p className="mt-1 text-xs text-slate-500">
+              {programmes.length > 0
+                ? programmes.map((item) => item.name).join(', ')
+                : 'No programmes loaded'}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Classes Loaded
+            </p>
+
+            <p className="mt-1 text-2xl font-bold text-slate-900">
+              {classes.length}
+            </p>
+
+            <p className="mt-1 text-xs text-slate-500">
+              {classes.length > 0
+                ? classes.map((item) => item.name).join(', ')
+                : 'No classes loaded'}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Academic Years Loaded
+            </p>
+
+            <p className="mt-1 text-2xl font-bold text-slate-900">
+              {academicYears.length}
+            </p>
+
+            <p className="mt-1 text-xs text-slate-500">
+              {academicYears.length > 0
+                ? academicYears
+                    .map((year) => year.name)
+                    .join(', ')
+                : 'No academic years loaded'}
+            </p>
+          </div>
+
+        </div>
+
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -326,8 +425,12 @@ export default function EnrollmentPage() {
               New Enrollment
             </h2>
 
-            <form onSubmit={addEnrollment} className="space-y-4">
+            <form
+              onSubmit={addEnrollment}
+              className="space-y-4"
+            >
 
+              {/* Student */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Student
@@ -335,20 +438,29 @@ export default function EnrollmentPage() {
 
                 <select
                   value={studentId}
-                  onChange={(e) => setStudentId(e.target.value)}
+                  onChange={(e) =>
+                    setStudentId(e.target.value)
+                  }
                   required
                   className="w-full rounded-xl border border-slate-300 px-4 py-3"
                 >
-                  <option value="">Select student</option>
+                  <option value="">
+                    Select student
+                  </option>
 
                   {students.map((student) => (
-                    <option key={student.id} value={student.id}>
-                      {student.full_name} — {student.admission_number}
+                    <option
+                      key={student.id}
+                      value={student.id}
+                    >
+                      {student.full_name} —{' '}
+                      {student.admission_number}
                     </option>
                   ))}
                 </select>
               </div>
 
+              {/* Programme */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Programme
@@ -356,19 +468,27 @@ export default function EnrollmentPage() {
 
                 <select
                   value={programmeId}
-                  onChange={(e) => setProgrammeId(e.target.value)}
+                  onChange={(e) =>
+                    setProgrammeId(e.target.value)
+                  }
                   className="w-full rounded-xl border border-slate-300 px-4 py-3"
                 >
-                  <option value="">Select programme</option>
+                  <option value="">
+                    Select programme
+                  </option>
 
                   {programmes.map((programme) => (
-                    <option key={programme.id} value={programme.id}>
+                    <option
+                      key={programme.id}
+                      value={programme.id}
+                    >
                       {programme.name}
                     </option>
                   ))}
                 </select>
               </div>
 
+              {/* Class */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Class
@@ -376,21 +496,31 @@ export default function EnrollmentPage() {
 
                 <select
                   value={classId}
-                  onChange={(e) => setClassId(e.target.value)}
+                  onChange={(e) =>
+                    setClassId(e.target.value)
+                  }
                   required
                   className="w-full rounded-xl border border-slate-300 px-4 py-3"
                 >
-                  <option value="">Select class</option>
+                  <option value="">
+                    Select class
+                  </option>
 
                   {classes.map((item) => (
-                    <option key={item.id} value={item.id}>
+                    <option
+                      key={item.id}
+                      value={item.id}
+                    >
                       {item.name}
-                      {item.level ? ` — ${item.level}` : ''}
+                      {item.level
+                        ? ` — ${item.level}`
+                        : ''}
                     </option>
                   ))}
                 </select>
               </div>
 
+              {/* Academic Year */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Academic Year
@@ -404,16 +534,22 @@ export default function EnrollmentPage() {
                   required
                   className="w-full rounded-xl border border-slate-300 px-4 py-3"
                 >
-                  <option value="">Select academic year</option>
+                  <option value="">
+                    Select academic year
+                  </option>
 
                   {academicYears.map((year) => (
-                    <option key={year.id} value={year.id}>
+                    <option
+                      key={year.id}
+                      value={year.id}
+                    >
                       {year.name}
                     </option>
                   ))}
                 </select>
               </div>
 
+              {/* Enrollment Date */}
               <div>
                 <label className="mb-2 block text-sm font-medium">
                   Enrollment Date
@@ -435,12 +571,15 @@ export default function EnrollmentPage() {
                 disabled={saving}
                 className="w-full rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               >
-                {saving ? 'Saving...' : 'Enroll Student'}
+                {saving
+                  ? 'Saving...'
+                  : 'Enroll Student'}
               </button>
 
             </form>
           </div>
 
+          {/* Enrolled Students */}
           <div className="lg:col-span-2">
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -453,8 +592,11 @@ export default function EnrollmentPage() {
                   </h2>
 
                   <p className="text-sm text-slate-500">
-                    {filteredEnrollments.length} enrollment
-                    {filteredEnrollments.length !== 1 ? 's' : ''}
+                    {filteredEnrollments.length}{' '}
+                    enrollment
+                    {filteredEnrollments.length !== 1
+                      ? 's'
+                      : ''}
                   </p>
                 </div>
 
@@ -462,7 +604,9 @@ export default function EnrollmentPage() {
                   type="text"
                   placeholder="Search enrollment..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) =>
+                    setSearch(e.target.value)
+                  }
                   className="rounded-xl border border-slate-300 px-4 py-2.5"
                 />
 
@@ -475,55 +619,70 @@ export default function EnrollmentPage() {
                     No enrollments found.
                   </div>
                 ) : (
-                  filteredEnrollments.map((item: any) => (
-                    <div
-                      key={item.id}
-                      className="rounded-xl border border-slate-100 p-4"
-                    >
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  filteredEnrollments.map(
+                    (item: any) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl border border-slate-100 p-4"
+                      >
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
-                        <div>
-                          <h3 className="font-bold text-slate-900">
-                            {item.student?.full_name || 'Unknown Student'}
-                          </h3>
+                          <div>
+                            <h3 className="font-bold text-slate-900">
+                              {item.student?.full_name ||
+                                'Unknown Student'}
+                            </h3>
 
-                          <p className="text-sm text-slate-500">
-                            {item.student?.admission_number}
-                          </p>
+                            <p className="text-sm text-slate-500">
+                              {
+                                item.student
+                                  ?.admission_number
+                              }
+                            </p>
 
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">
-                              {item.class?.name || 'No class'}
-                            </span>
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
 
-                            <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
-                              {item.programme?.name || 'No programme'}
-                            </span>
+                              <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">
+                                {item.class?.name ||
+                                  'No class'}
+                              </span>
 
-                            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
-                              {item.academic_year?.name || 'No year'}
-                            </span>
+                              <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
+                                {item.programme?.name ||
+                                  'No programme'}
+                              </span>
+
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+                                {item.academic_year
+                                  ?.name ||
+                                  'No year'}
+                              </span>
+
+                            </div>
                           </div>
+
+                          <button
+                            onClick={() =>
+                              deleteEnrollment(
+                                item.id
+                              )
+                            }
+                            className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+
                         </div>
-
-                        <button
-                          onClick={() =>
-                            deleteEnrollment(item.id)
-                          }
-                          className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
-
                       </div>
-                    </div>
-                  ))
+                    )
+                  )
                 )}
 
               </div>
 
             </div>
           </div>
+
         </div>
       </div>
     </div>
