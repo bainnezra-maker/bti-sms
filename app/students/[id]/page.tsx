@@ -15,25 +15,33 @@ type Student = {
   guardian_phone: string | null;
   address: string | null;
   admission_date: string;
-  jhs_aggregate: number | null;
   status: string;
+  jhs_aggregate: number | null;
+  photo_url: string | null;
+  conduct: string | null;
+  promotion_status: string | null;
+  class_teacher_remark: string | null;
+  hod_remark: string | null;
+  next_term_begins: string | null;
 };
 
 type Enrollment = {
   id: string;
   enrollment_date: string;
-  status: string | null;
-  academic_year_id: string;
-  class_id: string;
-  programme_id: string | null;
-  academic_year: { name: string }[] | null;
+  status: string;
   class: {
+    id: string;
     name: string;
     level: string | null;
   }[] | null;
   programme: {
+    id: string;
     name: string;
     code: string | null;
+  }[] | null;
+  academic_year: {
+    id: string;
+    name: string;
   }[] | null;
 };
 
@@ -54,10 +62,33 @@ type Assessment = {
   created_at: string;
 };
 
+const CA_TYPES = [
+  'Exercise 1',
+  'Exercise 2',
+  'Exercise 3',
+  'Exercise 4',
+  'Class Test 1',
+  'Class Test 2',
+  'Class Test 3',
+];
+
+function getPercentage(score: number, maxScore: number) {
+  return maxScore > 0 ? (score / maxScore) * 100 : 0;
+}
+
+function getGrade(percentage: number) {
+  if (percentage >= 80) return 'A';
+  if (percentage >= 70) return 'B';
+  if (percentage >= 60) return 'C';
+  if (percentage >= 50) return 'D';
+  if (percentage >= 40) return 'E';
+  return 'F';
+}
+
 export default function StudentProfilePage() {
-  const supabase = createClient();
   const params = useParams();
   const router = useRouter();
+  const supabase = createClient();
 
   const studentId = params.id as string;
 
@@ -67,15 +98,23 @@ export default function StudentProfilePage() {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [enrollmentLoading, setEnrollmentLoading] = useState(true);
-  const [attendanceLoading, setAttendanceLoading] = useState(true);
-  const [resultsLoading, setResultsLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    photo_url: '',
+    conduct: '',
+    promotion_status: '',
+    class_teacher_remark: '',
+    hod_remark: '',
+    next_term_begins: '',
+  });
+
+  useEffect(() => {
+    loadStudent();
+  }, [studentId]);
 
   async function loadStudent() {
     setLoading(true);
-    setError('');
 
     const {
       data: { user },
@@ -86,89 +125,85 @@ export default function StudentProfilePage() {
       return;
     }
 
-    const { data: profile, error: profileError } =
-      await supabase
-        .from('users')
-        .select('school_id')
-        .eq('id', user.id)
-        .single();
-
-    if (profileError || !profile) {
-      setError('School profile could not be found.');
-      setLoading(false);
-      return;
-    }
-
-    const { data, error: studentError } = await supabase
-      .from('students')
-      .select(
-        'id, admission_number, full_name, date_of_birth, gender, guardian_name, guardian_phone, address, admission_date, jhs_aggregate, status'
-      )
-      .eq('id', studentId)
-      .eq('school_id', profile.school_id)
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('school_id')
+      .eq('id', user.id)
       .single();
 
-    if (studentError || !data) {
-      setError(
-        studentError?.message || 'Student could not be found.'
-      );
+    if (!userProfile?.school_id) {
       setLoading(false);
       return;
     }
 
-    setStudent(data);
-    setLoading(false);
+    const { data: studentData, error: studentError } = await supabase
+      .from('students')
+      .select(`
+        id,
+        admission_number,
+        full_name,
+        date_of_birth,
+        gender,
+        guardian_name,
+        guardian_phone,
+        address,
+        admission_date,
+        status,
+        jhs_aggregate,
+        photo_url,
+        conduct,
+        promotion_status,
+        class_teacher_remark,
+        hod_remark,
+        next_term_begins
+      `)
+      .eq('id', studentId)
+      .eq('school_id', userProfile.school_id)
+      .single();
 
-    await Promise.all([
-      loadEnrollments(studentId),
-      loadAttendance(studentId),
-      loadAssessments(studentId),
-    ]);
-  }
+    if (studentError || !studentData) {
+      setLoading(false);
+      return;
+    }
 
-  async function loadEnrollments(id: string) {
-    setEnrollmentLoading(true);
+    setStudent(studentData);
 
-    const { data, error: enrollmentError } = await supabase
+    setForm({
+      photo_url: studentData.photo_url || '',
+      conduct: studentData.conduct || '',
+      promotion_status: studentData.promotion_status || '',
+      class_teacher_remark: studentData.class_teacher_remark || '',
+      hod_remark: studentData.hod_remark || '',
+      next_term_begins: studentData.next_term_begins || '',
+    });
+
+    const { data: enrollmentData } = await supabase
       .from('enrollments')
       .select(`
         id,
         enrollment_date,
         status,
-        academic_year_id,
-        class_id,
-        programme_id,
-        academic_year:academic_years (
-          name
-        ),
         class:classes (
+          id,
           name,
           level
         ),
         programme:programmes (
+          id,
           name,
           code
+        ),
+        academic_year:academic_years (
+          id,
+          name
         )
       `)
-      .eq('student_id', id)
-      .order('enrollment_date', {
-        ascending: false,
-      });
+      .eq('student_id', studentId)
+      .order('enrollment_date', { ascending: false });
 
-    if (enrollmentError) {
-      console.error(enrollmentError);
-      setEnrollments([]);
-    } else {
-      setEnrollments((data ?? []) as Enrollment[]);
-    }
+    setEnrollments((enrollmentData || []) as Enrollment[]);
 
-    setEnrollmentLoading(false);
-  }
-
-  async function loadAttendance(id: string) {
-    setAttendanceLoading(true);
-
-    const { data, error: attendanceError } = await supabase
+    const { data: attendanceData } = await supabase
       .from('attendance')
       .select(`
         id,
@@ -176,25 +211,12 @@ export default function StudentProfilePage() {
         status,
         class_id
       `)
-      .eq('student_id', id)
-      .order('date', {
-        ascending: false,
-      });
+      .eq('student_id', studentId)
+      .order('date', { ascending: false });
 
-    if (attendanceError) {
-      console.error(attendanceError);
-      setAttendance([]);
-    } else {
-      setAttendance((data ?? []) as AttendanceRecord[]);
-    }
+    setAttendance(attendanceData || []);
 
-    setAttendanceLoading(false);
-  }
-
-  async function loadAssessments(id: string) {
-    setResultsLoading(true);
-
-    const { data, error: assessmentError } = await supabase
+    const { data: assessmentData } = await supabase
       .from('assessments')
       .select(`
         id,
@@ -205,1357 +227,741 @@ export default function StudentProfilePage() {
         term,
         created_at
       `)
-      .eq('student_id', id)
-      .order('created_at', {
-        ascending: false,
-      });
+      .eq('student_id', studentId)
+      .order('created_at', { ascending: false });
 
-    if (assessmentError) {
-      console.error(assessmentError);
-      setAssessments([]);
-    } else {
-      setAssessments((data ?? []) as Assessment[]);
-    }
+    setAssessments(assessmentData || []);
 
-    setResultsLoading(false);
+    setLoading(false);
   }
 
-  useEffect(() => {
-    if (studentId) {
-      loadStudent();
+  async function saveReportCardInfo() {
+    if (!student) return;
+
+    setSaving(true);
+
+    const { error } = await supabase
+      .from('students')
+      .update({
+        photo_url: form.photo_url.trim() || null,
+        conduct: form.conduct.trim() || null,
+        promotion_status: form.promotion_status || null,
+        class_teacher_remark:
+          form.class_teacher_remark.trim() || null,
+        hod_remark: form.hod_remark.trim() || null,
+        next_term_begins: form.next_term_begins || null,
+      })
+      .eq('id', student.id);
+
+    if (error) {
+      alert(`Could not save report card information: ${error.message}`);
+      setSaving(false);
+      return;
     }
-  }, [studentId]);
 
-  function formatDate(date: string | null) {
-    if (!date) return 'Not provided';
+    alert('Report card information saved successfully.');
 
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return date;
-    }
-
-    return parsedDate.toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-    });
+    await loadStudent();
+    setSaving(false);
   }
 
-  function calculateAge(dateOfBirth: string | null) {
-    if (!dateOfBirth) return null;
-
-    const birthDate = new Date(dateOfBirth);
-    const today = new Date();
-
-    if (Number.isNaN(birthDate.getTime())) {
-      return null;
-    }
-
-    let age =
-      today.getFullYear() -
-      birthDate.getFullYear();
-
-    const monthDifference =
-      today.getMonth() - birthDate.getMonth();
-
-    if (
-      monthDifference < 0 ||
-      (monthDifference === 0 &&
-        today.getDate() < birthDate.getDate())
-    ) {
-      age--;
-    }
-
-    return age;
-  }
-
-  function getStatusClasses(status: string | null) {
-    if (status === 'active') {
-      return 'bg-green-100 text-green-700';
-    }
-
-    if (status === 'completed') {
-      return 'bg-blue-100 text-blue-700';
-    }
-
-    if (status === 'withdrawn') {
-      return 'bg-orange-100 text-orange-700';
-    }
-
-    return 'bg-slate-100 text-slate-700';
-  }
-
-  function getAttendanceClasses(status: string) {
-    const normalized = status.toLowerCase();
-
-    if (normalized === 'present') {
-      return 'bg-green-100 text-green-700';
-    }
-
-    if (normalized === 'absent') {
-      return 'bg-red-100 text-red-700';
-    }
-
-    if (normalized === 'late') {
-      return 'bg-yellow-100 text-yellow-700';
-    }
-
-    if (normalized === 'excused') {
-      return 'bg-blue-100 text-blue-700';
-    }
-
-    return 'bg-slate-100 text-slate-700';
-  }
-
-  function getAttendanceIcon(status: string) {
-    const normalized = status.toLowerCase();
-
-    if (normalized === 'present') return '✓';
-    if (normalized === 'absent') return '✕';
-    if (normalized === 'late') return '⏱';
-    if (normalized === 'excused') return 'E';
-
-    return '•';
-  }
-
-  function getScorePercentage(
-    score: number,
-    maxScore: number
-  ) {
-    if (!maxScore || maxScore <= 0) return 0;
-
-    return Math.round(
-      (Number(score) / Number(maxScore)) * 100
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="rounded-2xl bg-white p-8 shadow-sm">
+            Loading student profile...
+          </div>
+        </div>
+      </div>
     );
   }
 
-  function getResultClasses(percentage: number) {
-    if (percentage >= 80) {
-      return 'bg-green-100 text-green-700';
-    }
+  if (!student) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="rounded-2xl bg-white p-8 shadow-sm">
+            <h1 className="text-xl font-bold text-slate-900">
+              Student not found
+            </h1>
 
-    if (percentage >= 60) {
-      return 'bg-blue-100 text-blue-700';
-    }
-
-    if (percentage >= 50) {
-      return 'bg-yellow-100 text-yellow-700';
-    }
-
-    return 'bg-red-100 text-red-700';
+            <Link
+              href="/students"
+              className="mt-4 inline-block rounded-lg bg-blue-600 px-5 py-2 font-medium text-white"
+            >
+              ← Back to Students
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const totalAttendance = attendance.length;
 
   const presentCount = attendance.filter(
-    (record) =>
-      record.status.toLowerCase() === 'present'
+    (item) => item.status.toLowerCase() === 'present'
   ).length;
 
   const absentCount = attendance.filter(
-    (record) =>
-      record.status.toLowerCase() === 'absent'
+    (item) => item.status.toLowerCase() === 'absent'
   ).length;
 
   const lateCount = attendance.filter(
-    (record) =>
-      record.status.toLowerCase() === 'late'
+    (item) => item.status.toLowerCase() === 'late'
   ).length;
 
   const excusedCount = attendance.filter(
-    (record) =>
-      record.status.toLowerCase() === 'excused'
+    (item) => item.status.toLowerCase() === 'excused'
   ).length;
 
   const attendancePercentage =
     totalAttendance > 0
-      ? Math.round(
-          (presentCount / totalAttendance) * 100
-        )
+      ? (presentCount / totalAttendance) * 100
       : 0;
 
-  const totalAssessments = assessments.length;
+  const subjectMap: Record<
+    string,
+    {
+      caRaw: number;
+      examRaw: number;
+    }
+  > = {};
 
-  const totalScore = assessments.reduce(
-    (sum, assessment) =>
-      sum + Number(assessment.score),
-    0
-  );
+  assessments.forEach((assessment) => {
+    if (!subjectMap[assessment.subject]) {
+      subjectMap[assessment.subject] = {
+        caRaw: 0,
+        examRaw: 0,
+      };
+    }
 
-  const totalMaxScore = assessments.reduce(
-    (sum, assessment) =>
-      sum + Number(assessment.max_score),
-    0
-  );
+    if (CA_TYPES.includes(assessment.assessment_type)) {
+      subjectMap[assessment.subject].caRaw += Number(assessment.score);
+    }
 
-  const overallPercentage =
-    totalMaxScore > 0
-      ? Math.round(
-          (totalScore / totalMaxScore) * 100
-        )
-      : 0;
-
-  const subjectNames = Array.from(
-    new Set(
-      assessments.map(
-        (assessment) => assessment.subject
-      )
-    )
-  );
-
-  const subjectAverages = subjectNames.map(
-    (subject) => {
-      const subjectResults = assessments.filter(
-        (assessment) =>
-          assessment.subject === subject
+    if (assessment.assessment_type === 'Examination') {
+      subjectMap[assessment.subject].examRaw = Number(
+        assessment.score
       );
+    }
+  });
 
-      const subjectScore = subjectResults.reduce(
-        (sum, assessment) =>
-          sum + Number(assessment.score),
-        0
-      );
-
-      const subjectMax = subjectResults.reduce(
-        (sum, assessment) =>
-          sum + Number(assessment.max_score),
-        0
-      );
-
-      const percentage =
-        subjectMax > 0
-          ? Math.round(
-              (subjectScore / subjectMax) * 100
-            )
-          : 0;
+  const subjectResults = Object.entries(subjectMap).map(
+    ([subject, values]) => {
+      const caContribution = (values.caRaw / 100) * 30;
+      const examContribution = (values.examRaw / 100) * 70;
+      const finalScore = caContribution + examContribution;
 
       return {
         subject,
-        percentage,
-        count: subjectResults.length,
+        caRaw: values.caRaw,
+        caContribution,
+        examRaw: values.examRaw,
+        examContribution,
+        finalScore,
+        grade: getGrade(finalScore),
       };
     }
   );
 
-  const bestSubject =
-    subjectAverages.length > 0
-      ? [...subjectAverages].sort(
-          (a, b) =>
-            b.percentage - a.percentage
-        )[0]
-      : null;
+  const overallAverage =
+    subjectResults.length > 0
+      ? subjectResults.reduce(
+          (sum, item) => sum + item.finalScore,
+          0
+        ) / subjectResults.length
+      : 0;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
-        <div className="mx-auto max-w-5xl">
-          <p className="text-slate-500">
-            Loading student profile...
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const activeEnrollment = enrollments.find(
+    (item) => item.status === 'active'
+  );
 
-  if (error || !student) {
-    return (
-      <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
-        <div className="mx-auto max-w-5xl">
+  const currentClass =
+    activeEnrollment?.class?.[0]?.name || 'Not enrolled';
 
-          <Link
-            href="/students"
-            className="text-sm font-medium text-blue-600 hover:underline"
-          >
-            ← Back to Students
-          </Link>
-
-          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-6">
-
-            <h1 className="text-lg font-bold text-red-800">
-              Student Profile
-            </h1>
-
-            <p className="mt-2 text-sm text-red-700">
-              {error || 'Student could not be found.'}
-            </p>
-
-          </div>
-
-        </div>
-      </div>
-    );
-  }
-
-  const age = calculateAge(student.date_of_birth);
-
-  const currentEnrollment =
-    enrollments.find(
-      (enrollment) =>
-        enrollment.status === 'active'
-    ) || null;
+  const currentProgramme =
+    activeEnrollment?.programme?.[0]?.name || 'Not assigned';
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+      <div className="mx-auto max-w-6xl">
 
-      <div className="mx-auto max-w-5xl">
-
-        {/* Back */}
+        {/* Header */}
         <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
+            Student Profile
+          </h1>
 
-          <Link
-            href="/students"
-            className="text-sm font-medium text-blue-600 hover:underline"
-          >
-            ← Back to Students
-          </Link>
-
+          <p className="mt-1 text-sm text-slate-500">
+            Complete student information, academic history,
+            attendance and report-card details.
+          </p>
         </div>
 
-        {/* Profile Header */}
-        <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {/* Student Overview */}
+        <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
 
-          <div className="bg-blue-600 p-6 sm:p-8">
-
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-
-              <div className="flex items-center gap-4">
-
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-white text-4xl shadow-sm">
-                  👨‍🎓
+            {/* Photo */}
+            <div className="flex justify-center sm:justify-start">
+              {student.photo_url ? (
+                <img
+                  src={student.photo_url}
+                  alt={student.full_name}
+                  className="h-28 w-28 rounded-2xl object-cover ring-4 ring-slate-100"
+                />
+              ) : (
+                <div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-slate-100 text-4xl">
+                  👤
                 </div>
-
-                <div>
-
-                  <h1 className="text-2xl font-bold text-white sm:text-3xl">
-                    {student.full_name}
-                  </h1>
-
-                  <p className="mt-1 text-sm text-blue-100">
-                    {student.admission_number}
-                  </p>
-
-                </div>
-
-              </div>
-
-              <div>
-
-                <span
-                  className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${
-                    student.status === 'active'
-                      ? 'bg-green-100 text-green-700'
-                      : student.status === 'graduated'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-orange-100 text-orange-700'
-                  }`}
-                >
-                  {student.status}
-                </span>
-
-              </div>
-
+              )}
             </div>
 
-          </div>
+            <div className="flex-1">
+              <h2 className="text-2xl font-bold text-slate-900">
+                {student.full_name}
+              </h2>
 
-          {/* Quick Summary */}
-          <div className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-4 sm:p-6">
-
-            <div>
-              <p className="text-xs text-slate-400">
-                Admission Number
+              <p className="mt-1 text-slate-500">
+                {student.admission_number}
               </p>
 
-              <p className="mt-1 text-sm font-bold text-slate-800">
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+                  {currentClass}
+                </span>
+
+                <span className="rounded-full bg-purple-50 px-3 py-1 text-sm font-medium text-purple-700">
+                  {currentProgramme}
+                </span>
+
+                <span className="rounded-full bg-green-50 px-3 py-1 text-sm font-medium text-green-700">
+                  {student.status}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Personal Information */}
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+          <h2 className="mb-5 text-lg font-bold text-slate-900">
+            Personal Information
+          </h2>
+
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+
+            <div>
+              <p className="text-xs font-medium uppercase text-slate-400">
+                Admission Number
+              </p>
+              <p className="mt-1 font-semibold text-slate-800">
                 {student.admission_number}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-slate-400">
-                JHS Aggregate
-              </p>
-
-              <p className="mt-1 text-sm font-bold text-blue-700">
-                {student.jhs_aggregate !== null
-                  ? student.jhs_aggregate
-                  : 'Not provided'}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs font-medium uppercase text-slate-400">
                 Gender
               </p>
-
-              <p className="mt-1 text-sm font-bold text-slate-800">
+              <p className="mt-1 font-semibold text-slate-800">
                 {student.gender || 'Not provided'}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-slate-400">
-                Age
-              </p>
-
-              <p className="mt-1 text-sm font-bold text-slate-800">
-                {age !== null
-                  ? `${age} years`
-                  : 'Not provided'}
-              </p>
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* Current Enrollment */}
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-
-          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-
-            <div>
-
-              <h2 className="text-xl font-bold text-slate-900">
-                Current Enrollment
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                The student's current academic placement.
-              </p>
-
-            </div>
-
-            <Link
-              href="/enrollment"
-              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Manage Enrollment
-            </Link>
-
-          </div>
-
-          {enrollmentLoading ? (
-
-            <div className="rounded-xl bg-slate-50 p-5">
-              <p className="text-sm text-slate-500">
-                Loading enrollment...
-              </p>
-            </div>
-
-          ) : currentEnrollment ? (
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-
-              <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
-
-                <p className="text-xs font-medium uppercase tracking-wide text-blue-500">
-                  Academic Year
-                </p>
-
-                <p className="mt-2 font-bold text-blue-900">
-                  {currentEnrollment.academic_year?.[0]?.name ||
-                    'Not provided'}
-                </p>
-
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                  Programme
-                </p>
-
-                <p className="mt-2 font-bold text-slate-800">
-                  {currentEnrollment.programme?.[0]?.name ||
-                    'Not provided'}
-                </p>
-
-                {currentEnrollment.programme?.[0]?.code && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    {currentEnrollment.programme[0].code}
-                  </p>
-                )}
-
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                  Class
-                </p>
-
-                <p className="mt-2 font-bold text-slate-800">
-                  {currentEnrollment.class?.[0]?.name ||
-                    'Not provided'}
-                </p>
-
-                {currentEnrollment.class?.[0]?.level && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    {currentEnrollment.class[0].level}
-                  </p>
-                )}
-
-              </div>
-
-            </div>
-
-          ) : (
-
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-
-              <div className="mb-2 text-3xl">
-                🎓
-              </div>
-
-              <p className="font-medium text-slate-700">
-                No current enrollment found
-              </p>
-
-              <p className="mt-1 text-sm text-slate-500">
-                This student has not been enrolled in a current
-                academic year yet.
-              </p>
-
-              <Link
-                href="/enrollment"
-                className="mt-4 inline-block rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                Enroll Student
-              </Link>
-
-            </div>
-
-          )}
-
-        </div>
-
-        {/* Personal Information */}
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-
-          <div className="mb-6">
-
-            <h2 className="text-xl font-bold text-slate-900">
-              Personal Information
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Basic information about the student.
-            </p>
-
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                Full Name
-              </p>
-
-              <p className="mt-1 font-medium text-slate-800">
-                {student.full_name}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-xs font-medium uppercase text-slate-400">
                 Date of Birth
               </p>
-
-              <p className="mt-1 font-medium text-slate-800">
-                {formatDate(student.date_of_birth)}
+              <p className="mt-1 font-semibold text-slate-800">
+                {student.date_of_birth || 'Not provided'}
               </p>
             </div>
 
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                Gender
-              </p>
-
-              <p className="mt-1 font-medium text-slate-800">
-                {student.gender || 'Not provided'}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-xs font-medium uppercase text-slate-400">
                 Admission Date
               </p>
-
-              <p className="mt-1 font-medium text-slate-800">
-                {formatDate(student.admission_date)}
+              <p className="mt-1 font-semibold text-slate-800">
+                {student.admission_date}
               </p>
             </div>
 
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-xs font-medium uppercase text-slate-400">
                 JHS Aggregate
               </p>
-
-              <p className="mt-1 font-semibold text-blue-700">
-                {student.jhs_aggregate !== null
-                  ? student.jhs_aggregate
-                  : 'Not provided'}
-              </p>
-
-              <p className="mt-1 text-xs text-slate-400">
-                Aggregate used for admission into BTI.
+              <p className="mt-1 font-semibold text-slate-800">
+                {student.jhs_aggregate ?? 'Not provided'}
               </p>
             </div>
 
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                Student Status
+              <p className="text-xs font-medium uppercase text-slate-400">
+                Status
               </p>
-
-              <p className="mt-1 font-medium capitalize text-slate-800">
+              <p className="mt-1 font-semibold capitalize text-slate-800">
                 {student.status}
               </p>
             </div>
 
           </div>
-
         </div>
 
         {/* Guardian Information */}
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+          <h2 className="mb-5 text-lg font-bold text-slate-900">
+            Guardian Information
+          </h2>
 
-          <div className="mb-6">
-
-            <h2 className="text-xl font-bold text-slate-900">
-              Guardian Information
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Parent or guardian contact information.
-            </p>
-
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
 
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-xs font-medium uppercase text-slate-400">
                 Guardian Name
               </p>
-
-              <p className="mt-1 font-medium text-slate-800">
+              <p className="mt-1 font-semibold text-slate-800">
                 {student.guardian_name || 'Not provided'}
               </p>
             </div>
 
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-xs font-medium uppercase text-slate-400">
                 Guardian Phone
               </p>
-
-              <p className="mt-1 font-medium text-slate-800">
+              <p className="mt-1 font-semibold text-slate-800">
                 {student.guardian_phone || 'Not provided'}
               </p>
             </div>
 
             <div className="sm:col-span-2">
-
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                Residential Address
+              <p className="text-xs font-medium uppercase text-slate-400">
+                Address
               </p>
-
-              <p className="mt-1 font-medium text-slate-800">
+              <p className="mt-1 font-semibold text-slate-800">
                 {student.address || 'Not provided'}
               </p>
-
             </div>
 
           </div>
-
         </div>
 
-        {/* Enrollment History */}
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        {/* Report Card Information */}
+        <div className="mt-6 rounded-2xl border border-blue-100 bg-white p-5 shadow-sm sm:p-6">
 
-          <div className="mb-6">
-
-            <h2 className="text-xl font-bold text-slate-900">
-              Enrollment History
+          <div className="mb-5">
+            <h2 className="text-lg font-bold text-slate-900">
+              📋 Report Card Information
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              The student's academic journey at BTI.
+              These details will appear on the student's official report card.
             </p>
-
           </div>
 
-          {enrollmentLoading ? (
+          <div className="grid grid-cols-1 gap-5">
 
-            <div className="rounded-xl bg-slate-50 p-5">
-              <p className="text-sm text-slate-500">
-                Loading enrollment history...
+            {/* Photo URL */}
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                Student Photo URL
+              </label>
+
+              <input
+                type="url"
+                value={form.photo_url}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    photo_url: e.target.value,
+                  })
+                }
+                placeholder="Paste the student's photo URL"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+              />
+
+              <p className="mt-1 text-xs text-slate-400">
+                We will connect this to direct photo upload later.
               </p>
             </div>
 
-          ) : enrollments.length === 0 ? (
+            {/* Conduct */}
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                Conduct / Attitude
+              </label>
 
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-
-              <p className="font-medium text-slate-700">
-                No enrollment history
-              </p>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Enrollment records will appear here once the
-                student is enrolled.
-              </p>
-
+              <select
+                value={form.conduct}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    conduct: e.target.value,
+                  })
+                }
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+              >
+                <option value="">Select conduct</option>
+                <option value="Excellent">Excellent</option>
+                <option value="Very Good">Very Good</option>
+                <option value="Good">Good</option>
+                <option value="Satisfactory">Satisfactory</option>
+                <option value="Needs Improvement">
+                  Needs Improvement
+                </option>
+              </select>
             </div>
 
+            {/* Promotion */}
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                Promotion Status
+              </label>
+
+              <select
+                value={form.promotion_status}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    promotion_status: e.target.value,
+                  })
+                }
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+              >
+                <option value="">Select promotion status</option>
+                <option value="Promoted">Promoted</option>
+                <option value="Repeated">Repeated</option>
+                <option value="Referred">Referred</option>
+              </select>
+            </div>
+
+            {/* Class Teacher Remark */}
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                Class Teacher's Remark
+              </label>
+
+              <textarea
+                value={form.class_teacher_remark}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    class_teacher_remark: e.target.value,
+                  })
+                }
+                rows={4}
+                placeholder="Enter class teacher's remark..."
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+              />
+            </div>
+
+            {/* HOD Remark */}
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                HOD / Head's Remark
+              </label>
+
+              <textarea
+                value={form.hod_remark}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    hod_remark: e.target.value,
+                  })
+                }
+                rows={4}
+                placeholder="Enter HOD / Head's remark..."
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+              />
+            </div>
+
+            {/* Next Term */}
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                Next Term Begins
+              </label>
+
+              <input
+                type="date"
+                value={form.next_term_begins}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    next_term_begins: e.target.value,
+                  })
+                }
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <button
+              onClick={saveReportCardInfo}
+              disabled={saving}
+              className="w-full rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {saving ? 'Saving...' : '💾 Save Report Card Information'}
+            </button>
+
+          </div>
+        </div>
+
+        {/* Academic Information */}
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+          <h2 className="mb-5 text-lg font-bold text-slate-900">
+            Academic Information
+          </h2>
+
+          {enrollments.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No enrollment history found.
+            </p>
           ) : (
-
-            <div className="space-y-4">
-
-              {enrollments.map((enrollment, index) => (
-
+            <div className="space-y-3">
+              {enrollments.map((enrollment) => (
                 <div
                   key={enrollment.id}
-                  className={`rounded-xl border p-5 ${
-                    index === 0 &&
-                    enrollment.status === 'active'
-                      ? 'border-green-200 bg-green-50'
-                      : 'border-slate-200 bg-white'
-                  }`}
+                  className="rounded-xl border border-slate-200 p-4"
                 >
-
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 
                     <div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-
-                        <h3 className="font-bold text-slate-900">
-                          {enrollment.academic_year?.[0]?.name ||
-                            'Academic Year'}
-                        </h3>
-
-                        {index === 0 &&
-                          enrollment.status === 'active' && (
-                            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                              Current
-                            </span>
-                          )}
-
-                      </div>
-
-                      <p className="mt-1 text-sm font-medium text-slate-700">
+                      <p className="font-semibold text-slate-900">
                         {enrollment.class?.[0]?.name ||
-                          'Class not provided'}
+                          'Class not available'}
                       </p>
 
-                      <p className="mt-1 text-sm text-slate-500">
+                      <p className="text-sm text-slate-500">
                         {enrollment.programme?.[0]?.name ||
-                          'Programme not provided'}
+                          'Programme not available'}
                       </p>
-
                     </div>
 
-                    <div className="flex flex-col gap-2 lg:items-end">
-
-                      <span
-                        className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${getStatusClasses(
-                          enrollment.status
-                        )}`}
-                      >
-                        {enrollment.status || 'Unknown'}
-                      </span>
-
-                      <p className="text-xs text-slate-400">
-                        Enrolled:{' '}
-                        {formatDate(
-                          enrollment.enrollment_date
-                        )}
-                      </p>
-
+                    <div className="text-sm text-slate-500">
+                      {enrollment.academic_year?.[0]?.name ||
+                        'Academic year unavailable'}
                     </div>
 
                   </div>
-
                 </div>
-
               ))}
-
             </div>
-
           )}
-
         </div>
 
         {/* Attendance */}
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-
-          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-
-            <div>
-
-              <h2 className="text-xl font-bold text-slate-900">
-                Attendance
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Attendance record and summary for this student.
-              </p>
-
-            </div>
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-bold text-slate-900">
+              Attendance Summary
+            </h2>
 
             <Link
               href="/attendance"
-              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              className="text-sm font-semibold text-blue-600 hover:text-blue-700"
             >
-              Manage Attendance
+              Manage Attendance →
             </Link>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+
+            <div className="rounded-xl bg-slate-50 p-4">
+              <p className="text-xs text-slate-500">Recorded</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">
+                {totalAttendance}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-green-50 p-4">
+              <p className="text-xs text-green-700">Present</p>
+              <p className="mt-1 text-2xl font-bold text-green-700">
+                {presentCount}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-red-50 p-4">
+              <p className="text-xs text-red-700">Absent</p>
+              <p className="mt-1 text-2xl font-bold text-red-700">
+                {absentCount}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-yellow-50 p-4">
+              <p className="text-xs text-yellow-700">Late</p>
+              <p className="mt-1 text-2xl font-bold text-yellow-700">
+                {lateCount}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-blue-50 p-4">
+              <p className="text-xs text-blue-700">Excused</p>
+              <p className="mt-1 text-2xl font-bold text-blue-700">
+                {excusedCount}
+              </p>
+            </div>
 
           </div>
 
-          {attendanceLoading ? (
+          <div className="mt-5">
+            <div className="mb-2 flex justify-between text-sm">
+              <span className="font-medium text-slate-600">
+                Attendance Percentage
+              </span>
 
-            <div className="rounded-xl bg-slate-50 p-5">
-              <p className="text-sm text-slate-500">
-                Loading attendance...
-              </p>
+              <span className="font-bold text-slate-900">
+                {attendancePercentage.toFixed(1)}%
+              </span>
             </div>
 
-          ) : totalAttendance === 0 ? (
-
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-
-              <div className="mb-2 text-3xl">
-                📅
-              </div>
-
-              <p className="font-medium text-slate-700">
-                No attendance records
-              </p>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Attendance records will appear here once
-                attendance has been recorded for this student.
-              </p>
-
-              <Link
-                href="/attendance"
-                className="mt-4 inline-block rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                Record Attendance
-              </Link>
-
+            <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-green-500"
+                style={{
+                  width: `${Math.min(
+                    attendancePercentage,
+                    100
+                  )}%`,
+                }}
+              />
             </div>
+          </div>
 
-          ) : (
+          {attendance.length > 0 && (
+            <div className="mt-6 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="px-3 py-3 font-semibold text-slate-600">
+                      Date
+                    </th>
+                    <th className="px-3 py-3 font-semibold text-slate-600">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
 
-            <>
+                <tbody>
+                  {attendance.slice(0, 10).map((record) => (
+                    <tr
+                      key={record.id}
+                      className="border-b border-slate-100"
+                    >
+                      <td className="px-3 py-3">
+                        {record.date}
+                      </td>
 
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Recorded
-                  </p>
-
-                  <p className="mt-2 text-2xl font-bold text-slate-900">
-                    {totalAttendance}
-                  </p>
-
-                  <p className="mt-1 text-xs text-slate-500">
-                    Days
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-green-100 bg-green-50 p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-green-600">
-                    Present
-                  </p>
-
-                  <p className="mt-2 text-2xl font-bold text-green-700">
-                    {presentCount}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-red-100 bg-red-50 p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-red-600">
-                    Absent
-                  </p>
-
-                  <p className="mt-2 text-2xl font-bold text-red-700">
-                    {absentCount}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-yellow-100 bg-yellow-50 p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-yellow-700">
-                    Late
-                  </p>
-
-                  <p className="mt-2 text-2xl font-bold text-yellow-700">
-                    {lateCount}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-blue-600">
-                    Attendance
-                  </p>
-
-                  <p className="mt-2 text-2xl font-bold text-blue-700">
-                    {attendancePercentage}%
-                  </p>
-                </div>
-
-              </div>
-
-              <div className="mt-6">
-
-                <div className="mb-2 flex items-center justify-between">
-
-                  <p className="text-sm font-medium text-slate-700">
-                    Attendance Rate
-                  </p>
-
-                  <p className="text-sm font-bold text-blue-700">
-                    {attendancePercentage}%
-                  </p>
-
-                </div>
-
-                <div className="h-3 overflow-hidden rounded-full bg-slate-200">
-
-                  <div
-                    className="h-full rounded-full bg-blue-600 transition-all"
-                    style={{
-                      width: `${attendancePercentage}%`,
-                    }}
-                  />
-
-                </div>
-
-              </div>
-
-              {excusedCount > 0 && (
-                <p className="mt-4 text-xs text-slate-500">
-                  Excused absences: {excusedCount}
-                </p>
-              )}
-
-              <div className="mt-8">
-
-                <h3 className="font-bold text-slate-900">
-                  Recent Attendance
-                </h3>
-
-                <p className="text-xs text-slate-500">
-                  Latest attendance records
-                </p>
-
-                <div className="mt-4 space-y-3">
-
-                  {attendance
-                    .slice(0, 10)
-                    .map((record) => (
-
-                      <div
-                        key={record.id}
-                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4"
-                      >
-
-                        <div className="flex items-center gap-3">
-
-                          <div
-                            className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${getAttendanceClasses(
-                              record.status
-                            )}`}
-                          >
-                            {getAttendanceIcon(
-                              record.status
-                            )}
-                          </div>
-
-                          <div>
-
-                            <p className="text-sm font-semibold text-slate-800">
-                              {formatDate(record.date)}
-                            </p>
-
-                            <p className="text-xs text-slate-400">
-                              Attendance record
-                            </p>
-
-                          </div>
-
-                        </div>
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${getAttendanceClasses(
-                            record.status
-                          )}`}
-                        >
-                          {record.status}
-                        </span>
-
-                      </div>
-
-                    ))}
-
-                </div>
-
-              </div>
-
-            </>
-
+                      <td className="px-3 py-3 capitalize">
+                        {record.status}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
-
         </div>
 
-        {/* Results */}
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        {/* Academic Results */}
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
 
-          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-
-              <h2 className="text-xl font-bold text-slate-900">
+              <h2 className="text-lg font-bold text-slate-900">
                 Academic Results
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Assessment performance for this student.
+                Current recorded assessment performance.
               </p>
-
             </div>
 
             <Link
               href="/assessment"
-              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              className="text-sm font-semibold text-blue-600 hover:text-blue-700"
             >
-              Manage Assessments
+              Manage Assessments →
             </Link>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+
+            <div className="rounded-xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">
+                Assessments
+              </p>
+
+              <p className="mt-1 text-2xl font-bold text-slate-900">
+                {assessments.length}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-blue-50 p-4">
+              <p className="text-sm text-blue-700">
+                Overall Average
+              </p>
+
+              <p className="mt-1 text-2xl font-bold text-blue-700">
+                {overallAverage.toFixed(1)}%
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-purple-50 p-4">
+              <p className="text-sm text-purple-700">
+                Subjects
+              </p>
+
+              <p className="mt-1 text-2xl font-bold text-purple-700">
+                {subjectResults.length}
+              </p>
+            </div>
 
           </div>
 
-          {resultsLoading ? (
+          {subjectResults.length > 0 && (
+            <div className="mt-6 space-y-3">
+              {subjectResults.map((result) => (
+                <div
+                  key={result.subject}
+                  className="rounded-xl border border-slate-200 p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">
+                        {result.subject}
+                      </p>
 
-            <div className="rounded-xl bg-slate-50 p-5">
-              <p className="text-sm text-slate-500">
-                Loading results...
-              </p>
-            </div>
+                      <p className="text-sm text-slate-500">
+                        Final: {result.finalScore.toFixed(1)}%
+                      </p>
+                    </div>
 
-          ) : totalAssessments === 0 ? (
-
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-
-              <div className="mb-2 text-3xl">
-                📊
-              </div>
-
-              <p className="font-medium text-slate-700">
-                No assessment results
-              </p>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Assessment results will appear here once
-                scores have been recorded for this student.
-              </p>
-
-              <Link
-                href="/assessment"
-                className="mt-4 inline-block rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                Record Assessment
-              </Link>
-
-            </div>
-
-          ) : (
-
-            <>
-
-              {/* Results Summary */}
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Assessments
-                  </p>
-
-                  <p className="mt-2 text-2xl font-bold text-slate-900">
-                    {totalAssessments}
-                  </p>
-
-                </div>
-
-                <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
-
-                  <p className="text-xs font-medium uppercase tracking-wide text-blue-600">
-                    Overall Average
-                  </p>
-
-                  <p className="mt-2 text-2xl font-bold text-blue-700">
-                    {overallPercentage}%
-                  </p>
-
-                </div>
-
-                <div className="rounded-xl border border-green-100 bg-green-50 p-5">
-
-                  <p className="text-xs font-medium uppercase tracking-wide text-green-600">
-                    Subjects
-                  </p>
-
-                  <p className="mt-2 text-2xl font-bold text-green-700">
-                    {subjectNames.length}
-                  </p>
-
-                </div>
-
-                <div className="rounded-xl border border-purple-100 bg-purple-50 p-5">
-
-                  <p className="text-xs font-medium uppercase tracking-wide text-purple-600">
-                    Best Subject
-                  </p>
-
-                  <p className="mt-2 truncate text-lg font-bold text-purple-700">
-                    {bestSubject?.subject || '—'}
-                  </p>
-
-                  {bestSubject && (
-                    <p className="mt-1 text-xs text-purple-500">
-                      {bestSubject.percentage}%
-                    </p>
-                  )}
-
-                </div>
-
-              </div>
-
-              {/* Overall Progress */}
-              <div className="mt-6">
-
-                <div className="mb-2 flex items-center justify-between">
-
-                  <p className="text-sm font-medium text-slate-700">
-                    Overall Performance
-                  </p>
-
-                  <p className="text-sm font-bold text-blue-700">
-                    {overallPercentage}%
-                  </p>
-
-                </div>
-
-                <div className="h-3 overflow-hidden rounded-full bg-slate-200">
-
-                  <div
-                    className="h-full rounded-full bg-blue-600 transition-all"
-                    style={{
-                      width: `${Math.min(
-                        overallPercentage,
-                        100
-                      )}%`,
-                    }}
-                  />
-
-                </div>
-
-              </div>
-
-              {/* Subject Performance */}
-              {subjectAverages.length > 0 && (
-
-                <div className="mt-8">
-
-                  <h3 className="font-bold text-slate-900">
-                    Subject Performance
-                  </h3>
-
-                  <p className="text-xs text-slate-500">
-                    Average performance by subject
-                  </p>
-
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-
-                    {subjectAverages
-                      .sort(
-                        (a, b) =>
-                          b.percentage -
-                          a.percentage
-                      )
-                      .map((subject) => (
-
-                        <div
-                          key={subject.subject}
-                          className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                        >
-
-                          <div className="flex items-center justify-between gap-3">
-
-                            <p className="truncate text-sm font-semibold text-slate-800">
-                              {subject.subject}
-                            </p>
-
-                            <span
-                              className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${getResultClasses(
-                                subject.percentage
-                              )}`}
-                            >
-                              {subject.percentage}%
-                            </span>
-
-                          </div>
-
-                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
-
-                            <div
-                              className="h-full rounded-full bg-blue-600"
-                              style={{
-                                width: `${Math.min(
-                                  subject.percentage,
-                                  100
-                                )}%`,
-                              }}
-                            />
-
-                          </div>
-
-                          <p className="mt-2 text-xs text-slate-400">
-                            {subject.count}{' '}
-                            assessment
-                            {subject.count !== 1
-                              ? 's'
-                              : ''}
-                          </p>
-
-                        </div>
-
-                      ))}
-
+                    <div className="rounded-lg bg-slate-100 px-3 py-2 font-bold text-slate-800">
+                      {result.grade}
+                    </div>
                   </div>
 
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-blue-500"
+                      style={{
+                        width: `${Math.min(
+                          result.finalScore,
+                          100
+                        )}%`,
+                      }}
+                    />
+                  </div>
                 </div>
+              ))}
+            </div>
+          )}
 
-              )}
-
-              {/* Recent Results */}
-              <div className="mt-8">
-
-                <div className="mb-4">
-
-                  <h3 className="font-bold text-slate-900">
-                    Recent Assessments
-                  </h3>
-
-                  <p className="text-xs text-slate-500">
-                    Latest recorded scores
-                  </p>
-
-                </div>
-
-                <div className="space-y-3">
-
-                  {assessments
-                    .slice(0, 10)
-                    .map((assessment) => {
-
-                      const percentage =
-                        getScorePercentage(
-                          Number(
-                            assessment.score
-                          ),
-                          Number(
-                            assessment.max_score
-                          )
-                        );
-
-                      return (
-                        <div
-                          key={assessment.id}
-                          className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                        >
-
-                          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-
-                            <div>
-
-                              <p className="font-semibold text-slate-800">
-                                {assessment.subject}
-                              </p>
-
-                              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
-
-                                <span>
-                                  {assessment.assessment_type}
-                                </span>
-
-                                {assessment.term && (
-                                  <>
-                                    <span>•</span>
-                                    <span>
-                                      {assessment.term}
-                                    </span>
-                                  </>
-                                )}
-
-                                <span>•</span>
-
-                                <span>
-                                  {formatDate(
-                                    assessment.created_at
-                                  )}
-                                </span>
-
-                              </div>
-
-                            </div>
-
-                            <div className="flex items-center gap-3">
-
-                              <div className="text-right">
-
-                                <p className="font-bold text-slate-800">
-                                  {Number(
-                                    assessment.score
-                                  )}{' '}
-                                  /{' '}
-                                  {Number(
-                                    assessment.max_score
-                                  )}
-                                </p>
-
-                                <p className="text-xs text-slate-400">
-                                  Score
-                                </p>
-
-                              </div>
-
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-bold ${getResultClasses(
-                                  percentage
-                                )}`}
-                              >
-                                {percentage}%
-                              </span>
-
-                            </div>
-
-                          </div>
-
-                        </div>
-                      );
-                    })}
-
-                </div>
-
-              </div>
-
-            </>
-
+          {subjectResults.length === 0 && (
+            <p className="mt-6 text-sm text-slate-500">
+              No assessment results have been recorded yet.
+            </p>
           )}
 
         </div>
@@ -1587,7 +993,6 @@ export default function StudentProfilePage() {
         </div>
 
       </div>
-
     </div>
   );
 }
