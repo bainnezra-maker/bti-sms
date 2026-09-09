@@ -39,6 +39,13 @@ type Enrollment = {
   }[] | null;
 };
 
+type AttendanceRecord = {
+  id: string;
+  date: string;
+  status: string;
+  class_id: string;
+};
+
 export default function StudentProfilePage() {
   const supabase = createClient();
   const params = useParams();
@@ -48,8 +55,12 @@ export default function StudentProfilePage() {
 
   const [student, setStudent] = useState<Student | null>(null);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [enrollmentLoading, setEnrollmentLoading] = useState(true);
+  const [attendanceLoading, setAttendanceLoading] = useState(true);
+
   const [error, setError] = useState('');
 
   async function loadStudent() {
@@ -98,7 +109,10 @@ export default function StudentProfilePage() {
     setStudent(data);
     setLoading(false);
 
-    await loadEnrollments(studentId);
+    await Promise.all([
+      loadEnrollments(studentId),
+      loadAttendance(studentId),
+    ]);
   }
 
   async function loadEnrollments(id: string) {
@@ -138,6 +152,32 @@ export default function StudentProfilePage() {
     }
 
     setEnrollmentLoading(false);
+  }
+
+  async function loadAttendance(id: string) {
+    setAttendanceLoading(true);
+
+    const { data, error: attendanceError } = await supabase
+      .from('attendance')
+      .select(`
+        id,
+        date,
+        status,
+        class_id
+      `)
+      .eq('student_id', id)
+      .order('date', {
+        ascending: false,
+      });
+
+    if (attendanceError) {
+      console.error(attendanceError);
+      setAttendance([]);
+    } else {
+      setAttendance((data ?? []) as AttendanceRecord[]);
+    }
+
+    setAttendanceLoading(false);
   }
 
   useEffect(() => {
@@ -206,6 +246,68 @@ export default function StudentProfilePage() {
     return 'bg-slate-100 text-slate-700';
   }
 
+  function getAttendanceClasses(status: string) {
+    const normalized = status.toLowerCase();
+
+    if (normalized === 'present') {
+      return 'bg-green-100 text-green-700';
+    }
+
+    if (normalized === 'absent') {
+      return 'bg-red-100 text-red-700';
+    }
+
+    if (normalized === 'late') {
+      return 'bg-yellow-100 text-yellow-700';
+    }
+
+    if (normalized === 'excused') {
+      return 'bg-blue-100 text-blue-700';
+    }
+
+    return 'bg-slate-100 text-slate-700';
+  }
+
+  function getAttendanceIcon(status: string) {
+    const normalized = status.toLowerCase();
+
+    if (normalized === 'present') return '✓';
+    if (normalized === 'absent') return '✕';
+    if (normalized === 'late') return '⏱';
+    if (normalized === 'excused') return 'E';
+
+    return '•';
+  }
+
+  const totalAttendance = attendance.length;
+
+  const presentCount = attendance.filter(
+    (record) =>
+      record.status.toLowerCase() === 'present'
+  ).length;
+
+  const absentCount = attendance.filter(
+    (record) =>
+      record.status.toLowerCase() === 'absent'
+  ).length;
+
+  const lateCount = attendance.filter(
+    (record) =>
+      record.status.toLowerCase() === 'late'
+  ).length;
+
+  const excusedCount = attendance.filter(
+    (record) =>
+      record.status.toLowerCase() === 'excused'
+  ).length;
+
+  const attendancePercentage =
+    totalAttendance > 0
+      ? Math.round(
+          (presentCount / totalAttendance) * 100
+        )
+      : 0;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
@@ -222,6 +324,7 @@ export default function StudentProfilePage() {
     return (
       <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
         <div className="mx-auto max-w-5xl">
+
           <Link
             href="/students"
             className="text-sm font-medium text-blue-600 hover:underline"
@@ -230,6 +333,7 @@ export default function StudentProfilePage() {
           </Link>
 
           <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-6">
+
             <h1 className="text-lg font-bold text-red-800">
               Student Profile
             </h1>
@@ -237,7 +341,9 @@ export default function StudentProfilePage() {
             <p className="mt-2 text-sm text-red-700">
               {error || 'Student could not be found.'}
             </p>
+
           </div>
+
         </div>
       </div>
     );
@@ -252,29 +358,36 @@ export default function StudentProfilePage() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+
       <div className="mx-auto max-w-5xl">
 
         {/* Back */}
         <div className="mb-6">
+
           <Link
             href="/students"
             className="text-sm font-medium text-blue-600 hover:underline"
           >
             ← Back to Students
           </Link>
+
         </div>
 
         {/* Profile Header */}
         <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
           <div className="bg-blue-600 p-6 sm:p-8">
+
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
 
               <div className="flex items-center gap-4">
+
                 <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-white text-4xl shadow-sm">
                   👨‍🎓
                 </div>
 
                 <div>
+
                   <h1 className="text-2xl font-bold text-white sm:text-3xl">
                     {student.full_name}
                   </h1>
@@ -282,10 +395,13 @@ export default function StudentProfilePage() {
                   <p className="mt-1 text-sm text-blue-100">
                     {student.admission_number}
                   </p>
+
                 </div>
+
               </div>
 
               <div>
+
                 <span
                   className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${
                     student.status === 'active'
@@ -297,9 +413,11 @@ export default function StudentProfilePage() {
                 >
                   {student.status}
                 </span>
+
               </div>
 
             </div>
+
           </div>
 
           {/* Quick Summary */}
@@ -350,6 +468,7 @@ export default function StudentProfilePage() {
             </div>
 
           </div>
+
         </div>
 
         {/* Current Enrollment */}
@@ -358,6 +477,7 @@ export default function StudentProfilePage() {
           <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 
             <div>
+
               <h2 className="text-xl font-bold text-slate-900">
                 Current Enrollment
               </h2>
@@ -365,6 +485,7 @@ export default function StudentProfilePage() {
               <p className="mt-1 text-sm text-slate-500">
                 The student's current academic placement.
               </p>
+
             </div>
 
             <Link
@@ -377,16 +498,17 @@ export default function StudentProfilePage() {
           </div>
 
           {enrollmentLoading ? (
+
             <div className="rounded-xl bg-slate-50 p-5">
               <p className="text-sm text-slate-500">
                 Loading enrollment...
               </p>
             </div>
+
           ) : currentEnrollment ? (
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
 
-              {/* Academic Year */}
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
 
                 <p className="text-xs font-medium uppercase tracking-wide text-blue-500">
@@ -400,7 +522,6 @@ export default function StudentProfilePage() {
 
               </div>
 
-              {/* Programme */}
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
 
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -420,7 +541,6 @@ export default function StudentProfilePage() {
 
               </div>
 
-              {/* Class */}
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
 
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -556,6 +676,7 @@ export default function StudentProfilePage() {
             </div>
 
           </div>
+
         </div>
 
         {/* Guardian Information */}
@@ -596,6 +717,7 @@ export default function StudentProfilePage() {
             </div>
 
             <div className="sm:col-span-2">
+
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                 Residential Address
               </p>
@@ -603,9 +725,11 @@ export default function StudentProfilePage() {
               <p className="mt-1 font-medium text-slate-800">
                 {student.address || 'Not provided'}
               </p>
+
             </div>
 
           </div>
+
         </div>
 
         {/* Enrollment History */}
@@ -639,7 +763,7 @@ export default function StudentProfilePage() {
                 No enrollment history
               </p>
 
-              <p className="mt-1 text-sm text-slate-500">
+                            <p className="mt-1 text-sm text-slate-500">
                 Enrollment records will appear here once the
                 student is enrolled.
               </p>
@@ -725,42 +849,272 @@ export default function StudentProfilePage() {
 
         </div>
 
-        {/* Attendance and Results */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        {/* Attendance */}
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 
-            <h2 className="text-lg font-bold text-slate-900">
-              Attendance
-            </h2>
+            <div>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Attendance summary will appear here.
-            </p>
+              <h2 className="text-xl font-bold text-slate-900">
+                Attendance
+              </h2>
 
-            <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
-              <p className="text-sm text-slate-400">
-                Coming next
+              <p className="mt-1 text-sm text-slate-500">
+                Attendance record and summary for this student.
               </p>
+
             </div>
+
+            <Link
+              href="/attendance"
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Manage Attendance
+            </Link>
 
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          {attendanceLoading ? (
 
-            <h2 className="text-lg font-bold text-slate-900">
-              Results
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Assessment and academic results will appear here.
-            </p>
-
-            <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
-              <p className="text-sm text-slate-400">
-                Coming next
+            <div className="rounded-xl bg-slate-50 p-5">
+              <p className="text-sm text-slate-500">
+                Loading attendance...
               </p>
             </div>
+
+          ) : totalAttendance === 0 ? (
+
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+
+              <div className="mb-2 text-3xl">
+                📅
+              </div>
+
+              <p className="font-medium text-slate-700">
+                No attendance records
+              </p>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Attendance records will appear here once
+                attendance has been recorded for this student.
+              </p>
+
+              <Link
+                href="/attendance"
+                className="mt-4 inline-block rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Record Attendance
+              </Link>
+
+            </div>
+
+          ) : (
+
+            <>
+
+              {/* Attendance Summary */}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                    Recorded
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-slate-900">
+                    {totalAttendance}
+                  </p>
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    Days
+                  </p>
+
+                </div>
+
+                <div className="rounded-xl border border-green-100 bg-green-50 p-4">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-green-600">
+                    Present
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-green-700">
+                    {presentCount}
+                  </p>
+
+                </div>
+
+                <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-red-600">
+                    Absent
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-red-700">
+                    {absentCount}
+                  </p>
+
+                </div>
+
+                <div className="rounded-xl border border-yellow-100 bg-yellow-50 p-4">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-yellow-700">
+                    Late
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-yellow-700">
+                    {lateCount}
+                  </p>
+
+                </div>
+
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+
+                  <p className="text-xs font-medium uppercase tracking-wide text-blue-600">
+                    Attendance
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-blue-700">
+                    {attendancePercentage}%
+                  </p>
+
+                </div>
+
+              </div>
+
+              {/* Attendance Progress */}
+              <div className="mt-6">
+
+                <div className="mb-2 flex items-center justify-between">
+
+                  <p className="text-sm font-medium text-slate-700">
+                    Attendance Rate
+                  </p>
+
+                  <p className="text-sm font-bold text-blue-700">
+                    {attendancePercentage}%
+                  </p>
+
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+
+                  <div
+                    className="h-full rounded-full bg-blue-600 transition-all"
+                    style={{
+                      width: `${attendancePercentage}%`,
+                    }}
+                  />
+
+                </div>
+
+              </div>
+
+              {/* Excused */}
+              {excusedCount > 0 && (
+                <div className="mt-4">
+
+                  <p className="text-xs text-slate-500">
+                    Excused absences: {excusedCount}
+                  </p>
+
+                </div>
+              )}
+
+              {/* Recent Attendance */}
+              <div className="mt-8">
+
+                <div className="mb-4 flex items-center justify-between">
+
+                  <div>
+
+                    <h3 className="font-bold text-slate-900">
+                      Recent Attendance
+                    </h3>
+
+                    <p className="text-xs text-slate-500">
+                      Latest attendance records
+                    </p>
+
+                  </div>
+
+                </div>
+
+                <div className="space-y-3">
+
+                  {attendance
+                    .slice(0, 10)
+                    .map((record) => (
+
+                      <div
+                        key={record.id}
+                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      >
+
+                        <div className="flex items-center gap-3">
+
+                          <div
+                            className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${getAttendanceClasses(
+                              record.status
+                            )}`}
+                          >
+                            {getAttendanceIcon(
+                              record.status
+                            )}
+                          </div>
+
+                          <div>
+
+                            <p className="text-sm font-semibold text-slate-800">
+                              {formatDate(record.date)}
+                            </p>
+
+                            <p className="text-xs text-slate-400">
+                              Attendance record
+                            </p>
+
+                          </div>
+
+                        </div>
+
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${getAttendanceClasses(
+                            record.status
+                          )}`}
+                        >
+                          {record.status}
+                        </span>
+
+                      </div>
+
+                    ))}
+
+                </div>
+
+              </div>
+
+            </>
+
+          )}
+
+        </div>
+
+        {/* Results */}
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+
+          <h2 className="text-xl font-bold text-slate-900">
+            Results
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Assessment and academic results will appear here.
+          </p>
+
+          <div className="mt-5 rounded-xl bg-slate-50 p-5 text-center">
+
+            <p className="text-sm text-slate-400">
+              Coming next
+            </p>
 
           </div>
 
@@ -786,6 +1140,7 @@ export default function StudentProfilePage() {
         </div>
 
       </div>
+
     </div>
   );
 }
