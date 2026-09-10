@@ -23,21 +23,26 @@ const menuSections: {
       { name: 'Students', href: '/students', icon: '👨‍🎓' },
       { name: 'Add Student', href: '/students/add', icon: '➕' },
       { name: 'Attendance', href: '/attendance', icon: '📋' },
+      {
+        name: 'Attendance Reports',
+        href: '/attendance-reports',
+        icon: '📊',
+      },
       { name: 'Assessment', href: '/assessment', icon: '📝' },
     ],
   },
   {
-  title: 'ACADEMICS',
-  items: [
-    { name: 'Classes', href: '/classes', icon: '🏫' },
-    { name: 'Subjects', href: '/subjects', icon: '📚' },
-    { name: 'Programmes', href: '/programmes', icon: '🧰' },
-    { name: 'Academic Years', href: '/academic-years', icon: '📅' },
-    { name: 'Terms', href: '/terms', icon: '🗓️' },
-    { name: 'Enrollment', href: '/enrollment', icon: '🎓' },
-    { name: 'Results', href: '/results', icon: '📊' },
-  ],
-},
+    title: 'ACADEMICS',
+    items: [
+      { name: 'Classes', href: '/classes', icon: '🏫' },
+      { name: 'Subjects', href: '/subjects', icon: '📚' },
+      { name: 'Programmes', href: '/programmes', icon: '🧰' },
+      { name: 'Academic Years', href: '/academic-years', icon: '📅' },
+      { name: 'Terms', href: '/terms', icon: '🗓️' },
+      { name: 'Enrollment', href: '/enrollment', icon: '🎓' },
+      { name: 'Results', href: '/results', icon: '📊' },
+    ],
+  },
   {
     title: 'ADMINISTRATION',
     items: [
