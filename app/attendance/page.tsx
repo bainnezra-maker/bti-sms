@@ -102,14 +102,17 @@ export default function AttendancePage() {
 
       setUserId(user.id);
 
-      const { data: profile, error: profileError } = await supabase
-        .from('users')
-        .select('school_id')
-        .eq('id', user.id)
-        .maybeSingle();
+      const { data: profile, error: profileError } =
+        await supabase
+          .from('users')
+          .select('school_id')
+          .eq('id', user.id)
+          .maybeSingle();
 
       if (profileError || !profile?.school_id) {
-        setMessage('Could not load your school information.');
+        setMessage(
+          'Could not load your school information.'
+        );
         setLoading(false);
         return;
       }
@@ -145,7 +148,9 @@ export default function AttendancePage() {
       if (academicYearsResult.error) {
         setMessage(academicYearsResult.error.message);
       } else {
-        setAcademicYears(academicYearsResult.data || []);
+        setAcademicYears(
+          academicYearsResult.data || []
+        );
 
         const currentYear =
           academicYearsResult.data?.find(
@@ -154,15 +159,21 @@ export default function AttendancePage() {
 
         if (currentYear) {
           setSelectedYear(currentYear.id);
-        } else if (academicYearsResult.data?.length) {
-          setSelectedYear(academicYearsResult.data[0].id);
+        } else if (
+          academicYearsResult.data?.length
+        ) {
+          setSelectedYear(
+            academicYearsResult.data[0].id
+          );
         }
       }
 
       if (programmesResult.error) {
         setMessage(programmesResult.error.message);
       } else {
-        setProgrammes(programmesResult.data || []);
+        setProgrammes(
+          programmesResult.data || []
+        );
       }
 
       if (classesResult.error) {
@@ -215,7 +226,11 @@ export default function AttendancePage() {
   // ------------------------------------------------------------
   useEffect(() => {
     async function loadStudents() {
-      if (!schoolId || !selectedYear || !selectedClass) {
+      if (
+        !schoolId ||
+        !selectedYear ||
+        !selectedClass
+      ) {
         setStudents([]);
         setMarks({});
         return;
@@ -224,13 +239,15 @@ export default function AttendancePage() {
       setLoadingStudents(true);
       setMessage('');
 
-      const { data: enrollmentData, error: enrollmentError } =
-        await supabase
-          .from('enrollments')
-          .select('student_id')
-          .eq('class_id', selectedClass)
-          .eq('academic_year_id', selectedYear)
-          .eq('status', 'active');
+      const {
+        data: enrollmentData,
+        error: enrollmentError,
+      } = await supabase
+        .from('enrollments')
+        .select('student_id')
+        .eq('class_id', selectedClass)
+        .eq('academic_year_id', selectedYear)
+        .eq('status', 'active');
 
       if (enrollmentError) {
         setMessage(
@@ -253,16 +270,18 @@ export default function AttendancePage() {
         return;
       }
 
-      const { data: studentData, error: studentError } =
-        await supabase
-          .from('students')
-          .select(
-            'id, full_name, admission_number'
-          )
-          .eq('school_id', schoolId)
-          .eq('status', 'active')
-          .in('id', studentIds)
-          .order('full_name');
+      const {
+        data: studentData,
+        error: studentError,
+      } = await supabase
+        .from('students')
+        .select(
+          'id, full_name, admission_number'
+        )
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .in('id', studentIds)
+        .order('full_name');
 
       if (studentError) {
         setMessage(
@@ -401,9 +420,14 @@ export default function AttendancePage() {
 
     const total = students.length;
 
+    // Present + Late are treated as attended.
+    // Excused remains separate and does not count
+    // toward attendance percentage.
+    const attended = present + late;
+
     const attendancePercentage =
       total > 0
-        ? (present / total) * 100
+        ? (attended / total) * 100
         : 0;
 
     return {
@@ -412,6 +436,7 @@ export default function AttendancePage() {
       absent,
       late,
       excused,
+      attended,
       attendancePercentage,
     };
   }, [students, marks]);
