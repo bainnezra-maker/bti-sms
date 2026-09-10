@@ -38,7 +38,7 @@ const menuSections: {
       { name: 'Subjects', href: '/subjects', icon: '📚' },
       { name: 'Programmes', href: '/programmes', icon: '🧰' },
       { name: 'Academic Years', href: '/academic-years', icon: '📅' },
-      { name: 'Terms', href: '/terms', icon: '🗓️' },
+      { name: 'Semesters', href: '/terms', icon: '🗓️' },
       { name: 'Enrollment', href: '/enrollment', icon: '🎓' },
       { name: 'Results', href: '/results', icon: '📊' },
     ],
