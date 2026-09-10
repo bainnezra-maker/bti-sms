@@ -836,9 +836,15 @@ export default function ReportCardPage() {
           record.status === 'excused'
       ).length;
 
+    // Present + Late are counted as attended.
+    // Absent is not counted.
+    // Excused remains recorded separately.
+    const attended =
+      present + late;
+
     const percentage =
       total > 0
-        ? (present / total) * 100
+        ? (attended / total) * 100
         : 0;
 
     return {
@@ -847,6 +853,7 @@ export default function ReportCardPage() {
       absent,
       late,
       excused,
+      attended,
       percentage,
     };
   }, [attendance]);
