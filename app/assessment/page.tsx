@@ -8,7 +8,7 @@ type AcademicYear = {
   name: string;
 };
 
-type Term = {
+type Semester = {
   id: string;
   name: string;
   academic_year_id: string;
@@ -50,12 +50,6 @@ type AssessmentRecord = {
   term: string | null;
 };
 
-type ScoreEntry = {
-  student: Student;
-  score: string;
-  existingId: string | null;
-};
-
 const supabase = createClient();
 
 const CA_TYPES = [
@@ -95,7 +89,7 @@ export default function AssessmentPage() {
   const [schoolId, setSchoolId] = useState<string | null>(null);
 
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
-  const [terms, setTerms] = useState<Term[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -106,7 +100,7 @@ export default function AssessmentPage() {
   >([]);
 
   const [selectedAcademicYear, setSelectedAcademicYear] = useState('');
-  const [selectedTerm, setSelectedTerm] = useState('');
+  const [selectedSemester, setSelectedSemester] = useState('');
   const [selectedProgramme, setSelectedProgramme] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('');
@@ -227,35 +221,36 @@ export default function AssessmentPage() {
 
   /*
    * ---------------------------------------------------------
-   * LOAD TERMS WHEN ACADEMIC YEAR CHANGES
+   * LOAD SEMESTERS WHEN ACADEMIC YEAR CHANGES
    * ---------------------------------------------------------
    */
   useEffect(() => {
     if (!selectedAcademicYear) {
-      setTerms([]);
-      setSelectedTerm('');
+      setSemesters([]);
+      setSelectedSemester('');
       return;
     }
 
-    async function loadTerms() {
+    async function loadSemesters() {
       setError('');
 
-      const { data, error: termsError } = await supabase
+      const { data, error: semestersError } = await supabase
         .from('terms')
         .select('id, name, academic_year_id')
         .eq('academic_year_id', selectedAcademicYear)
+        .in('name', ['Semester 1', 'Semester 2'])
         .order('start_date');
 
-      if (termsError) {
-        setError(termsError.message);
-        setTerms([]);
+      if (semestersError) {
+        setError(semestersError.message);
+        setSemesters([]);
         return;
       }
 
-      setTerms(data ?? []);
+      setSemesters(data ?? []);
     }
 
-    loadTerms();
+    loadSemesters();
   }, [selectedAcademicYear]);
 
   /*
@@ -302,10 +297,7 @@ export default function AssessmentPage() {
    * ---------------------------------------------------------
    */
   useEffect(() => {
-    if (
-      !selectedClass ||
-      !selectedAcademicYear
-    ) {
+    if (!selectedClass || !selectedAcademicYear) {
       setStudents([]);
       setScores({});
       setExistingAssessments([]);
@@ -377,7 +369,7 @@ export default function AssessmentPage() {
       !schoolId ||
       !selectedClass ||
       !selectedAcademicYear ||
-      !selectedTerm ||
+      !selectedSemester ||
       !selectedSubject ||
       !selectedAssessmentType ||
       students.length === 0
@@ -410,7 +402,7 @@ export default function AssessmentPage() {
             'assessment_type',
             selectedAssessmentType
           )
-          .eq('term', selectedTerm)
+          .eq('term', selectedSemester)
           .in(
             'student_id',
             students.map((student) => student.id)
@@ -440,7 +432,7 @@ export default function AssessmentPage() {
     schoolId,
     selectedClass,
     selectedAcademicYear,
-    selectedTerm,
+    selectedSemester,
     selectedSubject,
     selectedAssessmentType,
     students,
@@ -452,9 +444,7 @@ export default function AssessmentPage() {
    * ---------------------------------------------------------
    */
   const currentAssessment = useMemo(() => {
-    if (
-      selectedAssessmentType === EXAM_TYPE.value
-    ) {
+    if (selectedAssessmentType === EXAM_TYPE.value) {
       return EXAM_TYPE;
     }
 
@@ -524,13 +514,13 @@ export default function AssessmentPage() {
 
     if (
       !selectedAcademicYear ||
-      !selectedTerm ||
+      !selectedSemester ||
       !selectedClass ||
       !selectedSubject ||
       !selectedAssessmentType
     ) {
       setError(
-        'Please select Academic Year, Term, Class, Subject and Assessment Type.'
+        'Please select Academic Year, Semester, Class, Subject and Assessment Type.'
       );
       return;
     }
@@ -604,7 +594,7 @@ export default function AssessmentPage() {
                 score: numericScore,
                 max_score:
                   currentAssessment.max,
-                term: selectedTerm,
+                term: selectedSemester,
               });
 
           if (insertError) {
@@ -641,7 +631,7 @@ export default function AssessmentPage() {
             'assessment_type',
             selectedAssessmentType
           )
-          .eq('term', selectedTerm)
+          .eq('term', selectedSemester)
           .in(
             'student_id',
             students.map((student) => student.id)
@@ -853,7 +843,7 @@ export default function AssessmentPage() {
             Assessment
           </h1>
 
-                    <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-slate-600">
             Enter BTI continuous assessment and
             examination scores.
           </p>
@@ -918,7 +908,7 @@ export default function AssessmentPage() {
                   setSelectedAcademicYear(
                     event.target.value
                   );
-                  setSelectedTerm('');
+                  setSelectedSemester('');
                   setSelectedClass('');
                 }}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
@@ -938,16 +928,16 @@ export default function AssessmentPage() {
               </select>
             </div>
 
-            {/* TERM */}
+            {/* SEMESTER */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Term
+                Semester
               </label>
 
               <select
-                value={selectedTerm}
+                value={selectedSemester}
                 onChange={(event) =>
-                  setSelectedTerm(
+                  setSelectedSemester(
                     event.target.value
                   )
                 }
@@ -955,15 +945,15 @@ export default function AssessmentPage() {
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none disabled:bg-slate-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
-                  Select Term
+                  Select Semester
                 </option>
 
-                {terms.map((term) => (
+                {semesters.map((semester) => (
                   <option
-                    key={term.id}
-                    value={term.name}
+                    key={semester.id}
+                    value={semester.name}
                   >
-                    {term.name}
+                    {semester.name}
                   </option>
                 ))}
               </select>
@@ -1165,7 +1155,7 @@ export default function AssessmentPage() {
         {selectedAssessmentType &&
           selectedSubject &&
           selectedClass &&
-          selectedTerm &&
+          selectedSemester &&
           selectedAcademicYear && (
             <div className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
 
