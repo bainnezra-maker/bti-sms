@@ -6,9 +6,10 @@ import { createClient } from '@/lib/supabase/client';
 type AcademicYear = {
   id: string;
   name: string;
+  is_current?: boolean;
 };
 
-type Term = {
+type Semester = {
   id: string;
   academic_year_id: string;
   name: string;
@@ -17,20 +18,37 @@ type Term = {
   is_current: boolean;
 };
 
+const SEMESTER_OPTIONS = [
+  'Semester 1',
+  'Semester 2',
+];
+
 export default function TermsPage() {
   const supabase = createClient();
 
   const [years, setYears] = useState<AcademicYear[]>([]);
-  const [terms, setTerms] = useState<Term[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
 
-  const [academicYearId, setAcademicYearId] = useState('');
-  const [name, setName] = useState('Term 1');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [academicYearId, setAcademicYearId] =
+    useState('');
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [name, setName] =
+    useState('Semester 1');
+
+  const [startDate, setStartDate] =
+    useState('');
+
+  const [endDate, setEndDate] =
+    useState('');
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [error, setError] =
+    useState('');
 
   async function loadData() {
     setLoading(true);
@@ -45,24 +63,36 @@ export default function TermsPage() {
       return;
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('school_id')
-      .eq('id', user.id)
-      .single();
+    const { data: profile, error: profileError } =
+      await supabase
+        .from('users')
+        .select('school_id')
+        .eq('id', user.id)
+        .single();
 
-    if (!profile) {
-      setError('School profile could not be found.');
+    if (profileError || !profile) {
+      setError(
+        'School profile could not be found.'
+      );
       setLoading(false);
       return;
     }
 
-    const { data: yearData, error: yearError } =
-      await supabase
-        .from('academic_years')
-        .select('id, name')
-        .eq('school_id', profile.school_id)
-        .order('name', { ascending: false });
+    const {
+      data: yearData,
+      error: yearError,
+    } = await supabase
+      .from('academic_years')
+      .select(
+        'id, name, is_current'
+      )
+      .eq(
+        'school_id',
+        profile.school_id
+      )
+      .order('name', {
+        ascending: false,
+      });
 
     if (yearError) {
       setError(yearError.message);
@@ -70,78 +100,165 @@ export default function TermsPage() {
       return;
     }
 
-    setYears(yearData || []);
+    const loadedYears =
+      yearData || [];
 
-    const currentYear = yearData?.find(
-      (year: any) => year.is_current
-    );
+    setYears(loadedYears);
+
+    const currentYear =
+      loadedYears.find(
+        (year) => year.is_current
+      );
 
     if (currentYear) {
-      setAcademicYearId(currentYear.id);
-    } else if (yearData?.[0]) {
-      setAcademicYearId(yearData[0].id);
+      setAcademicYearId(
+        currentYear.id
+      );
+    } else if (loadedYears[0]) {
+      setAcademicYearId(
+        loadedYears[0].id
+      );
     }
 
-    if (yearData && yearData.length > 0) {
-      await loadTerms(yearData.map((year) => year.id));
+    if (loadedYears.length > 0) {
+      await loadSemesters(
+        loadedYears.map(
+          (year) => year.id
+        )
+      );
     }
 
     setLoading(false);
   }
 
-  async function loadTerms(yearIds: string[]) {
+  async function loadSemesters(
+    yearIds: string[]
+  ) {
     if (!yearIds.length) {
-      setTerms([]);
+      setSemesters([]);
       return;
     }
 
-    const { data, error: termError } = await supabase
+    const {
+      data,
+      error: semesterError,
+    } = await supabase
       .from('terms')
-      .select('*')
-      .in('academic_year_id', yearIds)
+      .select(`
+        id,
+        academic_year_id,
+        name,
+        start_date,
+        end_date,
+        is_current
+      `)
+      .in(
+        'academic_year_id',
+        yearIds
+      )
       .order('start_date');
 
-    if (termError) {
-      setError(termError.message);
+    if (semesterError) {
+      setError(
+        semesterError.message
+      );
       return;
     }
 
-    setTerms(data || []);
+    /*
+     * Only display Semester 1 and Semester 2.
+     * Existing Term 1/2/3 records are hidden
+     * from the new interface.
+     */
+    const filtered =
+      (data || []).filter(
+        (item) =>
+          item.name ===
+            'Semester 1' ||
+          item.name ===
+            'Semester 2'
+      );
+
+    setSemesters(filtered);
   }
 
   useEffect(() => {
     loadData();
   }, []);
 
-  async function addTerm(e: React.FormEvent) {
+  async function addSemester(
+    e: React.FormEvent
+  ) {
     e.preventDefault();
 
     setError('');
 
     if (!academicYearId) {
-      setError('Please create an academic year first.');
+      setError(
+        'Please create an academic year first.'
+      );
       return;
     }
 
     setSaving(true);
 
-    const { error: insertError } = await supabase
+    /*
+     * Prevent duplicate Semester 1 or
+     * Semester 2 for the same academic year.
+     */
+    const {
+      data: existingSemester,
+      error: checkError,
+    } = await supabase
       .from('terms')
-      .insert({
-        academic_year_id: academicYearId,
-        name,
-        start_date: startDate || null,
-        end_date: endDate || null,
-        is_current: false,
-      });
+      .select('id')
+      .eq(
+        'academic_year_id',
+        academicYearId
+      )
+      .eq('name', name)
+      .maybeSingle();
 
-    if (insertError) {
-      setError(insertError.message);
+    if (checkError) {
+      setError(
+        checkError.message
+      );
       setSaving(false);
       return;
     }
 
-    setName('Term 1');
+    if (existingSemester) {
+      setError(
+        `${name} already exists for this academic year.`
+      );
+      setSaving(false);
+      return;
+    }
+
+    const {
+      error: insertError,
+    } = await supabase
+      .from('terms')
+      .insert({
+        academic_year_id:
+          academicYearId,
+        name,
+        start_date:
+          startDate || null,
+        end_date:
+          endDate || null,
+        is_current: false,
+      });
+
+    if (insertError) {
+      setError(
+        insertError.message
+      );
+      setSaving(false);
+      return;
+    }
+
+    setName('Semester 1');
     setStartDate('');
     setEndDate('');
 
@@ -150,57 +267,109 @@ export default function TermsPage() {
     setSaving(false);
   }
 
-  async function deleteTerm(id: string) {
-    if (!window.confirm('Delete this term?')) return;
+  async function deleteSemester(
+    id: string
+  ) {
+    if (
+      !window.confirm(
+        'Delete this semester?'
+      )
+    ) {
+      return;
+    }
 
-    const { error: deleteError } = await supabase
+    const {
+      error: deleteError,
+    } = await supabase
       .from('terms')
       .delete()
       .eq('id', id);
 
     if (deleteError) {
-      setError(deleteError.message);
+      setError(
+        deleteError.message
+      );
       return;
     }
 
-    setTerms((current) =>
-      current.filter((term) => term.id !== id)
+    setSemesters(
+      (current) =>
+        current.filter(
+          (semester) =>
+            semester.id !== id
+        )
     );
   }
 
-  async function makeCurrent(term: Term) {
-    const { error: resetError } = await supabase
+  async function makeCurrent(
+    semester: Semester
+  ) {
+    setError('');
+
+    /*
+     * First remove current status from
+     * all semesters in this academic year.
+     */
+    const {
+      error: resetError,
+    } = await supabase
       .from('terms')
-      .update({ is_current: false })
-      .eq('academic_year_id', term.academic_year_id);
+      .update({
+        is_current: false,
+      })
+      .eq(
+        'academic_year_id',
+        semester.academic_year_id
+      );
 
     if (resetError) {
-      setError(resetError.message);
+      setError(
+        resetError.message
+      );
       return;
     }
 
-    const { error: currentError } = await supabase
+    /*
+     * Make the selected semester current.
+     */
+    const {
+      error: currentError,
+    } = await supabase
       .from('terms')
-      .update({ is_current: true })
-      .eq('id', term.id);
+      .update({
+        is_current: true,
+      })
+      .eq(
+        'id',
+        semester.id
+      );
 
     if (currentError) {
-      setError(currentError.message);
+      setError(
+        currentError.message
+      );
       return;
     }
 
-    setTerms((current) =>
-      current.map((item) => ({
-        ...item,
-        is_current: item.id === term.id,
-      }))
+    setSemesters(
+      (current) =>
+        current.map(
+          (item) => ({
+            ...item,
+            is_current:
+              item.id ===
+              semester.id,
+          })
+        )
     );
   }
 
   if (loading) {
     return (
       <div className="p-6 lg:p-10">
-        <p className="text-slate-500">Loading terms...</p>
+        <p className="text-slate-500">
+          Loading semesters...
+        </p>
       </div>
     );
   }
@@ -209,20 +378,22 @@ export default function TermsPage() {
     <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
       <div className="mx-auto max-w-7xl">
 
+        {/* Header */}
         <div className="mb-8">
           <p className="text-sm font-medium text-blue-600">
             Academic Management
           </p>
 
           <h1 className="mt-1 text-3xl font-bold text-slate-900">
-            Terms
+            Semesters
           </h1>
 
           <p className="mt-1 text-slate-500">
-            Manage academic terms and the current term.
+            Manage Semester 1 and Semester 2 for each academic year.
           </p>
         </div>
 
+        {/* Error */}
         {error && (
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {error}
@@ -231,57 +402,83 @@ export default function TermsPage() {
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
+          {/* Add semester */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
-            <h2 className="mb-5 text-lg font-bold">
-              Add Term
+            <h2 className="mb-5 text-lg font-bold text-slate-900">
+              Add Semester
             </h2>
 
-            <form onSubmit={addTerm} className="space-y-4">
+            <form
+              onSubmit={addSemester}
+              className="space-y-4"
+            >
 
+              {/* Academic Year */}
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   Academic Year
                 </label>
 
                 <select
                   value={academicYearId}
                   onChange={(e) =>
-                    setAcademicYearId(e.target.value)
+                    setAcademicYearId(
+                      e.target.value
+                    )
                   }
                   required
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
                 >
                   <option value="">
                     Select academic year
                   </option>
 
-                  {years.map((year) => (
-                    <option key={year.id} value={year.id}>
-                      {year.name}
-                    </option>
-                  ))}
+                  {years.map(
+                    (year) => (
+                      <option
+                        key={year.id}
+                        value={year.id}
+                      >
+                        {year.name}
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
 
+              {/* Semester */}
               <div>
-                <label className="mb-2 block text-sm font-medium">
-                  Term
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Semester
                 </label>
 
                 <select
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                  onChange={(e) =>
+                    setName(
+                      e.target.value
+                    )
+                  }
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
                 >
-                  <option>Term 1</option>
-                  <option>Term 2</option>
-                  <option>Term 3</option>
+                  {SEMESTER_OPTIONS.map(
+                    (semester) => (
+                      <option
+                        key={semester}
+                        value={semester}
+                      >
+                        {semester}
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
 
+              {/* Start date */}
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   Start Date
                 </label>
 
@@ -289,14 +486,18 @@ export default function TermsPage() {
                   type="date"
                   value={startDate}
                   onChange={(e) =>
-                    setStartDate(e.target.value)
+                    setStartDate(
+                      e.target.value
+                    )
                   }
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
                 />
               </div>
 
+              {/* End date */}
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   End Date
                 </label>
 
@@ -304,95 +505,127 @@ export default function TermsPage() {
                   type="date"
                   value={endDate}
                   onChange={(e) =>
-                    setEndDate(e.target.value)
+                    setEndDate(
+                      e.target.value
+                    )
                   }
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={saving}
-                className="w-full rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700"
+                className="w-full rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               >
-                {saving ? 'Saving...' : 'Add Term'}
+                {saving
+                  ? 'Saving...'
+                  : 'Add Semester'}
               </button>
 
             </form>
           </div>
 
+          {/* Semester list */}
           <div className="lg:col-span-2">
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
-              <h2 className="mb-5 text-lg font-bold">
-                Academic Terms
-              </h2>
+              <div className="mb-5">
+                <h2 className="text-lg font-bold text-slate-900">
+                  Academic Semesters
+                </h2>
+
+                <p className="text-sm text-slate-500">
+                  Each academic year uses only two semesters.
+                </p>
+              </div>
 
               <div className="space-y-3">
 
-                {terms.length === 0 ? (
-                  <div className="py-10 text-center text-slate-500">
-                    No terms created yet.
+                {semesters.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <div className="mb-2 text-4xl">
+                      🗓️
+                    </div>
+
+                    <p className="text-slate-500">
+                      No semesters created yet.
+                    </p>
                   </div>
                 ) : (
-                  terms.map((term) => (
-                    <div
-                      key={term.id}
-                      className="flex flex-col gap-4 rounded-xl border border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
+                  semesters.map(
+                    (semester) => (
+                      <div
+                        key={semester.id}
+                        className="flex flex-col gap-4 rounded-xl border border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
 
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold">
-                            {term.name}
-                          </h3>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
 
-                          {term.is_current && (
-                            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                              Current
-                            </span>
-                          )}
+                            <h3 className="font-bold text-slate-900">
+                              {semester.name}
+                            </h3>
+
+                            {semester.is_current && (
+                              <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                                Current
+                              </span>
+                            )}
+
+                          </div>
+
+                          <p className="mt-1 text-sm text-slate-500">
+                            {years.find(
+                              (year) =>
+                                year.id ===
+                                semester.academic_year_id
+                            )?.name ||
+                              'Academic year'}
+                          </p>
+
+                          <p className="mt-1 text-xs text-slate-400">
+                            {semester.start_date ||
+                              'No start date'}
+                            {' → '}
+                            {semester.end_date ||
+                              'No end date'}
+                          </p>
                         </div>
 
-                        <p className="mt-1 text-sm text-slate-500">
-                          {years.find(
-                            (year) =>
-                              year.id === term.academic_year_id
-                          )?.name || 'Academic year'}
-                        </p>
+                        <div className="flex flex-wrap gap-2">
 
-                        <p className="mt-1 text-xs text-slate-400">
-                          {term.start_date || 'No start date'}
-                          {' → '}
-                          {term.end_date || 'No end date'}
-                        </p>
-                      </div>
+                          {!semester.is_current && (
+                            <button
+                              onClick={() =>
+                                makeCurrent(
+                                  semester
+                                )
+                              }
+                              className="rounded-lg bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
+                            >
+                              Make Current
+                            </button>
+                          )}
 
-                      <div className="flex gap-2">
-
-                        {!term.is_current && (
                           <button
-                            onClick={() => makeCurrent(term)}
-                            className="rounded-lg bg-green-50 px-3 py-2 text-sm font-medium text-green-700"
+                            onClick={() =>
+                              deleteSemester(
+                                semester.id
+                              )
+                            }
+                            className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
                           >
-                            Make Current
+                            Delete
                           </button>
-                        )}
 
-                        <button
-                          onClick={() =>
-                            deleteTerm(term.id)
-                          }
-                          className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
+                        </div>
 
                       </div>
-
-                    </div>
-                  ))
+                    )
+                  )
                 )}
 
               </div>
