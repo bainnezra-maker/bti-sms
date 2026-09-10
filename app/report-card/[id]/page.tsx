@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 type Student = {
   id: string;
-  admission_number: string;
   full_name: string;
+  admission_number: string;
   date_of_birth: string | null;
   gender: string | null;
+  status: string;
   jhs_aggregate: number | null;
   photo_url: string | null;
   conduct: string | null;
@@ -22,13 +24,18 @@ type Student = {
 type AcademicYear = {
   id: string;
   name: string;
-  is_current: boolean | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean;
 };
 
 type Term = {
   id: string;
   name: string;
-  is_current: boolean | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean;
+  academic_year_id: string;
 };
 
 type Enrollment = {
@@ -36,18 +43,7 @@ type Enrollment = {
   class_id: string;
   programme_id: string | null;
   academic_year_id: string;
-  enrollment_date: string;
-  status: string;
-  class: {
-    id: string;
-    name: string;
-    level: string | null;
-  }[] | null;
-  programme: {
-    id: string;
-    name: string;
-    code: string | null;
-  }[] | null;
+  status: string | null;
 };
 
 type Assessment = {
@@ -90,31 +86,25 @@ function getGrade(score: number) {
   return 'F';
 }
 
-function getGradeDescription(grade: string) {
-  switch (grade) {
-    case 'A':
-      return 'Excellent';
-    case 'B':
-      return 'Very Good';
-    case 'C':
-      return 'Good';
-    case 'D':
-      return 'Credit';
-    case 'E':
-      return 'Pass';
-    default:
-      return 'Fail';
-  }
+function getGradeDescription(score: number) {
+  if (score >= 80) return 'Excellent';
+  if (score >= 70) return 'Very Good';
+  if (score >= 60) return 'Good';
+  if (score >= 50) return 'Pass';
+  if (score >= 40) return 'Weak';
+  return 'Fail';
 }
 
 function formatDate(date: string | null) {
   if (!date) return '—';
 
-  const value = new Date(date);
+  const parsed = new Date(date);
 
-  if (Number.isNaN(value.getTime())) return date;
+  if (Number.isNaN(parsed.getTime())) {
+    return date;
+  }
 
-  return value.toLocaleDateString('en-GB', {
+  return parsed.toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -143,395 +133,604 @@ function formatPosition(position: number | null) {
   return `${position}${getPositionSuffix(position)}`;
 }
 
+function getStatus(status: string) {
+  if (status === 'present') return 'Present';
+  if (status === 'absent') return 'Absent';
+  if (status === 'late') return 'Late';
+  if (status === 'excused') return 'Excused';
+  return status;
+}
+
 export default function ReportCardPage() {
   const params = useParams();
   const router = useRouter();
+
+  const studentId = String(params.id);
+
   const supabase = createClient();
 
-  const studentId = params.id as string;
-
   const [student, setStudent] = useState<Student | null>(null);
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
-  const [terms, setTerms] = useState<Term[]>([]);
-  const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
 
-  const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
-  const [classAverages, setClassAverages] = useState<
-    StudentClassAverage[]
+  const [academicYears, setAcademicYears] = useState<
+    AcademicYear[]
   >([]);
+
+  const [terms, setTerms] = useState<Term[]>([]);
 
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedTerm, setSelectedTerm] = useState('');
 
-  const [loading, setLoading] = useState(true);
-  const [loadingResults, setLoadingResults] = useState(false);
+  const [enrollment, setEnrollment] =
+    useState<Enrollment | null>(null);
 
+  const [className, setClassName] = useState('—');
+  const [programmeName, setProgrammeName] = useState('—');
+  const [level, setLevel] = useState('—');
+
+  const [assessments, setAssessments] = useState<
+    Assessment[]
+  >([]);
+
+  const [attendance, setAttendance] = useState<
+    AttendanceRecord[]
+  >([]);
+
+  const [classAverages, setClassAverages] = useState<
+    StudentClassAverage[]
+  >([]);
+
+  const [loading, setLoading] = useState(true);
+  const [loadingResults, setLoadingResults] =
+    useState(false);
+
+  const [error, setError] = useState('');
+
+  // ------------------------------------------------------------
+  // LOAD STUDENT
+  // ------------------------------------------------------------
   useEffect(() => {
-    loadInitialData();
+    async function loadStudent() {
+      setLoading(true);
+      setError('');
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const { data: profile, error: profileError } =
+        await supabase
+          .from('users')
+          .select('school_id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      if (
+        profileError ||
+        !profile?.school_id
+      ) {
+        setError(
+          'Could not load your school information.'
+        );
+        setLoading(false);
+        return;
+      }
+
+      const { data: studentData, error: studentError } =
+        await supabase
+          .from('students')
+          .select(`
+            id,
+            full_name,
+            admission_number,
+            date_of_birth,
+            gender,
+            status,
+            jhs_aggregate,
+            photo_url,
+            conduct,
+            promotion_status,
+            class_teacher_remark,
+            hod_remark,
+            next_term_begins
+          `)
+          .eq('id', studentId)
+          .eq('school_id', profile.school_id)
+          .maybeSingle();
+
+      if (studentError || !studentData) {
+        setError(
+          studentError?.message ||
+            'Student could not be found.'
+        );
+        setLoading(false);
+        return;
+      }
+
+      setStudent(studentData);
+
+      const { data: yearData, error: yearError } =
+        await supabase
+          .from('academic_years')
+          .select(`
+            id,
+            name,
+            start_date,
+            end_date,
+            is_current
+          `)
+          .eq('school_id', profile.school_id)
+          .order('name', { ascending: false });
+
+      if (yearError) {
+        setError(yearError.message);
+      } else {
+        setAcademicYears(yearData || []);
+
+        const currentYear = yearData?.find(
+          (year) => year.is_current
+        );
+
+        if (currentYear) {
+          setSelectedYear(currentYear.id);
+        } else if (yearData?.length) {
+          setSelectedYear(yearData[0].id);
+        }
+      }
+
+      setLoading(false);
+    }
+
+    loadStudent();
   }, [studentId]);
 
+  // ------------------------------------------------------------
+  // LOAD TERMS FOR SELECTED YEAR
+  // ------------------------------------------------------------
   useEffect(() => {
-    if (selectedYear && student) {
-      loadTerms(selectedYear);
-    }
-  }, [selectedYear, student]);
+    async function loadTerms() {
+      if (!selectedYear) {
+        setTerms([]);
+        setSelectedTerm('');
+        return;
+      }
 
-  useEffect(() => {
-    if (selectedYear && selectedTerm && student) {
-      loadReportData();
-    }
-  }, [selectedYear, selectedTerm, student, enrollment]);
-
-  async function getSchoolId() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      router.push('/login');
-      return null;
-    }
-
-    const { data: userProfile } = await supabase
-      .from('users')
-      .select('school_id')
-      .eq('id', user.id)
-      .single();
-
-    return userProfile?.school_id || null;
-  }
-
-  async function loadInitialData() {
-    setLoading(true);
-
-    const schoolId = await getSchoolId();
-
-    if (!schoolId) {
-      setLoading(false);
-      return;
-    }
-
-    const { data: studentData, error: studentError } =
-      await supabase
-        .from('students')
+      const { data, error } = await supabase
+        .from('terms')
         .select(`
           id,
-          admission_number,
-          full_name,
-          date_of_birth,
-          gender,
-          jhs_aggregate,
-          photo_url,
-          conduct,
-          promotion_status,
-          class_teacher_remark,
-          hod_remark,
-          next_term_begins
+          name,
+          start_date,
+          end_date,
+          is_current,
+          academic_year_id
         `)
-        .eq('id', studentId)
-        .eq('school_id', schoolId)
-        .single();
+        .eq('academic_year_id', selectedYear)
+        .order('start_date');
 
-    if (studentError || !studentData) {
-      setLoading(false);
-      return;
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      setTerms(data || []);
+
+      const currentTerm = data?.find(
+        (term) => term.is_current
+      );
+
+      if (currentTerm) {
+        setSelectedTerm(currentTerm.id);
+      } else if (data?.length) {
+        setSelectedTerm(data[0].id);
+      } else {
+        setSelectedTerm('');
+      }
     }
 
-    setStudent(studentData as Student);
+    loadTerms();
+  }, [selectedYear]);
 
-    const { data: yearsData } = await supabase
-      .from('academic_years')
-      .select('id, name, is_current')
-      .eq('school_id', schoolId)
-      .order('start_date', { ascending: false });
+  // ------------------------------------------------------------
+  // LOAD ENROLLMENT + CLASS + PROGRAMME
+  // ------------------------------------------------------------
+  useEffect(() => {
+    async function loadEnrollment() {
+      if (!student || !selectedYear) {
+        setEnrollment(null);
+        return;
+      }
 
-    const years = (yearsData || []) as AcademicYear[];
-
-    setAcademicYears(years);
-
-    const currentYear =
-      years.find((year) => year.is_current) || years[0];
-
-    if (currentYear) {
-      setSelectedYear(currentYear.id);
-
-      const { data: enrollmentData } = await supabase
+      const { data, error } = await supabase
         .from('enrollments')
         .select(`
           id,
           class_id,
           programme_id,
           academic_year_id,
-          enrollment_date,
-          status,
-          class:classes (
-            id,
-            name,
-            level
-          ),
-          programme:programmes (
-            id,
-            name,
-            code
-          )
+          status
         `)
-        .eq('student_id', studentId)
-        .eq('academic_year_id', currentYear.id)
+        .eq('student_id', student.id)
+        .eq('academic_year_id', selectedYear)
         .eq('status', 'active')
-        .limit(1)
         .maybeSingle();
 
-      if (enrollmentData) {
-        setEnrollment(enrollmentData as Enrollment);
+      if (error) {
+        setError(error.message);
+        return;
       }
-    }
 
-    setLoading(false);
-  }
+      setEnrollment(data);
 
-  async function loadTerms(yearId: string) {
-    const { data } = await supabase
-      .from('terms')
-      .select('id, name, is_current')
-      .eq('academic_year_id', yearId)
-      .order('start_date', { ascending: true });
+      if (!data) {
+        setClassName('—');
+        setProgrammeName('—');
+        setLevel('—');
+        return;
+      }
 
-    const loadedTerms = (data || []) as Term[];
+      const { data: classData } =
+        await supabase
+          .from('classes')
+          .select(
+            'id, name, level, programme_id'
+          )
+          .eq('id', data.class_id)
+          .maybeSingle();
 
-    setTerms(loadedTerms);
+      if (classData) {
+        setClassName(classData.name);
+        setLevel(classData.level || '—');
+      }
 
-    const currentTerm =
-      loadedTerms.find((term) => term.is_current) ||
-      loadedTerms[0];
+      if (data.programme_id) {
+        const { data: programmeData } =
+          await supabase
+            .from('programmes')
+            .select('id, name')
+            .eq('id', data.programme_id)
+            .maybeSingle();
 
-    if (currentTerm) {
-      setSelectedTerm(currentTerm.id);
-    }
-  }
-
-  async function loadReportData() {
-    if (!student || !selectedTerm || !selectedYear) return;
-
-    setLoadingResults(true);
-
-    const selectedTermObject = terms.find(
-      (term) => term.id === selectedTerm
-    );
-
-    if (!selectedTermObject) {
-      setLoadingResults(false);
-      return;
-    }
-
-    const termName = selectedTermObject.name;
-
-    const { data: assessmentData } = await supabase
-      .from('assessments')
-      .select(`
-        id,
-        student_id,
-        subject,
-        assessment_type,
-        score,
-        max_score,
-        term
-      `)
-      .eq('student_id', student.id)
-      .eq('term', termName);
-
-    setAssessments((assessmentData || []) as Assessment[]);
-
-    const { data: attendanceData } = await supabase
-      .from('attendance')
-      .select(`
-        id,
-        date,
-        status
-      `)
-      .eq('student_id', student.id)
-      .order('date', { ascending: false });
-
-    setAttendance((attendanceData || []) as AttendanceRecord[]);
-
-    if (enrollment) {
-      await loadClassAverages(
-        enrollment.class_id,
-        selectedYear,
-        termName
-      );
-    } else {
-      setClassAverages([]);
-    }
-
-    setLoadingResults(false);
-  }
-
-  async function loadClassAverages(
-    classId: string,
-    yearId: string,
-    termName: string
-  ) {
-    const { data: classEnrollmentData } = await supabase
-      .from('enrollments')
-      .select('student_id')
-      .eq('class_id', classId)
-      .eq('academic_year_id', yearId)
-      .eq('status', 'active');
-
-    if (!classEnrollmentData?.length) {
-      setClassAverages([]);
-      return;
-    }
-
-    const studentIds = classEnrollmentData.map(
-      (item) => item.student_id
-    );
-
-    const { data: classAssessmentData } = await supabase
-      .from('assessments')
-      .select(`
-        id,
-        student_id,
-        subject,
-        assessment_type,
-        score,
-        max_score,
-        term
-      `)
-      .in('student_id', studentIds)
-      .eq('term', termName);
-
-    if (!classAssessmentData) {
-      setClassAverages([]);
-      return;
-    }
-
-    const studentSubjectMap: Record<
-      string,
-      Record<
-        string,
-        {
-          caRaw: number;
-          examRaw: number;
+        if (programmeData) {
+          setProgrammeName(programmeData.name);
         }
-      >
-    > = {};
-
-    classAssessmentData.forEach((assessment) => {
-      const currentStudentId = assessment.student_id;
-
-      if (!studentSubjectMap[currentStudentId]) {
-        studentSubjectMap[currentStudentId] = {};
       }
+    }
 
+    loadEnrollment();
+  }, [student, selectedYear]);
+
+  // ------------------------------------------------------------
+  // LOAD TERM RESULTS + TERM ATTENDANCE
+  // ------------------------------------------------------------
+  useEffect(() => {
+    async function loadTermData() {
       if (
-        !studentSubjectMap[currentStudentId][
-          assessment.subject
-        ]
+        !student ||
+        !selectedTerm ||
+        !selectedYear ||
+        !enrollment
       ) {
-        studentSubjectMap[currentStudentId][
-          assessment.subject
-        ] = {
-          caRaw: 0,
-          examRaw: 0,
-        };
+        return;
       }
 
-      if (CA_TYPES.includes(assessment.assessment_type)) {
-        studentSubjectMap[currentStudentId][
-          assessment.subject
-        ].caRaw += Number(assessment.score);
+      setLoadingResults(true);
+      setError('');
+
+      const selectedTermData = terms.find(
+        (term) => term.id === selectedTerm
+      );
+
+      if (!selectedTermData) {
+        setLoadingResults(false);
+        return;
       }
 
-      if (assessment.assessment_type === 'Examination') {
-        studentSubjectMap[currentStudentId][
-          assessment.subject
-        ].examRaw = Number(assessment.score);
+      // --------------------------------------------------------
+      // ASSESSMENTS
+      // --------------------------------------------------------
+      const { data: assessmentData, error: assessmentError } =
+        await supabase
+          .from('assessments')
+          .select(`
+            id,
+            student_id,
+            subject,
+            assessment_type,
+            score,
+            max_score,
+            term
+          `)
+          .eq('student_id', student.id)
+          .eq('term', selectedTermData.name)
+          .order('subject');
+
+      if (assessmentError) {
+        setError(assessmentError.message);
+      } else {
+        setAssessments(assessmentData || []);
       }
-    });
 
-    const averages: StudentClassAverage[] = [];
+      // --------------------------------------------------------
+      // TERM ATTENDANCE
+      //
+      // Only attendance records between the selected
+      // term's start and end dates are counted.
+      // --------------------------------------------------------
+      let attendanceQuery = supabase
+        .from('attendance')
+        .select(`
+          id,
+          date,
+          status
+        `)
+        .eq('student_id', student.id);
 
-    Object.entries(studentSubjectMap).forEach(
-      ([currentStudentId, subjects]) => {
-        const subjectScores = Object.values(subjects);
-
-        if (subjectScores.length === 0) return;
-
-        const finalScores = subjectScores.map((item) => {
-          const ca = (item.caRaw / 100) * 30;
-          const exam = (item.examRaw / 100) * 70;
-
-          return ca + exam;
-        });
-
-        const average =
-          finalScores.reduce(
-            (sum, value) => sum + value,
-            0
-          ) / finalScores.length;
-
-        averages.push({
-          student_id: currentStudentId,
-          average,
-        });
+      if (selectedTermData.start_date) {
+        attendanceQuery = attendanceQuery.gte(
+          'date',
+          selectedTermData.start_date
+        );
       }
-    );
 
-    setClassAverages(averages);
-  }
+      if (selectedTermData.end_date) {
+        attendanceQuery = attendanceQuery.lte(
+          'date',
+          selectedTermData.end_date
+        );
+      }
 
+      const {
+        data: attendanceData,
+        error: attendanceError,
+      } = await attendanceQuery.order('date', {
+        ascending: false,
+      });
+
+      if (attendanceError) {
+        setError(attendanceError.message);
+      } else {
+        setAttendance(
+          attendanceData || []
+        );
+      }
+
+      // --------------------------------------------------------
+      // CLASS STUDENTS
+      // --------------------------------------------------------
+      const { data: classEnrollmentData } =
+        await supabase
+          .from('enrollments')
+          .select('student_id')
+          .eq(
+            'class_id',
+            enrollment.class_id
+          )
+          .eq(
+            'academic_year_id',
+            selectedYear
+          )
+          .eq('status', 'active');
+
+      const classStudentIds =
+        classEnrollmentData?.map(
+          (item) => item.student_id
+        ) || [];
+
+      if (!classStudentIds.length) {
+        setClassAverages([]);
+        setLoadingResults(false);
+        return;
+      }
+
+      // --------------------------------------------------------
+      // CLASS ASSESSMENTS FOR POSITION
+      // --------------------------------------------------------
+      const { data: classAssessmentData } =
+        await supabase
+          .from('assessments')
+          .select(`
+            id,
+            student_id,
+            subject,
+            assessment_type,
+            score,
+            max_score,
+            term
+          `)
+          .in(
+            'student_id',
+            classStudentIds
+          )
+          .eq(
+            'term',
+            selectedTermData.name
+          );
+
+      const byStudent: Record<
+        string,
+        Record<
+          string,
+          {
+            caRaw: number;
+            examRaw: number;
+          }
+        >
+      > = {};
+
+      (classAssessmentData || []).forEach(
+        (assessment) => {
+          if (!byStudent[assessment.student_id]) {
+            byStudent[assessment.student_id] = {};
+          }
+
+          if (
+            !byStudent[assessment.student_id][
+              assessment.subject
+            ]
+          ) {
+            byStudent[assessment.student_id][
+              assessment.subject
+            ] = {
+              caRaw: 0,
+              examRaw: 0,
+            };
+          }
+
+          const subjectData =
+            byStudent[assessment.student_id][
+              assessment.subject
+            ];
+
+          const score =
+            Number(assessment.score) || 0;
+
+          if (
+            CA_TYPES.includes(
+              assessment.assessment_type
+            )
+          ) {
+            subjectData.caRaw += score;
+          }
+
+          if (
+            assessment.assessment_type ===
+            'Examination'
+          ) {
+            subjectData.examRaw = score;
+          }
+        }
+      );
+
+      const averages: StudentClassAverage[] = [];
+
+      classStudentIds.forEach(
+        (classStudentId) => {
+          const subjectData =
+            byStudent[classStudentId] || {};
+
+          const finals = Object.values(
+            subjectData
+          ).map((subject) => {
+            const caContribution =
+              (subject.caRaw / 100) * 30;
+
+            const examContribution =
+              (subject.examRaw / 100) * 70;
+
+            return (
+              caContribution +
+              examContribution
+            );
+          });
+
+          const average =
+            finals.length > 0
+              ? finals.reduce(
+                  (sum, value) =>
+                    sum + value,
+                  0
+                ) / finals.length
+              : 0;
+
+          averages.push({
+            student_id: classStudentId,
+            average,
+          });
+        }
+      );
+
+      setClassAverages(averages);
+
+      setLoadingResults(false);
+    }
+
+    loadTermData();
+  }, [
+    student,
+    selectedTerm,
+    selectedYear,
+    enrollment,
+    terms,
+  ]);
+
+  // ------------------------------------------------------------
+  // SUBJECT RESULTS
+  // ------------------------------------------------------------
   const subjectResults = useMemo(() => {
-    const subjectMap: Record<
+    const subjects: Record<
       string,
       {
         caRaw: number;
+        caContribution: number;
         examRaw: number;
+        examContribution: number;
+        final: number;
       }
     > = {};
 
     assessments.forEach((assessment) => {
-      if (!subjectMap[assessment.subject]) {
-        subjectMap[assessment.subject] = {
+      if (!subjects[assessment.subject]) {
+        subjects[assessment.subject] = {
           caRaw: 0,
+          caContribution: 0,
           examRaw: 0,
+          examContribution: 0,
+          final: 0,
         };
       }
 
-      if (CA_TYPES.includes(assessment.assessment_type)) {
-        subjectMap[assessment.subject].caRaw += Number(
-          assessment.score
-        );
+      const score =
+        Number(assessment.score) || 0;
+
+      if (
+        CA_TYPES.includes(
+          assessment.assessment_type
+        )
+      ) {
+        subjects[
+          assessment.subject
+        ].caRaw += score;
       }
 
-      if (assessment.assessment_type === 'Examination') {
-        subjectMap[assessment.subject].examRaw = Number(
-          assessment.score
-        );
+      if (
+        assessment.assessment_type ===
+        'Examination'
+      ) {
+        subjects[
+          assessment.subject
+        ].examRaw = score;
       }
     });
 
-    return Object.entries(subjectMap)
+    return Object.entries(subjects)
       .map(([subject, values]) => {
-        const caRaw = values.caRaw;
-        const caContribution = (caRaw / 100) * 30;
+        const caContribution =
+          (values.caRaw / 100) * 30;
 
-        const examRaw = values.examRaw;
-        const examContribution = (examRaw / 100) * 70;
+        const examContribution =
+          (values.examRaw / 100) * 70;
 
-        const finalScore =
-          caContribution + examContribution;
+        const final =
+          caContribution +
+          examContribution;
 
         return {
           subject,
-          caRaw,
+          caRaw: values.caRaw,
           caContribution,
-          examRaw,
+          examRaw: values.examRaw,
           examContribution,
-          finalScore,
-          grade: getGrade(finalScore),
-          status: finalScore >= 50 ? 'Pass' : 'Fail',
+          final,
+          grade: getGrade(final),
+          status:
+            final >= 50
+              ? 'Pass'
+              : 'Fail',
         };
       })
       .sort((a, b) =>
@@ -539,107 +738,167 @@ export default function ReportCardPage() {
       );
   }, [assessments]);
 
-  const totalFinal = subjectResults.reduce(
-    (sum, item) => sum + item.finalScore,
-    0
-  );
+  // ------------------------------------------------------------
+  // SUMMARY
+  // ------------------------------------------------------------
+  const totalFinal = useMemo(() => {
+    return subjectResults.reduce(
+      (sum, subject) =>
+        sum + subject.final,
+      0
+    );
+  }, [subjectResults]);
 
-  const overallAverage =
-    subjectResults.length > 0
-      ? totalFinal / subjectResults.length
-      : 0;
+  const average = useMemo(() => {
+    if (!subjectResults.length) return 0;
 
-  const passedSubjects = subjectResults.filter(
-    (item) => item.status === 'Pass'
+    return (
+      totalFinal /
+      subjectResults.length
+    );
+  }, [
+    totalFinal,
+    subjectResults.length,
+  ]);
+
+  const passed = subjectResults.filter(
+    (subject) =>
+      subject.status === 'Pass'
   ).length;
 
-  const failedSubjects = subjectResults.filter(
-    (item) => item.status === 'Fail'
+  const failed = subjectResults.filter(
+    (subject) =>
+      subject.status === 'Fail'
   ).length;
 
-  const classPosition = useMemo(() => {
-    if (!student || classAverages.length === 0) {
-      return null;
-    }
+  const overallGrade = getGrade(average);
 
-    const currentAverage = overallAverage;
+  // ------------------------------------------------------------
+  // POSITION
+  // ------------------------------------------------------------
+  const studentAverage =
+    classAverages.find(
+      (item) =>
+        item.student_id === student?.id
+    )?.average || 0;
+
+  const position = useMemo(() => {
+    if (!student) return null;
 
     const sorted = [...classAverages].sort(
-      (a, b) => b.average - a.average
+      (a, b) =>
+        b.average - a.average
     );
+
+    if (!sorted.length) return null;
 
     return (
       sorted.filter(
-        (item) => item.average > currentAverage
+        (item) =>
+          item.average >
+          studentAverage
       ).length + 1
     );
-  }, [classAverages, overallAverage, student]);
+  }, [
+    classAverages,
+    student,
+    studentAverage,
+  ]);
 
-  const classSize = classAverages.length;
+  // ------------------------------------------------------------
+  // TERM ATTENDANCE SUMMARY
+  // ------------------------------------------------------------
+  const attendanceSummary = useMemo(() => {
+    const total =
+      attendance.length;
 
-  const totalAttendance = attendance.length;
+    const present =
+      attendance.filter(
+        (record) =>
+          record.status === 'present'
+      ).length;
 
-  const presentCount = attendance.filter(
-    (item) =>
-      item.status.toLowerCase() === 'present'
-  ).length;
+    const absent =
+      attendance.filter(
+        (record) =>
+          record.status === 'absent'
+      ).length;
 
-  const absentCount = attendance.filter(
-    (item) =>
-      item.status.toLowerCase() === 'absent'
-  ).length;
+    const late =
+      attendance.filter(
+        (record) =>
+          record.status === 'late'
+      ).length;
 
-  const lateCount = attendance.filter(
-    (item) =>
-      item.status.toLowerCase() === 'late'
-  ).length;
+    const excused =
+      attendance.filter(
+        (record) =>
+          record.status === 'excused'
+      ).length;
 
-  const excusedCount = attendance.filter(
-    (item) =>
-      item.status.toLowerCase() === 'excused'
-  ).length;
+    const percentage =
+      total > 0
+        ? (present / total) * 100
+        : 0;
 
-  const attendancePercentage =
-    totalAttendance > 0
-      ? (presentCount / totalAttendance) * 100
-      : 0;
+    return {
+      total,
+      present,
+      absent,
+      late,
+      excused,
+      percentage,
+    };
+  }, [attendance]);
 
-  const overallGrade = getGrade(overallAverage);
-
-  const overallGradeDescription =
-    getGradeDescription(overallGrade);
-
-  const overallRemark =
-    overallAverage >= 80
-      ? 'Excellent performance. Keep up the good work.'
-      : overallAverage >= 70
-        ? 'Very good performance. Continue to work hard.'
-        : overallAverage >= 60
-          ? 'Good performance. There is room for further improvement.'
-          : overallAverage >= 50
-            ? 'Satisfactory performance. More effort is encouraged.'
-            : 'Performance needs improvement. Greater effort is required.';
-
-  const currentClass =
-    enrollment?.class?.[0]?.name ||
-    'Not enrolled';
-
-  const currentLevel =
-    enrollment?.class?.[0]?.level || '—';
-
-  const currentProgramme =
-    enrollment?.programme?.[0]?.name || '—';
-
-  const selectedYearName =
+  // ------------------------------------------------------------
+  // SELECTED YEAR / TERM
+  // ------------------------------------------------------------
+  const selectedYearData =
     academicYears.find(
-      (year) => year.id === selectedYear
-    )?.name || '—';
+      (year) =>
+        year.id === selectedYear
+    );
 
-  const selectedTermName =
+  const selectedTermData =
     terms.find(
-      (term) => term.id === selectedTerm
-    )?.name || '—';
+      (term) =>
+        term.id === selectedTerm
+    );
 
+  // ------------------------------------------------------------
+  // OVERALL REMARK
+  // ------------------------------------------------------------
+  const overallRemark = useMemo(() => {
+    if (!subjectResults.length) {
+      return 'No results recorded.';
+    }
+
+    if (average >= 80) {
+      return 'Excellent performance. Keep up the good work.';
+    }
+
+    if (average >= 70) {
+      return 'Very good performance. Continue to work hard.';
+    }
+
+    if (average >= 60) {
+      return 'Good performance. There is room for further improvement.';
+    }
+
+    if (average >= 50) {
+      return 'Satisfactory performance. More effort is encouraged.';
+    }
+
+    return 'Performance needs improvement. Greater effort and support are recommended.';
+  }, [
+    average,
+    subjectResults.length,
+  ]);
+
+  // ------------------------------------------------------------
+  // LOADING SCREEN
+  // ------------------------------------------------------------
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-100 p-6">
@@ -650,318 +909,393 @@ export default function ReportCardPage() {
     );
   }
 
-  if (!student) {
+  if (error && !student) {
     return (
       <div className="min-h-screen bg-slate-100 p-6">
-        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-8">
-          <h1 className="text-xl font-bold">
-            Student not found
-          </h1>
+        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-8 text-center shadow-sm">
+          <p className="font-semibold text-red-600">
+            {error}
+          </p>
 
-          <button
-            onClick={() => router.push('/students')}
-            className="mt-4 rounded-lg bg-slate-900 px-5 py-2 text-white"
+          <Link
+            href="/students"
+            className="mt-5 inline-block rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white"
           >
             Back to Students
-          </button>
+          </Link>
         </div>
       </div>
     );
   }
 
+  if (!student) return null;
+
+  // ------------------------------------------------------------
+  // PAGE
+  // ------------------------------------------------------------
   return (
-    <>
-      {/* Screen Controls */}
-      <div className="print:hidden bg-slate-100 px-4 py-4">
-        <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            onClick={() => router.back()}
-            className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700"
+    <div className="min-h-screen bg-slate-100 p-3 sm:p-5">
+
+      {/* SCREEN CONTROLS */}
+      <div className="mx-auto mb-4 flex max-w-5xl flex-wrap items-center justify-between gap-3 print:hidden">
+
+        <Link
+          href={`/students/${student.id}`}
+          className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+        >
+          ← Student Profile
+        </Link>
+
+        <div className="flex flex-wrap gap-2">
+
+          <select
+            value={selectedYear}
+            onChange={(event) =>
+              setSelectedYear(
+                event.target.value
+              )
+            }
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
           >
-            ← Back
-          </button>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <select
-              value={selectedYear}
-              onChange={(e) => {
-                setSelectedYear(e.target.value);
-                setSelectedTerm('');
-                setTerms([]);
-                setEnrollment(null);
-              }}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-3"
-            >
-              <option value="">
-                Select Academic Year
-              </option>
-
-              {academicYears.map((year) => (
+            {academicYears.map(
+              (year) => (
                 <option
                   key={year.id}
                   value={year.id}
                 >
                   {year.name}
                 </option>
-              ))}
-            </select>
+              )
+            )}
+          </select>
 
-            <select
-              value={selectedTerm}
-              onChange={(e) =>
-                setSelectedTerm(e.target.value)
-              }
-              className="rounded-xl border border-slate-300 bg-white px-4 py-3"
-            >
-              <option value="">
-                Select Term
-              </option>
-
-              {terms.map((term) => (
+          <select
+            value={selectedTerm}
+            onChange={(event) =>
+              setSelectedTerm(
+                event.target.value
+              )
+            }
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+          >
+            {terms.map(
+              (term) => (
                 <option
                   key={term.id}
                   value={term.id}
                 >
                   {term.name}
                 </option>
-              ))}
-            </select>
+              )
+            )}
+          </select>
 
-            <button
-              onClick={() => window.print()}
-              className="rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white"
-            >
-              🖨️ Print Report Card
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() =>
+              window.print()
+            }
+            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Print Report Card
+          </button>
+
         </div>
       </div>
 
-      {/* Report Card */}
-      <main className="bg-slate-100 px-3 py-6 sm:px-6">
-        <div
-          id="report-card"
-          className="report-card mx-auto max-w-5xl bg-white p-5 shadow-lg sm:p-8"
-        >
-          {/* School Header */}
-          <header className="border-b-4 border-slate-900 pb-5">
-            <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
-              <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border-4 border-slate-900 bg-white">
-                <span className="text-2xl font-black tracking-tight text-slate-900">
-                  BTI
-                </span>
-              </div>
+      {/* REPORT CARD */}
+      <main className="report-card mx-auto max-w-5xl bg-white p-5 shadow-lg sm:p-8">
 
-              <div className="flex-1">
-                <p className="text-xs font-bold uppercase tracking-[0.25em] text-slate-500">
-                  Biriwa Technical Institute
-                </p>
+        {/* SCHOOL HEADER */}
+        <header className="border-b-4 border-slate-900 pb-4">
 
-                <h1 className="mt-1 text-2xl font-black uppercase tracking-wide text-slate-900 sm:text-3xl">
-                  Student Academic Report Card
-                </h1>
+          <div className="flex items-center gap-4">
 
-                <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs font-medium text-slate-600 sm:justify-start">
-                  <span>
-                    Academic Year: {selectedYearName}
-                  </span>
-                  <span>•</span>
-                  <span>
-                    Term: {selectedTermName}
-                  </span>
-                </div>
-              </div>
-
-              {student.photo_url ? (
-                <img
-                  src={student.photo_url}
-                  alt={student.full_name}
-                  className="h-28 w-24 rounded-lg border-2 border-slate-400 object-cover"
-                />
-              ) : (
-                <div className="flex h-28 w-24 items-center justify-center rounded-lg border-2 border-slate-300 bg-slate-50 text-3xl">
-                  👤
-                </div>
-              )}
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-slate-900 text-2xl font-black">
+              BTI
             </div>
-          </header>
 
-          {/* Student Information */}
-          <section className="mt-5">
-            <h2 className="section-heading">
-              Student Information
-            </h2>
+            <div className="flex-1 text-center">
 
-            <div className="grid grid-cols-1 border border-slate-300 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                ['Student Name', student.full_name],
-                ['Admission No.', student.admission_number],
-                ['Class', currentClass],
-                ['Programme', currentProgramme],
-                ['Level', currentLevel],
-                ['Gender', student.gender || '—'],
-                ['JHS Aggregate', student.jhs_aggregate ?? '—'],
-                [
-                  'Report Status',
-                  student.promotion_status || '—',
-                ],
-              ].map(([label, value], index) => (
-                <div
-                  key={label}
-                  className={`border-b border-slate-200 p-3 ${
-                    index % 4 !== 3
-                      ? 'lg:border-r'
-                      : ''
-                  }`}
-                >
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    {label}
-                  </p>
+              <h1 className="text-2xl font-black uppercase tracking-wide sm:text-3xl">
+                Biriwa Technical Institute
+              </h1>
 
-                  <p className="mt-1 text-sm font-bold text-slate-900">
-                    {value}
-                  </p>
-                </div>
-              ))}
+              <p className="mt-1 text-sm font-medium text-slate-600">
+                Student Academic Report Card
+              </p>
+
+              <p className="mt-2 text-sm font-bold">
+                {selectedYearData?.name ||
+                  'Academic Year'}
+                {' • '}
+                {selectedTermData?.name ||
+                  'Term'}
+              </p>
+
             </div>
-          </section>
 
-          {/* Academic Results */}
-          <section className="mt-5">
-            <h2 className="section-heading">
-              Academic Performance
-            </h2>
+            {student.photo_url ? (
+              <img
+                src={student.photo_url}
+                alt={student.full_name}
+                className="h-24 w-20 shrink-0 rounded-lg border border-slate-300 object-cover"
+              />
+            ) : (
+              <div className="flex h-24 w-20 shrink-0 items-center justify-center rounded-lg border border-slate-300 text-xs text-slate-400">
+                PHOTO
+              </div>
+            )}
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse border border-slate-400 text-xs">
-                <thead>
-                  <tr className="bg-slate-200">
-                    <th
-                      rowSpan={2}
-                      className="border border-slate-400 px-2 py-2 text-left"
-                    >
-                      Subject
-                    </th>
+          </div>
 
-                    <th
-                      colSpan={2}
-                      className="border border-slate-400 px-2 py-2 text-center"
-                    >
-                      Continuous Assessment
-                    </th>
+        </header>
 
-                    <th
-                      colSpan={2}
-                      className="border border-slate-400 px-2 py-2 text-center"
-                    >
-                      Examination
-                    </th>
+        {/* ERROR */}
+        {error && (
+          <div className="mt-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800 print:hidden">
+            {error}
+          </div>
+        )}
 
-                    <th
-                      rowSpan={2}
-                      className="border border-slate-400 px-2 py-2 text-center"
-                    >
-                      Final
-                      <br />
+        {/* STUDENT INFORMATION */}
+        <section className="mt-5">
+
+          <h2 className="section-heading">
+            STUDENT INFORMATION
+          </h2>
+
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-300 bg-slate-300 sm:grid-cols-4">
+
+            <div className="bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Student Name
+              </p>
+              <p className="mt-1 text-sm font-bold">
+                {student.full_name}
+              </p>
+            </div>
+
+            <div className="bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Admission Number
+              </p>
+              <p className="mt-1 text-sm font-bold">
+                {student.admission_number}
+              </p>
+            </div>
+
+            <div className="bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Class
+              </p>
+              <p className="mt-1 text-sm font-bold">
+                {className}
+              </p>
+            </div>
+
+            <div className="bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Programme
+              </p>
+              <p className="mt-1 text-sm font-bold">
+                {programmeName}
+              </p>
+            </div>
+
+            <div className="bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Level
+              </p>
+              <p className="mt-1 text-sm font-bold">
+                {level}
+              </p>
+            </div>
+
+            <div className="bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Gender
+              </p>
+              <p className="mt-1 text-sm font-bold">
+                {student.gender || '—'}
+              </p>
+            </div>
+
+            <div className="bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                JHS Aggregate
+              </p>
+              <p className="mt-1 text-sm font-bold">
+                {student.jhs_aggregate ??
+                  '—'}
+              </p>
+            </div>
+
+            <div className="bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Report Status
+              </p>
+              <p className="mt-1 text-sm font-bold capitalize">
+                {student.status}
+              </p>
+            </div>
+
+          </div>
+
+        </section>
+
+        {/* ACADEMIC PERFORMANCE */}
+        <section className="mt-5">
+
+          <h2 className="section-heading">
+            ACADEMIC PERFORMANCE
+          </h2>
+
+          <div className="overflow-x-auto rounded-lg border border-slate-300">
+
+            <table className="w-full min-w-[720px] border-collapse text-xs">
+
+              <thead>
+                <tr className="bg-slate-900 text-white">
+
+                  <th className="border border-slate-700 px-2 py-2 text-left">
+                    Subject
+                  </th>
+
+                  <th className="border border-slate-700 px-2 py-2">
+                    CA<br />
+                    <span className="font-normal">
                       /100
-                    </th>
+                    </span>
+                  </th>
 
-                    <th
-                      rowSpan={2}
-                      className="border border-slate-400 px-2 py-2 text-center"
-                    >
-                      Grade
-                    </th>
-
-                    <th
-                      rowSpan={2}
-                      className="border border-slate-400 px-2 py-2 text-center"
-                    >
-                      Status
-                    </th>
-                  </tr>
-
-                  <tr className="bg-slate-50">
-                    <th className="border border-slate-400 px-2 py-1 text-center">
-                      Raw /100
-                    </th>
-
-                    <th className="border border-slate-400 px-2 py-1 text-center">
+                  <th className="border border-slate-700 px-2 py-2">
+                    CA<br />
+                    <span className="font-normal">
                       /30
-                    </th>
+                    </span>
+                  </th>
 
-                    <th className="border border-slate-400 px-2 py-1 text-center">
-                      Raw /100
-                    </th>
+                  <th className="border border-slate-700 px-2 py-2">
+                    Exam<br />
+                    <span className="font-normal">
+                      /100
+                    </span>
+                  </th>
 
-                    <th className="border border-slate-400 px-2 py-1 text-center">
+                  <th className="border border-slate-700 px-2 py-2">
+                    Exam<br />
+                    <span className="font-normal">
                       /70
-                    </th>
+                    </span>
+                  </th>
+
+                  <th className="border border-slate-700 px-2 py-2">
+                    Final<br />
+                    <span className="font-normal">
+                      /100
+                    </span>
+                  </th>
+
+                  <th className="border border-slate-700 px-2 py-2">
+                    Grade
+                  </th>
+
+                  <th className="border border-slate-700 px-2 py-2">
+                    Status
+                  </th>
+
+                </tr>
+              </thead>
+
+              <tbody>
+
+                {loadingResults ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="p-6 text-center text-slate-500"
+                    >
+                      Loading results...
+                    </td>
                   </tr>
-                </thead>
-
-                <tbody>
-                  {subjectResults.map((result) => (
-                    <tr key={result.subject}>
-                      <td className="border border-slate-400 px-2 py-2 font-semibold">
-                        {result.subject}
-                      </td>
-
-                      <td className="border border-slate-400 px-2 py-2 text-center">
-                        {result.caRaw.toFixed(1)}
-                      </td>
-
-                      <td className="border border-slate-400 px-2 py-2 text-center">
-                        {result.caContribution.toFixed(1)}
-                      </td>
-
-                      <td className="border border-slate-400 px-2 py-2 text-center">
-                        {result.examRaw.toFixed(1)}
-                      </td>
-
-                      <td className="border border-slate-400 px-2 py-2 text-center">
-                        {result.examContribution.toFixed(1)}
-                      </td>
-
-                      <td className="border border-slate-400 px-2 py-2 text-center font-black">
-                        {result.finalScore.toFixed(1)}
-                      </td>
-
-                      <td className="border border-slate-400 px-2 py-2 text-center font-black">
-                        {result.grade}
-                      </td>
-
-                      <td
-                        className={`border border-slate-400 px-2 py-2 text-center font-bold ${
-                          result.status === 'Pass'
-                            ? 'text-green-700'
-                            : 'text-red-700'
-                        }`}
+                ) : subjectResults.length ===
+                  0 ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="p-6 text-center text-slate-500"
+                    >
+                      No assessment results have
+                      been recorded for this term.
+                    </td>
+                  </tr>
+                ) : (
+                  subjectResults.map(
+                    (result) => (
+                      <tr
+                        key={result.subject}
+                        className="even:bg-slate-50"
                       >
-                        {result.status}
-                      </td>
-                    </tr>
-                  ))}
 
-                  {subjectResults.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={8}
-                        className="border border-slate-400 px-4 py-8 text-center text-slate-500"
-                      >
-                        {loadingResults
-                          ? 'Loading results...'
-                          : 'No results recorded for this term.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                        <td className="border border-slate-300 px-2 py-2 font-semibold">
+                          {result.subject}
+                        </td>
 
-          {/* Performance Summary */}
-          <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                        <td className="border border-slate-300 px-2 py-2 text-center">
+                          {result.caRaw.toFixed(1)}
+                        </td>
+
+                        <td className="border border-slate-300 px-2 py-2 text-center">
+                          {result.caContribution.toFixed(
+                            1
+                          )}
+                        </td>
+
+                        <td className="border border-slate-300 px-2 py-2 text-center">
+                          {result.examRaw.toFixed(1)}
+                        </td>
+
+                        <td className="border border-slate-300 px-2 py-2 text-center">
+                          {result.examContribution.toFixed(
+                            1
+                          )}
+                        </td>
+
+                        <td className="border border-slate-300 px-2 py-2 text-center font-bold">
+                          {result.final.toFixed(1)}
+                        </td>
+
+                        <td className="border border-slate-300 px-2 py-2 text-center font-bold">
+                          {result.grade}
+                        </td>
+
+                        <td className="border border-slate-300 px-2 py-2 text-center font-semibold">
+                          {result.status}
+                        </td>
+
+                      </tr>
+                    )
+                  )
+                )}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        </section>
+
+        {/* PERFORMANCE SUMMARY */}
+        <section className="mt-5">
+
+          <h2 className="section-heading">
+            PERFORMANCE SUMMARY
+          </h2>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+
             <div className="summary-box">
               <p className="summary-label">
                 Subjects
@@ -976,19 +1310,16 @@ export default function ReportCardPage() {
                 Average
               </p>
               <p className="summary-value">
-                {overallAverage.toFixed(1)}%
+                {average.toFixed(1)}%
               </p>
             </div>
 
             <div className="summary-box">
               <p className="summary-label">
-                Overall Grade
+                Grade
               </p>
               <p className="summary-value">
                 {overallGrade}
-              </p>
-              <p className="text-[9px] text-slate-500">
-                {overallGradeDescription}
               </p>
             </div>
 
@@ -997,277 +1328,331 @@ export default function ReportCardPage() {
                 Position
               </p>
               <p className="summary-value">
-                {formatPosition(classPosition)}
+                {formatPosition(position)}
               </p>
-              {classPosition && (
-                <p className="text-[9px] text-slate-500">
-                  out of {classSize}
-                </p>
-              )}
             </div>
 
             <div className="summary-box">
               <p className="summary-label">
-                Result
+                Passed
               </p>
-              <p
-                className={`mt-1 text-xl font-black ${
-                  overallAverage >= 50
-                    ? 'text-green-700'
-                    : 'text-red-700'
-                }`}
-              >
-                {overallAverage >= 50
-                  ? 'PASS'
-                  : 'FAIL'}
+              <p className="summary-value">
+                {passed}/{subjectResults.length}
               </p>
             </div>
-          </section>
 
-          {/* Overall Performance */}
-          <section className="mt-5 border border-slate-300 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-600">
-                Overall Performance
-              </h3>
+          </div>
 
-              <span className="text-sm font-black">
-                {overallAverage.toFixed(1)}%
-              </span>
+        </section>
+
+        {/* OVERALL PERFORMANCE */}
+        <section className="mt-5">
+
+          <div className="rounded-lg border border-slate-300 p-4">
+
+            <div className="flex items-center justify-between gap-3">
+
+              <div>
+                <p className="text-xs font-bold uppercase text-slate-500">
+                  Overall Performance
+                </p>
+
+                <p className="mt-1 text-sm font-semibold">
+                  {getGradeDescription(
+                    average
+                  )}
+                </p>
+              </div>
+
+              <p className="text-2xl font-black">
+                {average.toFixed(1)}%
+              </p>
+
             </div>
 
-            <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-200">
+            <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200">
+
               <div
                 className="h-full rounded-full bg-slate-900"
                 style={{
                   width: `${Math.min(
-                    Math.max(overallAverage, 0),
+                    Math.max(average, 0),
                     100
                   )}%`,
                 }}
               />
+
             </div>
 
-            <p className="mt-2 text-xs leading-5 text-slate-600">
+            <p className="mt-3 text-xs text-slate-600">
               {overallRemark}
             </p>
-          </section>
 
-          {/* Attendance */}
-          <section className="mt-5">
-            <h2 className="section-heading">
-              Attendance
-            </h2>
+          </div>
 
-            <div className="grid grid-cols-2 border border-slate-300 sm:grid-cols-5">
-              <div className="attendance-box">
-                <p className="summary-label">
-                  Days Recorded
-                </p>
-                <p className="summary-value">
-                  {totalAttendance}
-                </p>
-              </div>
+        </section>
 
-              <div className="attendance-box">
-                <p className="summary-label">
-                  Present
-                </p>
-                <p className="summary-value text-green-700">
-                  {presentCount}
-                </p>
-              </div>
+        {/* ATTENDANCE */}
+        <section className="mt-5">
 
-              <div className="attendance-box">
-                <p className="summary-label">
-                  Absent
-                </p>
-                <p className="summary-value text-red-700">
-                  {absentCount}
-                </p>
-              </div>
+          <h2 className="section-heading">
+            TERM ATTENDANCE
+          </h2>
 
-              <div className="attendance-box">
-                <p className="summary-label">
-                  Late
-                </p>
-                <p className="summary-value">
-                  {lateCount}
-                </p>
-              </div>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-300 bg-slate-300 sm:grid-cols-6">
 
-              <div className="attendance-box">
-                <p className="summary-label">
-                  Attendance
-                </p>
-                <p className="summary-value">
-                  {attendancePercentage.toFixed(1)}%
-                </p>
-              </div>
+            <div className="attendance-box">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                School Days Recorded
+              </p>
+              <p className="mt-1 text-lg font-black">
+                {attendanceSummary.total}
+              </p>
             </div>
 
-            {excusedCount > 0 && (
-              <p className="mt-2 text-[10px] text-slate-500">
-                Excused absences: {excusedCount}
+            <div className="attendance-box">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Present
               </p>
-            )}
-          </section>
+              <p className="mt-1 text-lg font-black">
+                {attendanceSummary.present}
+              </p>
+            </div>
 
-          {/* Conduct and Promotion */}
-          <section className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="border border-slate-300 p-4">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            <div className="attendance-box">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Absent
+              </p>
+              <p className="mt-1 text-lg font-black">
+                {attendanceSummary.absent}
+              </p>
+            </div>
+
+            <div className="attendance-box">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Late
+              </p>
+              <p className="mt-1 text-lg font-black">
+                {attendanceSummary.late}
+              </p>
+            </div>
+
+            <div className="attendance-box">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Excused
+              </p>
+              <p className="mt-1 text-lg font-black">
+                {attendanceSummary.excused}
+              </p>
+            </div>
+
+            <div className="attendance-box">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
+                Attendance %
+              </p>
+              <p className="mt-1 text-lg font-black">
+                {attendanceSummary.percentage.toFixed(
+                  1
+                )}
+                %
+              </p>
+            </div>
+
+          </div>
+
+          {selectedTermData && (
+            <p className="mt-2 text-xs text-slate-500">
+              Attendance period:{' '}
+              {formatDate(
+                selectedTermData.start_date
+              )}{' '}
+              to{' '}
+              {formatDate(
+                selectedTermData.end_date
+              )}
+            </p>
+          )}
+
+        </section>
+
+        {/* CONDUCT AND PROMOTION */}
+        <section className="mt-5">
+
+          <h2 className="section-heading">
+            CONDUCT & PROMOTION
+          </h2>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+
+            <div className="rounded-lg border border-slate-300 p-4">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
                 Conduct / Attitude
-              </h3>
+              </p>
 
-              <p className="mt-2 text-sm font-semibold text-slate-900">
-                {student.conduct || 'Not provided'}
+              <p className="mt-2 text-sm font-semibold">
+                {student.conduct ||
+                  'Not recorded'}
               </p>
             </div>
 
-            <div className="border border-slate-300 p-4">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            <div className="rounded-lg border border-slate-300 p-4">
+              <p className="text-[10px] font-bold uppercase text-slate-500">
                 Promotion Status
-              </h3>
+              </p>
 
-              <p className="mt-2 text-sm font-semibold text-slate-900">
+              <p className="mt-2 text-sm font-semibold">
                 {student.promotion_status ||
-                  'Not provided'}
+                  'Not recorded'}
               </p>
             </div>
-          </section>
 
-          {/* Remarks */}
-          <section className="mt-5">
-            <h2 className="section-heading">
-              Official Remarks
-            </h2>
+          </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="min-h-[90px] border border-slate-300 p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                  Class Teacher's Remark
-                </p>
+        </section>
 
-                <p className="mt-3 text-sm leading-6 text-slate-800">
-                  {student.class_teacher_remark ||
-                    'No class teacher remark entered.'}
-                </p>
-              </div>
+        {/* REMARKS */}
+        <section className="mt-5">
 
-              <div className="min-h-[90px] border border-slate-300 p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                  HOD / Head's Remark
-                </p>
+          <h2 className="section-heading">
+            REMARKS
+          </h2>
 
-                <p className="mt-3 text-sm leading-6 text-slate-800">
-                  {student.hod_remark ||
-                    'No HOD / Head remark entered.'}
-                </p>
-              </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+
+            <div className="rounded-lg border border-slate-300 p-4">
+
+              <p className="text-xs font-bold uppercase text-slate-500">
+                Class Teacher's Remark
+              </p>
+
+              <p className="mt-3 min-h-[70px] text-sm leading-6">
+                {student.class_teacher_remark ||
+                  'No remark recorded.'}
+              </p>
+
             </div>
-          </section>
 
-          {/* Next Term */}
-          <section className="mt-5 border border-slate-300 p-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                  Next Term Begins
-                </p>
+            <div className="rounded-lg border border-slate-300 p-4">
 
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {formatDate(student.next_term_begins)}
-                </p>
-              </div>
+              <p className="text-xs font-bold uppercase text-slate-500">
+                HOD / Head's Remark
+              </p>
 
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                  Overall Result
-                </p>
+              <p className="mt-3 min-h-[70px] text-sm leading-6">
+                {student.hod_remark ||
+                  'No remark recorded.'}
+              </p>
 
-                <p
-                  className={`mt-1 text-sm font-black ${
-                    overallAverage >= 50
-                      ? 'text-green-700'
-                      : 'text-red-700'
-                  }`}
-                >
-                  {overallAverage >= 50
-                    ? 'PASS'
-                    : 'FAIL'}
-                </p>
-              </div>
             </div>
-          </section>
 
-          {/* Grading Key */}
-          <section className="mt-5">
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">
-              Grading Key
-            </h2>
+          </div>
 
-            <div className="grid grid-cols-2 border border-slate-300 text-xs sm:grid-cols-6">
-              {[
-                ['A', '80–100', 'Excellent'],
-                ['B', '70–79', 'Very Good'],
-                ['C', '60–69', 'Good'],
-                ['D', '50–59', 'Credit'],
-                ['E', '40–49', 'Pass'],
-                ['F', '0–39', 'Fail'],
-              ].map(([grade, range, description]) => (
-                <div
-                  key={grade}
-                  className="border-b border-slate-200 p-2 text-center sm:border-r"
-                >
-                  <p className="font-black">
-                    {grade}
-                  </p>
-                  <p>{range}</p>
-                  <p className="text-[9px] text-slate-500">
-                    {description}
-                  </p>
-                </div>
-              ))}
+        </section>
+
+        {/* NEXT TERM */}
+        <section className="mt-5">
+
+          <div className="rounded-lg border border-slate-300 p-4">
+
+            <p className="text-xs font-bold uppercase text-slate-500">
+              Next Term Begins
+            </p>
+
+            <p className="mt-2 text-sm font-bold">
+              {formatDate(
+                student.next_term_begins
+              )}
+            </p>
+
+          </div>
+
+        </section>
+
+        {/* GRADING KEY */}
+        <section className="mt-5">
+
+          <h2 className="section-heading">
+            GRADING KEY
+          </h2>
+
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-6">
+
+            <div className="rounded border p-2">
+              <strong>A</strong> — 80–100
             </div>
-          </section>
 
-          {/* Signatures */}
-          <section className="mt-10 grid grid-cols-1 gap-10 sm:grid-cols-3">
-            <div className="signature-line">
+            <div className="rounded border p-2">
+              <strong>B</strong> — 70–79
+            </div>
+
+            <div className="rounded border p-2">
+              <strong>C</strong> — 60–69
+            </div>
+
+            <div className="rounded border p-2">
+              <strong>D</strong> — 50–59
+            </div>
+
+            <div className="rounded border p-2">
+              <strong>E</strong> — 40–49
+            </div>
+
+            <div className="rounded border p-2">
+              <strong>F</strong> — 0–39
+            </div>
+
+          </div>
+
+        </section>
+
+        {/* SIGNATURES */}
+        <section className="mt-10 grid gap-10 sm:grid-cols-3">
+
+          <div>
+            <div className="signature-line" />
+            <p className="mt-2 text-center text-xs font-semibold">
               Class Teacher
-            </div>
+            </p>
+          </div>
 
-            <div className="signature-line">
-              HOD
-            </div>
+          <div>
+            <div className="signature-line" />
+            <p className="mt-2 text-center text-xs font-semibold">
+              HOD / Head
+            </p>
+          </div>
 
-            <div className="signature-line">
-              Head of Institution
-            </div>
-          </section>
+          <div>
+            <div className="signature-line" />
+            <p className="mt-2 text-center text-xs font-semibold">
+              Date
+            </p>
+          </div>
 
-          <footer className="mt-8 border-t border-slate-300 pt-3 text-center text-[9px] text-slate-500">
-            Biriwa Technical Institute • Official Student Academic Report
-          </footer>
-        </div>
+        </section>
+
+        {/* FOOTER */}
+        <footer className="mt-8 border-t border-slate-300 pt-3 text-center text-[10px] text-slate-500">
+          Biriwa Technical Institute • Official Student Report Card
+        </footer>
+
       </main>
 
+      {/* PRINT STYLES */}
       <style jsx global>{`
         .section-heading {
-          margin-bottom: 0.75rem;
-          background: #0f172a;
-          padding: 0.5rem 0.75rem;
-          font-size: 0.75rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: white;
+          border-bottom: 2px solid #0f172a;
+          padding-bottom: 6px;
+          margin-bottom: 10px;
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0.04em;
         }
 
         .summary-box {
           border: 1px solid #cbd5e1;
-          padding: 0.75rem;
+          border-radius: 8px;
+          padding: 12px;
           text-align: center;
         }
 
@@ -1275,29 +1660,25 @@ export default function ReportCardPage() {
           font-size: 10px;
           font-weight: 700;
           text-transform: uppercase;
-          letter-spacing: 0.04em;
           color: #64748b;
         }
 
         .summary-value {
-          margin-top: 0.25rem;
-          font-size: 1.25rem;
+          margin-top: 4px;
+          font-size: 18px;
           font-weight: 900;
-          color: #0f172a;
         }
 
         .attendance-box {
-          border-right: 1px solid #e2e8f0;
-          border-bottom: 1px solid #e2e8f0;
-          padding: 0.75rem;
+          background: white;
+          padding: 12px;
           text-align: center;
         }
 
         .signature-line {
-          border-top: 1px solid #64748b;
-          padding-top: 0.5rem;
-          text-align: center;
-          font-size: 0.75rem;
+          height: 1px;
+          background: #0f172a;
+          width: 100%;
         }
 
         @media print {
@@ -1313,23 +1694,22 @@ export default function ReportCardPage() {
             padding: 0 !important;
           }
 
-          .print\\:hidden {
-            display: none !important;
-          }
-
           .report-card {
             width: 100% !important;
             max-width: none !important;
             margin: 0 !important;
             padding: 0 !important;
             box-shadow: none !important;
-            border-radius: 0 !important;
+          }
+
+          .print\\:hidden {
+            display: none !important;
           }
 
           section,
           header,
           footer {
-            page-break-inside: avoid;
+            break-inside: avoid;
           }
 
           table {
@@ -1337,17 +1717,11 @@ export default function ReportCardPage() {
           }
 
           tr {
-            page-break-inside: avoid;
-            page-break-after: auto;
-          }
-
-          .section-heading {
-            print-color-adjust: exact;
-            -webkit-print-color-adjust: exact;
+            break-inside: avoid;
           }
         }
-      `}
-      </style>
-    </>
+      `}</style>
+
+    </div>
   );
 }
