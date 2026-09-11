@@ -79,6 +79,26 @@ type Assessment = {
   created_at: string;
 };
 
+type DisciplineAction = {
+  id: string;
+  student_id: string;
+  action_type:
+    | 'bond'
+    | 'suspension'
+    | 'dismissal'
+    | 'reinstatement';
+  action_date: string;
+  suspension_start_date: string | null;
+  suspension_end_date: string | null;
+  bond_details: string | null;
+  bond_conditions: string | null;
+  bond_review_date: string | null;
+  reason: string | null;
+  notes: string | null;
+  recorded_by: string | null;
+  created_at: string;
+};
+
 const CA_TYPES = [
   'Exercise 1',
   'Exercise 2',
@@ -121,6 +141,57 @@ function normalizeRelation<T>(
   return Array.isArray(value) ? value : [value];
 }
 
+function getActionLabel(
+  actionType: DisciplineAction['action_type']
+) {
+  switch (actionType) {
+    case 'bond':
+      return 'Bond';
+    case 'suspension':
+      return 'Suspension';
+    case 'dismissal':
+      return 'Permanent Dismissal';
+    case 'reinstatement':
+      return 'Reinstatement';
+    default:
+      return actionType;
+  }
+}
+
+function getActionIcon(
+  actionType: DisciplineAction['action_type']
+) {
+  switch (actionType) {
+    case 'bond':
+      return 'fa-file-signature';
+    case 'suspension':
+      return 'fa-user-clock';
+    case 'dismissal':
+      return 'fa-user-slash';
+    case 'reinstatement':
+      return 'fa-user-check';
+    default:
+      return 'fa-circle-info';
+  }
+}
+
+function getActionBadgeClass(
+  actionType: DisciplineAction['action_type']
+) {
+  switch (actionType) {
+    case 'bond':
+      return 'bg-amber-50 text-amber-700 border-amber-200';
+    case 'suspension':
+      return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'dismissal':
+      return 'bg-red-50 text-red-700 border-red-200';
+    case 'reinstatement':
+      return 'bg-green-50 text-green-700 border-green-200';
+    default:
+      return 'bg-slate-50 text-slate-700 border-slate-200';
+  }
+}
+
 export default function StudentProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -146,6 +217,9 @@ export default function StudentProfilePage() {
   const [assessments, setAssessments] =
     useState<Assessment[]>([]);
 
+  const [disciplineActions, setDisciplineActions] =
+    useState<DisciplineAction[]>([]);
+
   const [selectedAcademicYearId, setSelectedAcademicYearId] =
     useState('');
 
@@ -155,6 +229,37 @@ export default function StudentProfilePage() {
   const [loading, setLoading] = useState(true);
 
   const [saving, setSaving] = useState(false);
+
+  const [disciplineSaving, setDisciplineSaving] =
+    useState(false);
+
+  const [showDisciplineModal, setShowDisciplineModal] =
+    useState(false);
+
+  const [showDisciplineHistory, setShowDisciplineHistory] =
+    useState(false);
+
+  const [disciplineModalType, setDisciplineModalType] =
+    useState<
+      'bond' |
+      'suspension' |
+      'dismissal' |
+      'reinstatement'
+    >('bond');
+
+  const [disciplineForm, setDisciplineForm] =
+    useState({
+      action_date: new Date()
+        .toISOString()
+        .slice(0, 10),
+      suspension_start_date: '',
+      suspension_end_date: '',
+      bond_details: '',
+      bond_conditions: '',
+      bond_review_date: '',
+      reason: '',
+      notes: '',
+    });
 
   const [form, setForm] = useState({
     photo_url: '',
@@ -479,7 +584,53 @@ export default function StudentProfilePage() {
         []) as Assessment[]
     );
 
+    await loadDisciplineActions();
+
     setLoading(false);
+  }
+
+  async function loadDisciplineActions() {
+    const {
+      data,
+      error,
+    } = await supabase
+      .from('student_disciplinary_actions')
+      .select(`
+        id,
+        student_id,
+        action_type,
+        action_date,
+        suspension_start_date,
+        suspension_end_date,
+        bond_details,
+        bond_conditions,
+        bond_review_date,
+        reason,
+        notes,
+        recorded_by,
+        created_at
+      `)
+      .eq('student_id', studentId)
+      .order('action_date', {
+        ascending: false,
+      })
+      .order('created_at', {
+        ascending: false,
+      });
+
+    if (error) {
+      console.error(
+        'Disciplinary history loading error:',
+        error
+      );
+
+      setDisciplineActions([]);
+      return;
+    }
+
+    setDisciplineActions(
+      (data || []) as DisciplineAction[]
+    );
   }
 
   async function saveReportCardInfo() {
@@ -636,6 +787,215 @@ export default function StudentProfilePage() {
     }
   }
 
+  function openDisciplineModal(
+    type:
+      | 'bond'
+      | 'suspension'
+      | 'dismissal'
+      | 'reinstatement'
+  ) {
+    setDisciplineModalType(type);
+
+    setDisciplineForm({
+      action_date: new Date()
+        .toISOString()
+        .slice(0, 10),
+      suspension_start_date:
+        type === 'suspension'
+          ? new Date()
+              .toISOString()
+              .slice(0, 10)
+          : '',
+      suspension_end_date: '',
+      bond_details: '',
+      bond_conditions: '',
+      bond_review_date: '',
+      reason: '',
+      notes: '',
+    });
+
+    setShowDisciplineModal(true);
+  }
+
+  function closeDisciplineModal() {
+    if (disciplineSaving) return;
+
+    setShowDisciplineModal(false);
+  }
+
+  async function saveDisciplineAction() {
+    if (!student) return;
+
+    if (
+      disciplineModalType ===
+        'bond' &&
+      !disciplineForm.bond_details.trim()
+    ) {
+      alert(
+        'Please describe what the student has agreed not to do.'
+      );
+      return;
+    }
+
+    if (
+      disciplineModalType ===
+        'suspension' &&
+      !disciplineForm.suspension_start_date
+    ) {
+      alert(
+        'Please enter the suspension start date.'
+      );
+      return;
+    }
+
+    if (
+      disciplineModalType ===
+        'suspension' &&
+      !disciplineForm.suspension_end_date
+    ) {
+      alert(
+        'Please enter the suspension end date.'
+      );
+      return;
+    }
+
+    if (
+      disciplineModalType ===
+        'suspension' &&
+      disciplineForm.suspension_end_date <
+        disciplineForm.suspension_start_date
+    ) {
+      alert(
+        'Suspension end date cannot be earlier than the start date.'
+      );
+      return;
+    }
+
+    if (
+      disciplineModalType ===
+        'dismissal' &&
+      !disciplineForm.reason.trim()
+    ) {
+      alert(
+        'Please enter the reason for permanent dismissal.'
+      );
+      return;
+    }
+
+    if (
+      disciplineModalType ===
+        'reinstatement' &&
+      !disciplineForm.reason.trim()
+    ) {
+      alert(
+        'Please enter the reason or authorization for reinstatement.'
+      );
+      return;
+    }
+
+    setDisciplineSaving(true);
+
+    try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        alert(
+          'Your session has expired. Please log in again.'
+        );
+
+        router.push('/login');
+        return;
+      }
+
+      const payload = {
+        student_id: student.id,
+        action_type: disciplineModalType,
+        action_date:
+          disciplineForm.action_date ||
+          new Date()
+            .toISOString()
+            .slice(0, 10),
+        suspension_start_date:
+          disciplineModalType ===
+          'suspension'
+            ? disciplineForm.suspension_start_date ||
+              null
+            : null,
+        suspension_end_date:
+          disciplineModalType ===
+          'suspension'
+            ? disciplineForm.suspension_end_date ||
+              null
+            : null,
+        bond_details:
+          disciplineModalType === 'bond'
+            ? disciplineForm.bond_details.trim() ||
+              null
+            : null,
+        bond_conditions:
+          disciplineModalType === 'bond'
+            ? disciplineForm.bond_conditions.trim() ||
+              null
+            : null,
+        bond_review_date:
+          disciplineModalType === 'bond'
+            ? disciplineForm.bond_review_date ||
+              null
+            : null,
+        reason:
+          disciplineForm.reason.trim() ||
+          null,
+        notes:
+          disciplineForm.notes.trim() ||
+          null,
+        recorded_by: user.id,
+      };
+
+      const {
+        error,
+      } = await supabase
+        .from('student_disciplinary_actions')
+        .insert(payload);
+
+      if (error) {
+        console.error(
+          'Discipline save error:',
+          error
+        );
+
+        alert(
+          `Could not save the disciplinary record:\n\n${error.message}`
+        );
+
+        return;
+      }
+
+      await loadDisciplineActions();
+
+      setShowDisciplineModal(false);
+
+      alert(
+        `${getActionLabel(
+          disciplineModalType
+        )} recorded successfully.`
+      );
+    } catch (error) {
+      console.error(
+        'Unexpected discipline save error:',
+        error
+      );
+
+      alert(
+        'An unexpected error occurred while saving the disciplinary record.'
+      );
+    } finally {
+      setDisciplineSaving(false);
+    }
+  }
+
   const selectedSemester =
     semesters.find(
       (semester) =>
@@ -671,6 +1031,75 @@ export default function StudentProfilePage() {
         year.id ===
         selectedAcademicYearId
     ) || null;
+
+  const sortedDisciplineActions =
+    useMemo(() => {
+      return [...disciplineActions].sort(
+        (a, b) => {
+          const dateA =
+            `${a.action_date} ${a.created_at}`;
+          const dateB =
+            `${b.action_date} ${b.created_at}`;
+
+          return dateB.localeCompare(dateA);
+        }
+      );
+    }, [disciplineActions]);
+
+  const latestDisciplineAction =
+    sortedDisciplineActions[0] || null;
+
+  const today =
+    new Date()
+      .toISOString()
+      .slice(0, 10);
+
+  const hasLaterReinstatement =
+    latestDisciplineAction?.action_type ===
+    'reinstatement';
+
+  const activeSuspension =
+    !hasLaterReinstatement &&
+    latestDisciplineAction?.action_type ===
+      'suspension' &&
+    !!latestDisciplineAction.suspension_start_date &&
+    !!latestDisciplineAction.suspension_end_date &&
+    latestDisciplineAction.suspension_start_date <=
+      today &&
+    latestDisciplineAction.suspension_end_date >=
+      today;
+
+  const activeBond =
+    !hasLaterReinstatement &&
+    latestDisciplineAction?.action_type ===
+      'bond' &&
+    (
+      !latestDisciplineAction.bond_review_date ||
+      latestDisciplineAction.bond_review_date >=
+        today
+    );
+
+  const permanentlyDismissed =
+    !hasLaterReinstatement &&
+    latestDisciplineAction?.action_type ===
+      'dismissal';
+
+  const disciplineStatus = activeSuspension
+    ? 'Suspended'
+    : permanentlyDismissed
+    ? 'Permanently Dismissed'
+    : activeBond
+    ? 'Bond Active'
+    : 'No Active Disciplinary Action';
+
+  const disciplineStatusClass =
+    activeSuspension
+      ? 'border-orange-200 bg-orange-50 text-orange-800'
+      : permanentlyDismissed
+      ? 'border-red-200 bg-red-50 text-red-800'
+      : activeBond
+      ? 'border-amber-200 bg-amber-50 text-amber-800'
+      : 'border-green-200 bg-green-50 text-green-800';
 
   const semesterAssessments =
     useMemo(() => {
@@ -947,28 +1376,29 @@ export default function StudentProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+    <div className="min-h-screen bg-slate-50 p-4 font-sans sm:p-6">
       <div className="mx-auto max-w-6xl">
 
         {/* Header */}
         <div className="mb-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
                 Student Profile
               </h1>
 
               <p className="mt-1 text-sm text-slate-500">
                 Complete student information, academic history,
-                semester results, attendance and report-card details.
+                semester results, attendance, discipline and report-card details.
               </p>
             </div>
 
             <Link
               href="/students"
-              className="inline-flex w-fit rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="inline-flex w-fit rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-              ← Back to Students
+              <i className="fa-solid fa-arrow-left mr-2" />
+              Back to Students
             </Link>
           </div>
         </div>
@@ -985,8 +1415,8 @@ export default function StudentProfilePage() {
                   className="h-28 w-28 rounded-2xl object-cover ring-4 ring-slate-100"
                 />
               ) : (
-                <div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-slate-100 text-4xl">
-                  👤
+                <div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-slate-100 text-3xl text-slate-400">
+                  <i className="fa-solid fa-user" />
                 </div>
               )}
             </div>
@@ -1018,11 +1448,438 @@ export default function StudentProfilePage() {
           </div>
         </div>
 
+        {/* Discipline Status */}
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+
+          <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white">
+                  <i className="fa-solid fa-shield-halved" />
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Conduct & Discipline
+                  </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Official disciplinary records, bonds, suspensions and student conduct actions.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setShowDisciplineHistory(
+                  !showDisciplineHistory
+                )
+              }
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <i className="fa-solid fa-clock-rotate-left mr-2" />
+              {showDisciplineHistory
+                ? 'Hide History'
+                : 'View History'}
+            </button>
+          </div>
+
+          {/* Current Status */}
+          <div
+            className={`rounded-xl border p-4 ${disciplineStatusClass}`}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/80">
+                  <i
+                    className={`fa-solid ${
+                      activeSuspension
+                        ? 'fa-user-clock'
+                        : permanentlyDismissed
+                        ? 'fa-user-slash'
+                        : activeBond
+                        ? 'fa-file-signature'
+                        : 'fa-circle-check'
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                    Current Discipline Status
+                  </p>
+
+                  <p className="mt-1 text-lg font-bold">
+                    {disciplineStatus}
+                  </p>
+                </div>
+              </div>
+
+              {activeSuspension &&
+                latestDisciplineAction && (
+                  <div className="text-left text-sm sm:text-right">
+                    <p className="font-semibold">
+                      {formatDate(
+                        latestDisciplineAction.suspension_start_date
+                      )}{' '}
+                      —{' '}
+                      {formatDate(
+                        latestDisciplineAction.suspension_end_date
+                      )}
+                    </p>
+
+                    <p className="mt-1 text-xs opacity-75">
+                      Suspension period
+                    </p>
+                  </div>
+                )}
+
+              {activeBond &&
+                latestDisciplineAction && (
+                  <div className="text-left text-sm sm:text-right">
+                    <p className="font-semibold">
+                      Bond recorded{' '}
+                      {formatDate(
+                        latestDisciplineAction.action_date
+                      )}
+                    </p>
+
+                    <p className="mt-1 text-xs opacity-75">
+                      {latestDisciplineAction.bond_review_date
+                        ? `Review: ${formatDate(
+                            latestDisciplineAction.bond_review_date
+                          )}`
+                        : 'No review date specified'}
+                    </p>
+                  </div>
+                )}
+            </div>
+
+            {activeBond &&
+              latestDisciplineAction?.bond_details && (
+                <div className="mt-4 border-t border-current/10 pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                    Bond Agreement
+                  </p>
+
+                  <p className="mt-2 text-sm font-medium leading-6">
+                    {latestDisciplineAction.bond_details}
+                  </p>
+
+                  {latestDisciplineAction.bond_conditions && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                        Bond Conditions
+                      </p>
+
+                      <p className="mt-1 text-sm leading-6">
+                        {latestDisciplineAction.bond_conditions}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            {permanentlyDismissed &&
+              latestDisciplineAction?.reason && (
+                <div className="mt-4 border-t border-current/10 pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                    Reason
+                  </p>
+
+                  <p className="mt-1 text-sm leading-6">
+                    {latestDisciplineAction.reason}
+                  </p>
+                </div>
+              )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+
+            <button
+              type="button"
+              onClick={() =>
+                openDisciplineModal('bond')
+              }
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left font-semibold text-amber-800 transition hover:bg-amber-100"
+            >
+              <i className="fa-solid fa-file-signature mr-2" />
+              Record Bond
+              <span className="mt-1 block text-xs font-normal opacity-75">
+                Record a student's formal undertaking.
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                openDisciplineModal('suspension')
+              }
+              className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-left font-semibold text-orange-800 transition hover:bg-orange-100"
+            >
+              <i className="fa-solid fa-user-clock mr-2" />
+              Record Suspension
+              <span className="mt-1 block text-xs font-normal opacity-75">
+                Record suspension dates and reason.
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                openDisciplineModal('dismissal')
+              }
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left font-semibold text-red-800 transition hover:bg-red-100"
+            >
+              <i className="fa-solid fa-user-slash mr-2" />
+              Permanent Dismissal
+              <span className="mt-1 block text-xs font-normal opacity-75">
+                Record an official dismissal decision.
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                openDisciplineModal('reinstatement')
+              }
+              className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-left font-semibold text-green-800 transition hover:bg-green-100"
+            >
+              <i className="fa-solid fa-user-check mr-2" />
+              Reinstate Student
+              <span className="mt-1 block text-xs font-normal opacity-75">
+                Record an authorized reinstatement.
+              </span>
+            </button>
+
+          </div>
+
+          {/* History */}
+          {showDisciplineHistory && (
+            <div className="mt-6 border-t border-slate-200 pt-6">
+
+              <div className="mb-4">
+                <h3 className="font-bold text-slate-900">
+                  Disciplinary History
+                </h3>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Previous disciplinary records are preserved and are not automatically overwritten.
+                </p>
+              </div>
+
+              {sortedDisciplineActions.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
+                    <i className="fa-solid fa-shield-halved" />
+                  </div>
+
+                  <p className="mt-3 font-semibold text-slate-700">
+                    No disciplinary records
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    No bond, suspension, dismissal or reinstatement has been recorded for this student.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {sortedDisciplineActions.map(
+                    (action) => (
+                      <div
+                        key={action.id}
+                        className="rounded-xl border border-slate-200 bg-white p-4"
+                      >
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+
+                          <div className="flex gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                              <i
+                                className={`fa-solid ${getActionIcon(
+                                  action.action_type
+                                )}`}
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="font-bold text-slate-900">
+                                  {getActionLabel(
+                                    action.action_type
+                                  )}
+                                </h4>
+
+                                <span
+                                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getActionBadgeClass(
+                                    action.action_type
+                                  )}`}
+                                >
+                                  {action.action_type ===
+                                  'reinstatement'
+                                    ? 'Status Restored'
+                                    : 'Recorded'}
+                                </span>
+                              </div>
+
+                              <p className="mt-1 text-sm text-slate-500">
+                                Action date:{' '}
+                                {formatDate(
+                                  action.action_date
+                                )}
+                              </p>
+                            </div>
+                          </div>
+
+                        </div>
+
+                        {action.action_type ===
+                          'bond' && (
+                          <div className="mt-4 grid grid-cols-1 gap-4 rounded-xl bg-amber-50 p-4 sm:grid-cols-2">
+
+                            <div className="sm:col-span-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                                Student Agreed Not To
+                              </p>
+
+                              <p className="mt-1 text-sm leading-6 text-slate-700">
+                                {action.bond_details ||
+                                  'Not specified'}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                                Conditions
+                              </p>
+
+                              <p className="mt-1 text-sm leading-6 text-slate-700">
+                                {action.bond_conditions ||
+                                  'No additional conditions recorded.'}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                                Review Date
+                              </p>
+
+                              <p className="mt-1 text-sm font-semibold text-slate-700">
+                                {formatDate(
+                                  action.bond_review_date
+                                )}
+                              </p>
+                            </div>
+
+                          </div>
+                        )}
+
+                        {action.action_type ===
+                          'suspension' && (
+                          <div className="mt-4 rounded-xl bg-orange-50 p-4">
+
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">
+                                  Suspension Start
+                                </p>
+
+                                <p className="mt-1 text-sm font-semibold text-slate-700">
+                                  {formatDate(
+                                    action.suspension_start_date
+                                  )}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">
+                                  Suspension End
+                                </p>
+
+                                <p className="mt-1 text-sm font-semibold text-slate-700">
+                                  {formatDate(
+                                    action.suspension_end_date
+                                  )}
+                                </p>
+                              </div>
+
+                              {action.reason && (
+                                <div className="sm:col-span-2">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">
+                                    Reason
+                                  </p>
+
+                                  <p className="mt-1 text-sm leading-6 text-slate-700">
+                                    {action.reason}
+                                  </p>
+                                </div>
+                              )}
+
+                            </div>
+
+                          </div>
+                        )}
+
+                        {action.action_type ===
+                          'dismissal' &&
+                          action.reason && (
+                            <div className="mt-4 rounded-xl bg-red-50 p-4">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-red-700">
+                                Reason for Permanent Dismissal
+                              </p>
+
+                              <p className="mt-1 text-sm leading-6 text-slate-700">
+                                {action.reason}
+                              </p>
+                            </div>
+                          )}
+
+                        {action.action_type ===
+                          'reinstatement' &&
+                          action.reason && (
+                            <div className="mt-4 rounded-xl bg-green-50 p-4">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
+                                Reinstatement Remarks
+                              </p>
+
+                              <p className="mt-1 text-sm leading-6 text-slate-700">
+                                {action.reason}
+                              </p>
+                            </div>
+                          )}
+
+                        {action.notes && (
+                          <div className="mt-4 border-t border-slate-100 pt-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              Notes
+                            </p>
+
+                            <p className="mt-1 text-sm leading-6 text-slate-600">
+                              {action.notes}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+            </div>
+          )}
+
+        </div>
+
         {/* Academic Period Selector */}
         <div className="mt-6 rounded-2xl border border-blue-100 bg-white p-5 shadow-sm sm:p-6">
           <div className="mb-5">
             <h2 className="text-lg font-bold text-slate-900">
-              📚 Academic Period
+              <i className="fa-solid fa-book-open mr-2 text-blue-600" />
+              Academic Period
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
@@ -1045,7 +1902,7 @@ export default function StudentProfilePage() {
                     e.target.value
                   )
                 }
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   Select Academic Year
@@ -1079,7 +1936,7 @@ export default function StudentProfilePage() {
                     e.target.value
                   )
                 }
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   Select Semester
@@ -1237,7 +2094,8 @@ export default function StudentProfilePage() {
 
           <div className="mb-5">
             <h2 className="text-lg font-bold text-slate-900">
-              📋 Report Card Information
+              <i className="fa-solid fa-file-lines mr-2 text-blue-600" />
+              Report Card Information
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
@@ -1263,7 +2121,7 @@ export default function StudentProfilePage() {
                   })
                 }
                 placeholder="Paste the student's photo URL"
-                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
 
               <p className="mt-1 text-xs text-slate-400">
@@ -1285,7 +2143,7 @@ export default function StudentProfilePage() {
                       e.target.value,
                   })
                 }
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   Select conduct
@@ -1327,7 +2185,7 @@ export default function StudentProfilePage() {
                       e.target.value,
                   })
                 }
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   Select promotion status
@@ -1363,7 +2221,7 @@ export default function StudentProfilePage() {
                 }
                 rows={4}
                 placeholder="Enter class teacher's remark..."
-                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
@@ -1383,7 +2241,7 @@ export default function StudentProfilePage() {
                 }
                 rows={4}
                 placeholder="Enter HOD / Head's remark..."
-                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
@@ -1402,18 +2260,25 @@ export default function StudentProfilePage() {
                       e.target.value,
                   })
                 }
-                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
             <button
               onClick={saveReportCardInfo}
               disabled={saving}
-              className="w-full rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              className="w-full rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
+              <i
+                className={`fa-solid ${
+                  saving
+                    ? 'fa-spinner fa-spin'
+                    : 'fa-floppy-disk'
+                } mr-2`}
+              />
               {saving
                 ? 'Saving...'
-                : '💾 Save Report Card Information'}
+                : 'Save Report Card Information'}
             </button>
 
           </div>
@@ -1424,7 +2289,8 @@ export default function StudentProfilePage() {
 
           <div className="mb-5">
             <h2 className="text-lg font-bold text-slate-900">
-              🏫 Academic History
+              <i className="fa-solid fa-school mr-2 text-slate-600" />
+              Academic History
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
@@ -1442,7 +2308,7 @@ export default function StudentProfilePage() {
                 (enrollment) => (
                   <div
                     key={enrollment.id}
-                    className="rounded-xl border border-slate-200 p-4"
+                    className="rounded-xl border border-slate-200 p-4 transition hover:border-slate-300"
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
@@ -1506,7 +2372,8 @@ export default function StudentProfilePage() {
 
             <div>
               <h2 className="text-lg font-bold text-slate-900">
-                📅 Semester Attendance
+                <i className="fa-solid fa-calendar-check mr-2 text-green-600" />
+                Semester Attendance
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
@@ -1518,7 +2385,7 @@ export default function StudentProfilePage() {
 
             <Link
               href="/attendance"
-              className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+              className="text-sm font-semibold text-blue-600 transition hover:text-blue-700"
             >
               Manage Attendance →
             </Link>
@@ -1603,7 +2470,7 @@ export default function StudentProfilePage() {
 
             <div className="h-3 overflow-hidden rounded-full bg-slate-200">
               <div
-                className="h-full rounded-full bg-green-500"
+                className="h-full rounded-full bg-green-500 transition-all"
                 style={{
                   width: `${Math.min(
                     attendancePercentage,
@@ -1675,7 +2542,8 @@ export default function StudentProfilePage() {
 
             <div>
               <h2 className="text-lg font-bold text-slate-900">
-                📊 Semester Result
+                <i className="fa-solid fa-chart-column mr-2 text-purple-600" />
+                Semester Result
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
@@ -1690,7 +2558,7 @@ export default function StudentProfilePage() {
 
             <Link
               href="/assessment"
-              className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+              className="text-sm font-semibold text-blue-600 transition hover:text-blue-700"
             >
               Manage Assessments →
             </Link>
@@ -1845,7 +2713,8 @@ export default function StudentProfilePage() {
         <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm sm:p-6">
 
           <h2 className="mb-5 text-lg font-bold text-slate-900">
-            📝 Conduct & Promotion
+            <i className="fa-solid fa-clipboard-check mr-2 text-slate-600" />
+            Conduct & Promotion
           </h2>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1914,28 +2783,444 @@ export default function StudentProfilePage() {
 
           <Link
             href={`/students/${student.id}/edit`}
-            className="rounded-xl bg-blue-600 px-6 py-3 text-center font-semibold text-white hover:bg-blue-700"
+            className="rounded-xl bg-blue-600 px-6 py-3 text-center font-semibold text-white transition hover:bg-blue-700"
           >
-            ✏️ Edit Student
+            <i className="fa-solid fa-pen-to-square mr-2" />
+            Edit Student
           </Link>
 
           <Link
             href={`/report-card/${student.id}`}
-            className="rounded-xl bg-slate-900 px-6 py-3 text-center font-semibold text-white hover:bg-slate-800"
+            className="rounded-xl bg-slate-900 px-6 py-3 text-center font-semibold text-white transition hover:bg-slate-800"
           >
-            📄 View Report Card
+            <i className="fa-solid fa-file-lines mr-2" />
+            View Report Card
           </Link>
 
           <Link
             href="/promotion"
-            className="rounded-xl border border-slate-300 bg-white px-6 py-3 text-center font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded-xl border border-slate-300 bg-white px-6 py-3 text-center font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            ⬆️ Student Promotion
+            <i className="fa-solid fa-arrow-up mr-2" />
+            Student Promotion
           </Link>
 
         </div>
 
       </div>
+
+      {/* Discipline Modal */}
+      {showDisciplineModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+
+            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
+
+              <div className="flex items-center justify-between gap-4">
+
+                <div className="flex items-center gap-3">
+
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white">
+                    <i
+                      className={`fa-solid ${getActionIcon(
+                        disciplineModalType
+                      )}`}
+                    />
+                  </div>
+
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">
+                      Record{' '}
+                      {getActionLabel(
+                        disciplineModalType
+                      )}
+                    </h2>
+
+                    <p className="text-sm text-slate-500">
+                      {student.full_name}
+                    </p>
+                  </div>
+
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    closeDisciplineModal
+                  }
+                  disabled={
+                    disciplineSaving
+                  }
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                >
+                  <i className="fa-solid fa-xmark" />
+                </button>
+
+              </div>
+
+            </div>
+
+            <div className="space-y-5 p-5 sm:p-6">
+
+              {/* Action Date */}
+              <div>
+                <label className="text-sm font-semibold text-slate-700">
+                  Action Date
+                </label>
+
+                <input
+                  type="date"
+                  value={
+                    disciplineForm.action_date
+                  }
+                  onChange={(e) =>
+                    setDisciplineForm({
+                      ...disciplineForm,
+                      action_date:
+                        e.target.value,
+                    })
+                  }
+                  className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+
+              {/* Bond */}
+              {disciplineModalType ===
+                'bond' && (
+                <>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="flex gap-3">
+                      <i className="fa-solid fa-circle-info mt-0.5 text-amber-600" />
+
+                      <div>
+                        <p className="font-semibold text-amber-900">
+                          Bond Agreement
+                        </p>
+
+                        <p className="mt-1 text-sm leading-6 text-amber-800">
+                          Record the specific conduct or action the student has agreed not to repeat.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">
+                      What has the student agreed not to do?
+                    </label>
+
+                    <textarea
+                      value={
+                        disciplineForm.bond_details
+                      }
+                      onChange={(e) =>
+                        setDisciplineForm({
+                          ...disciplineForm,
+                          bond_details:
+                            e.target.value,
+                        })
+                      }
+                      rows={4}
+                      placeholder="Example: The student has agreed not to engage in fighting, bullying or physical aggression toward other students."
+                      className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Bond Conditions
+                    </label>
+
+                    <textarea
+                      value={
+                        disciplineForm.bond_conditions
+                      }
+                      onChange={(e) =>
+                        setDisciplineForm({
+                          ...disciplineForm,
+                          bond_conditions:
+                            e.target.value,
+                        })
+                      }
+                      rows={4}
+                      placeholder="Enter any conditions attached to the bond..."
+                      className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Bond Review Date
+                    </label>
+
+                    <input
+                      type="date"
+                      value={
+                        disciplineForm.bond_review_date
+                      }
+                      onChange={(e) =>
+                        setDisciplineForm({
+                          ...disciplineForm,
+                          bond_review_date:
+                            e.target.value,
+                        })
+                      }
+                      className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Suspension */}
+              {disciplineModalType ===
+                'suspension' && (
+                <>
+                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">
+                        Suspension Start Date
+                      </label>
+
+                      <input
+                        type="date"
+                        value={
+                          disciplineForm.suspension_start_date
+                        }
+                        onChange={(e) =>
+                          setDisciplineForm({
+                            ...disciplineForm,
+                            suspension_start_date:
+                              e.target.value,
+                          })
+                        }
+                        className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">
+                        Suspension End Date
+                      </label>
+
+                      <input
+                        type="date"
+                        value={
+                          disciplineForm.suspension_end_date
+                        }
+                        onChange={(e) =>
+                          setDisciplineForm({
+                            ...disciplineForm,
+                            suspension_end_date:
+                              e.target.value,
+                          })
+                        }
+                        className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Reason for Suspension
+                    </label>
+
+                    <textarea
+                      value={
+                        disciplineForm.reason
+                      }
+                      onChange={(e) =>
+                        setDisciplineForm({
+                          ...disciplineForm,
+                          reason:
+                            e.target.value,
+                        })
+                      }
+                      rows={4}
+                      placeholder="Enter the reason for the suspension..."
+                      className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Dismissal */}
+              {disciplineModalType ===
+                'dismissal' && (
+                <>
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                    <div className="flex gap-3">
+                      <i className="fa-solid fa-triangle-exclamation mt-0.5 text-red-600" />
+
+                      <div>
+                        <p className="font-semibold text-red-900">
+                          Permanent Dismissal
+                        </p>
+
+                        <p className="mt-1 text-sm leading-6 text-red-800">
+                          This creates an official permanent dismissal record. The student's existing academic history will remain preserved.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Reason for Permanent Dismissal
+                    </label>
+
+                    <textarea
+                      value={
+                        disciplineForm.reason
+                      }
+                      onChange={(e) =>
+                        setDisciplineForm({
+                          ...disciplineForm,
+                          reason:
+                            e.target.value,
+                        })
+                      }
+                      rows={5}
+                      placeholder="Enter the official reason for the dismissal..."
+                      className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Reinstatement */}
+              {disciplineModalType ===
+                'reinstatement' && (
+                <>
+                  <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+                    <div className="flex gap-3">
+                      <i className="fa-solid fa-circle-check mt-0.5 text-green-600" />
+
+                      <div>
+                        <p className="font-semibold text-green-900">
+                          Reinstatement
+                        </p>
+
+                        <p className="mt-1 text-sm leading-6 text-green-800">
+                          Record the authorized decision to restore the student's active standing.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Reinstatement Reason / Authorization
+                    </label>
+
+                    <textarea
+                      value={
+                        disciplineForm.reason
+                      }
+                      onChange={(e) =>
+                        setDisciplineForm({
+                          ...disciplineForm,
+                          reason:
+                            e.target.value,
+                        })
+                      }
+                      rows={4}
+                      placeholder="Enter the reason, authorization or decision supporting reinstatement..."
+                      className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Notes */}
+              <div>
+                <label className="text-sm font-semibold text-slate-700">
+                  Additional Notes
+                </label>
+
+                <textarea
+                  value={
+                    disciplineForm.notes
+                  }
+                  onChange={(e) =>
+                    setDisciplineForm({
+                      ...disciplineForm,
+                      notes:
+                        e.target.value,
+                    })
+                  }
+                  rows={4}
+                  placeholder="Add any additional official notes..."
+                  className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="sticky bottom-0 border-t border-slate-200 bg-white px-5 py-4 sm:px-6">
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+
+                <button
+                  type="button"
+                  onClick={
+                    closeDisciplineModal
+                  }
+                  disabled={
+                    disciplineSaving
+                  }
+                  className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    saveDisciplineAction
+                  }
+                  disabled={
+                    disciplineSaving
+                  }
+                  className={`rounded-xl px-5 py-3 font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                    disciplineModalType ===
+                    'dismissal'
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : disciplineModalType ===
+                        'suspension'
+                      ? 'bg-orange-600 hover:bg-orange-700'
+                      : disciplineModalType ===
+                        'bond'
+                      ? 'bg-amber-600 hover:bg-amber-700'
+                      : 'bg-green-600 hover:bg-green-700'
+                  }`}
+                >
+                  <i
+                    className={`fa-solid ${
+                      disciplineSaving
+                        ? 'fa-spinner fa-spin'
+                        : 'fa-floppy-disk'
+                    } mr-2`}
+                  />
+
+                  {disciplineSaving
+                    ? 'Saving...'
+                    : `Save ${getActionLabel(
+                        disciplineModalType
+                      )}`}
+                </button>
+
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
