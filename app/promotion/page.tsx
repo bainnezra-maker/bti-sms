@@ -196,7 +196,26 @@ export default function PromotionPage() {
       setMessage(error.message);
       setEnrollments([]);
     } else {
-      setEnrollments((data as Enrollment[]) || []);
+      /*
+       * Supabase returns the related students record as an array
+       * in this query. Normalize it into a single Student object
+       * so it matches our Enrollment type.
+       */
+      const normalizedEnrollments: Enrollment[] = (data || []).map(
+        (item: any) => ({
+          id: item.id,
+          student_id: item.student_id,
+          class_id: item.class_id,
+          academic_year_id: item.academic_year_id,
+          programme_id: item.programme_id,
+          status: item.status,
+          students: Array.isArray(item.students)
+            ? item.students[0] || null
+            : item.students || null,
+        })
+      );
+
+      setEnrollments(normalizedEnrollments);
     }
 
     setLoading(false);
