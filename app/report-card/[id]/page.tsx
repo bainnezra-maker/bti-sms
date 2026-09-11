@@ -133,14 +133,6 @@ function formatPosition(position: number | null) {
   return `${position}${getPositionSuffix(position)}`;
 }
 
-function getStatus(status: string) {
-  if (status === 'present') return 'Present';
-  if (status === 'absent') return 'Absent';
-  if (status === 'late') return 'Late';
-  if (status === 'excused') return 'Excused';
-  return status;
-}
-
 export default function ReportCardPage() {
   const params = useParams();
   const router = useRouter();
@@ -185,9 +177,6 @@ export default function ReportCardPage() {
 
   const [error, setError] = useState('');
 
-  // ------------------------------------------------------------
-  // LOAD STUDENT
-  // ------------------------------------------------------------
   useEffect(() => {
     async function loadStudent() {
       setLoading(true);
@@ -209,10 +198,7 @@ export default function ReportCardPage() {
           .eq('id', user.id)
           .maybeSingle();
 
-      if (
-        profileError ||
-        !profile?.school_id
-      ) {
+      if (profileError || !profile?.school_id) {
         setError(
           'Could not load your school information.'
         );
@@ -288,9 +274,6 @@ export default function ReportCardPage() {
     loadStudent();
   }, [studentId]);
 
-  // ------------------------------------------------------------
-  // LOAD TERMS FOR SELECTED YEAR
-  // ------------------------------------------------------------
   useEffect(() => {
     async function loadTerms() {
       if (!selectedYear) {
@@ -335,9 +318,6 @@ export default function ReportCardPage() {
     loadTerms();
   }, [selectedYear]);
 
-  // ------------------------------------------------------------
-  // LOAD ENROLLMENT + CLASS + PROGRAMME
-  // ------------------------------------------------------------
   useEffect(() => {
     async function loadEnrollment() {
       if (!student || !selectedYear) {
@@ -404,9 +384,6 @@ export default function ReportCardPage() {
     loadEnrollment();
   }, [student, selectedYear]);
 
-  // ------------------------------------------------------------
-  // LOAD TERM RESULTS + TERM ATTENDANCE
-  // ------------------------------------------------------------
   useEffect(() => {
     async function loadTermData() {
       if (
@@ -430,9 +407,6 @@ export default function ReportCardPage() {
         return;
       }
 
-      // --------------------------------------------------------
-      // ASSESSMENTS
-      // --------------------------------------------------------
       const { data: assessmentData, error: assessmentError } =
         await supabase
           .from('assessments')
@@ -455,12 +429,6 @@ export default function ReportCardPage() {
         setAssessments(assessmentData || []);
       }
 
-      // --------------------------------------------------------
-      // TERM ATTENDANCE
-      //
-      // Only attendance records between the selected
-      // term's start and end dates are counted.
-      // --------------------------------------------------------
       let attendanceQuery = supabase
         .from('attendance')
         .select(`
@@ -499,9 +467,6 @@ export default function ReportCardPage() {
         );
       }
 
-      // --------------------------------------------------------
-      // CLASS STUDENTS
-      // --------------------------------------------------------
       const { data: classEnrollmentData } =
         await supabase
           .from('enrollments')
@@ -527,9 +492,6 @@ export default function ReportCardPage() {
         return;
       }
 
-      // --------------------------------------------------------
-      // CLASS ASSESSMENTS FOR POSITION
-      // --------------------------------------------------------
       const { data: classAssessmentData } =
         await supabase
           .from('assessments')
@@ -658,9 +620,6 @@ export default function ReportCardPage() {
     terms,
   ]);
 
-  // ------------------------------------------------------------
-  // SUBJECT RESULTS
-  // ------------------------------------------------------------
   const subjectResults = useMemo(() => {
     const subjects: Record<
       string,
@@ -738,9 +697,6 @@ export default function ReportCardPage() {
       );
   }, [assessments]);
 
-  // ------------------------------------------------------------
-  // SUMMARY
-  // ------------------------------------------------------------
   const totalFinal = useMemo(() => {
     return subjectResults.reduce(
       (sum, subject) =>
@@ -766,16 +722,8 @@ export default function ReportCardPage() {
       subject.status === 'Pass'
   ).length;
 
-  const failed = subjectResults.filter(
-    (subject) =>
-      subject.status === 'Fail'
-  ).length;
-
   const overallGrade = getGrade(average);
 
-  // ------------------------------------------------------------
-  // POSITION
-  // ------------------------------------------------------------
   const studentAverage =
     classAverages.find(
       (item) =>
@@ -805,9 +753,6 @@ export default function ReportCardPage() {
     studentAverage,
   ]);
 
-  // ------------------------------------------------------------
-  // TERM ATTENDANCE SUMMARY
-  // ------------------------------------------------------------
   const attendanceSummary = useMemo(() => {
     const total =
       attendance.length;
@@ -836,9 +781,6 @@ export default function ReportCardPage() {
           record.status === 'excused'
       ).length;
 
-    // Present + Late are counted as attended.
-    // Absent is not counted.
-    // Excused remains recorded separately.
     const attended =
       present + late;
 
@@ -858,9 +800,6 @@ export default function ReportCardPage() {
     };
   }, [attendance]);
 
-  // ------------------------------------------------------------
-  // SELECTED YEAR / TERM
-  // ------------------------------------------------------------
   const selectedYearData =
     academicYears.find(
       (year) =>
@@ -873,9 +812,6 @@ export default function ReportCardPage() {
         term.id === selectedTerm
     );
 
-  // ------------------------------------------------------------
-  // OVERALL REMARK
-  // ------------------------------------------------------------
   const overallRemark = useMemo(() => {
     if (!subjectResults.length) {
       return 'No results recorded.';
@@ -903,9 +839,6 @@ export default function ReportCardPage() {
     subjectResults.length,
   ]);
 
-  // ------------------------------------------------------------
-  // LOADING SCREEN
-  // ------------------------------------------------------------
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-100 p-6">
@@ -937,13 +870,9 @@ export default function ReportCardPage() {
 
   if (!student) return null;
 
-  // ------------------------------------------------------------
-  // PAGE
-  // ------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-100 p-3 sm:p-5">
 
-      {/* SCREEN CONTROLS */}
       <div className="mx-auto mb-4 flex max-w-5xl flex-wrap items-center justify-between gap-3 print:hidden">
 
         <Link
@@ -1010,10 +939,8 @@ export default function ReportCardPage() {
         </div>
       </div>
 
-      {/* REPORT CARD */}
       <main className="report-card mx-auto max-w-5xl bg-white p-5 shadow-lg sm:p-8">
 
-        {/* SCHOOL HEADER */}
         <header className="border-b-4 border-slate-900 pb-4">
 
           <div className="flex items-center gap-4">
@@ -1037,7 +964,7 @@ export default function ReportCardPage() {
                   'Academic Year'}
                 {' • '}
                 {selectedTermData?.name ||
-                  'Term'}
+                  'Semester'}
               </p>
 
             </div>
@@ -1058,14 +985,12 @@ export default function ReportCardPage() {
 
         </header>
 
-        {/* ERROR */}
         {error && (
           <div className="mt-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800 print:hidden">
             {error}
           </div>
         )}
 
-        {/* STUDENT INFORMATION */}
         <section className="mt-5">
 
           <h2 className="section-heading">
@@ -1151,7 +1076,6 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* ACADEMIC PERFORMANCE */}
         <section className="mt-5">
 
           <h2 className="section-heading">
@@ -1234,7 +1158,7 @@ export default function ReportCardPage() {
                       className="p-6 text-center text-slate-500"
                     >
                       No assessment results have
-                      been recorded for this term.
+                      been recorded for this semester.
                     </td>
                   </tr>
                 ) : (
@@ -1294,7 +1218,6 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* PERFORMANCE SUMMARY */}
         <section className="mt-5">
 
           <h2 className="section-heading">
@@ -1352,7 +1275,6 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* OVERALL PERFORMANCE */}
         <section className="mt-5">
 
           <div className="rounded-lg border border-slate-300 p-4">
@@ -1399,11 +1321,10 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* ATTENDANCE */}
         <section className="mt-5">
 
           <h2 className="section-heading">
-            TERM ATTENDANCE
+            SEMESTER ATTENDANCE
           </h2>
 
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-300 bg-slate-300 sm:grid-cols-6">
@@ -1482,7 +1403,6 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* CONDUCT AND PROMOTION */}
         <section className="mt-5">
 
           <h2 className="section-heading">
@@ -1517,7 +1437,6 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* REMARKS */}
         <section className="mt-5">
 
           <h2 className="section-heading">
@@ -1556,7 +1475,6 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* NEXT TERM */}
         <section className="mt-5">
 
           <div className="rounded-lg border border-slate-300 p-4">
@@ -1575,7 +1493,6 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* GRADING KEY */}
         <section className="mt-5">
 
           <h2 className="section-heading">
@@ -1612,7 +1529,6 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* SIGNATURES */}
         <section className="mt-10 grid gap-10 sm:grid-cols-3">
 
           <div>
@@ -1638,14 +1554,12 @@ export default function ReportCardPage() {
 
         </section>
 
-        {/* FOOTER */}
         <footer className="mt-8 border-t border-slate-300 pt-3 text-center text-[10px] text-slate-500">
           Biriwa Technical Institute • Official Student Report Card
         </footer>
 
       </main>
 
-      {/* PRINT STYLES */}
       <style jsx global>{`
         .section-heading {
           border-bottom: 2px solid #0f172a;
