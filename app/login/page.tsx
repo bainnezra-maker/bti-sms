@@ -26,24 +26,110 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data: authData, error: signInError } =
+      await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setLoading(false);
-
-    if (error) {
-      setError(error.message);
+    if (signInError) {
+      setLoading(false);
+      setError(signInError.message);
       return;
     }
 
-    router.push('/');
+    if (!authData.user) {
+      setLoading(false);
+      setError('Unable to identify your account. Please try again.');
+      return;
+    }
+
+    /*
+     * Load the user's BTI-SMS profile.
+     *
+     * The users table is protected by RLS, but authenticated
+     * users are allowed to read their own profile.
+     */
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .select('id, full_name, email, role, is_active, school_id')
+      .eq('id', authData.user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      await supabase.auth.signOut();
+      setLoading(false);
+      setError(
+        'We could not load your school profile. Please contact the administrator.'
+      );
+      return;
+    }
+
+    if (!profile) {
+      await supabase.auth.signOut();
+      setLoading(false);
+      setError(
+        'Your account has not been registered in the BTI School Management System.'
+      );
+      return;
+    }
+
+    /*
+     * Inactive accounts are not allowed into the system.
+     */
+    if (profile.is_active === false) {
+      await supabase.auth.signOut();
+      setLoading(false);
+      setError(
+        'Your account is currently inactive. Please contact the administrator.'
+      );
+      return;
+    }
+
+    /*
+     * Role-based routing.
+     *
+     * Exact database enum values:
+     *
+     * admin
+     * teacher
+     * Student
+     * staff
+     *
+     * Staff is deliberately not allowed to log in because
+     * BTI-SMS currently uses only Admin, Teacher and Student
+     * as login roles.
+     */
+    if (profile.role === 'admin') {
+      router.replace('/');
+      return;
+    }
+
+    if (profile.role === 'teacher') {
+      router.replace('/teacher');
+      return;
+    }
+
+    if (profile.role === 'Student') {
+      router.replace('/student');
+      return;
+    }
+
+    /*
+     * Any other role, including the legacy "staff" role,
+     * is denied access.
+     */
+    await supabase.auth.signOut();
+
+    setLoading(false);
+
+    setError(
+      'Your account does not have a valid BTI-SMS login role. Please contact the administrator.'
+    );
   }
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-950">
-
       {/* ========================================================= */}
       {/* FONT AWESOME */}
       {/* ========================================================= */}
@@ -58,20 +144,14 @@ export default function LoginPage() {
       {/* ========================================================= */}
 
       <div className="absolute inset-0 overflow-hidden">
-
-        {/* Main gradient */}
         <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800" />
 
-        {/* Animated glow - top left */}
         <div className="absolute -left-32 -top-32 h-96 w-96 animate-[float_8s_ease-in-out_infinite] rounded-full bg-blue-500/10 blur-3xl" />
 
-        {/* Animated glow - bottom right */}
         <div className="absolute -bottom-40 -right-40 h-[30rem] w-[30rem] animate-[floatReverse_10s_ease-in-out_infinite] rounded-full bg-indigo-500/10 blur-3xl" />
 
-        {/* Middle glow */}
         <div className="absolute left-1/2 top-1/3 h-72 w-72 -translate-x-1/2 rounded-full bg-slate-500/5 blur-3xl" />
 
-        {/* Grid pattern */}
         <div
           className="absolute inset-0 opacity-[0.035]"
           style={{
@@ -81,7 +161,6 @@ export default function LoginPage() {
           }}
         />
 
-        {/* Floating circles */}
         <div className="absolute left-[10%] top-[18%] h-3 w-3 animate-[pulse_4s_ease-in-out_infinite] rounded-full bg-white/20" />
 
         <div className="absolute right-[15%] top-[25%] h-2 w-2 animate-[pulse_3s_ease-in-out_infinite] rounded-full bg-white/30" />
@@ -96,7 +175,6 @@ export default function LoginPage() {
       {/* ========================================================= */}
 
       <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-6">
-
         <div className="w-full max-w-md animate-[loginEnter_0.7s_ease-out]">
 
           {/* ===================================================== */}
@@ -104,12 +182,7 @@ export default function LoginPage() {
           {/* ===================================================== */}
 
           <div className="mb-7 text-center">
-
-            {/* Logo Placeholder */}
             <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-3xl border border-white/10 bg-white/10 shadow-2xl shadow-black/20 backdrop-blur-xl">
-
-              {/* Temporary school icon.
-                  Replace this later with the official BTI logo. */}
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-slate-900 shadow-lg">
                 <i className="fa-solid fa-school text-3xl" />
               </div>
@@ -132,7 +205,6 @@ export default function LoginPage() {
 
             {/* Card Header */}
             <div className="border-b border-slate-100 px-6 pb-5 pt-7 sm:px-8">
-
               <div className="flex items-center gap-3">
 
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white shadow-md">
@@ -278,7 +350,6 @@ export default function LoginPage() {
                 className="group relative flex h-13 w-full items-center justify-center overflow-hidden rounded-xl bg-slate-900 px-5 text-sm font-bold text-white shadow-lg shadow-slate-900/20 transition-all duration-300 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-xl hover:shadow-slate-900/25 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
               >
 
-                {/* Button shine animation */}
                 <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
 
                 {loading ? (
