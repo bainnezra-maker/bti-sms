@@ -17,8 +17,6 @@ const menuSections = [
         icon: '📊',
       },
       { name: 'Assessment', href: '/assessment', icon: '📝' },
-
-      // Student promotion
       { name: 'Promotion', href: '/promotion', icon: '🎓' },
     ],
   },
@@ -95,21 +93,27 @@ export default function Sidebar() {
 
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4">
-
             {menuSections.map((section) => (
               <div key={section.title} className="mb-6">
-
                 <p className="mb-2 px-3 text-xs font-semibold tracking-wider text-slate-400">
                   {section.title}
                 </p>
 
                 <div className="space-y-1">
-
                   {section.items.map((item) => {
                     const isActive =
                       pathname === item.href ||
                       (item.href !== '/' &&
-                        pathname.startsWith(`${item.href}/`));
+                        pathname.startsWith(`${item.href}/`) &&
+                        !section.items.some(
+                          (otherItem) =>
+                            otherItem.href !== item.href &&
+                            otherItem.href !== '/' &&
+                            pathname.startsWith(
+                              `${otherItem.href}/`
+                            ) &&
+                            otherItem.href.length > item.href.length
+                        ));
 
                     return (
                       <Link
@@ -129,11 +133,9 @@ export default function Sidebar() {
                       </Link>
                     );
                   })}
-
                 </div>
               </div>
             ))}
-
           </nav>
 
           {/* Footer */}
