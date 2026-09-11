@@ -133,19 +133,19 @@ export default function PromotionPage() {
 
     if (academicYearsResult.error) {
       setError(
-        academicYearsResult.error.message
+        `Academic years could not be loaded: ${academicYearsResult.error.message}`
       );
     }
 
     if (programmesResult.error) {
       setError(
-        programmesResult.error.message
+        `Programmes could not be loaded: ${programmesResult.error.message}`
       );
     }
 
     if (classesResult.error) {
       setError(
-        classesResult.error.message
+        `Classes could not be loaded: ${classesResult.error.message}`
       );
     }
 
@@ -153,24 +153,21 @@ export default function PromotionPage() {
       (academicYearsResult.data ||
         []) as AcademicYear[];
 
-    setAcademicYears(years);
-
-    setProgrammes(
+    const programmeData =
       (programmesResult.data ||
-        []) as Programme[]
-    );
+        []) as Programme[];
 
-    setClasses(
+    const classData =
       (classesResult.data ||
-        []) as ClassItem[]
-    );
+        []) as ClassItem[];
+
+    setAcademicYears(years);
+    setProgrammes(programmeData);
+    setClasses(classData);
 
     /*
-     * The CURRENT academic year is the year
-     * students are being promoted FROM.
-     *
-     * The next academic year is the
-     * destination.
+     * The current academic year is the
+     * year students are being promoted FROM.
      */
     const currentYear =
       years.find(
@@ -183,6 +180,10 @@ export default function PromotionPage() {
         currentYear.id
       );
 
+      /*
+       * Find the next academic year based
+       * on start_date.
+       */
       const nextYear =
         years
           .filter(
@@ -190,30 +191,26 @@ export default function PromotionPage() {
               year.id !==
               currentYear.id
           )
+          .filter(
+            (year) =>
+              !!year.start_date &&
+              !!currentYear.start_date
+          )
           .sort((a, b) => {
             const aDate =
-              a.start_date ||
-              '';
+              a.start_date || '';
 
             const bDate =
-              b.start_date ||
-              '';
+              b.start_date || '';
 
             return aDate.localeCompare(
               bDate
             );
           })
           .find((year) => {
-            if (
-              !currentYear.start_date ||
-              !year.start_date
-            ) {
-              return false;
-            }
-
             return (
-              year.start_date >
-              currentYear.start_date
+              (year.start_date || '') >
+              (currentYear.start_date || '')
             );
           });
 
@@ -227,15 +224,16 @@ export default function PromotionPage() {
     setLoading(false);
   }
 
+  /*
+   * Classes belonging to the current academic year.
+   */
   const fromClasses =
     useMemo(() => {
-      return classes.filter(
-        (item) => {
+      return classes
+        .filter((item) => {
           const yearMatches =
             item.academic_year_id ===
-              fromYear ||
-            item.academic_year_id ===
-              null;
+            fromYear;
 
           const programmeMatches =
             !programmeId ||
@@ -246,18 +244,26 @@ export default function PromotionPage() {
             yearMatches &&
             programmeMatches
           );
-        }
-      );
+        })
+        .sort((a, b) =>
+          a.name.localeCompare(
+            b.name
+          )
+        );
     }, [
       classes,
       fromYear,
       programmeId,
     ]);
 
+  /*
+   * Classes belonging to the destination
+   * academic year.
+   */
   const toClasses =
     useMemo(() => {
-      return classes.filter(
-        (item) => {
+      return classes
+        .filter((item) => {
           const yearMatches =
             item.academic_year_id ===
             toYear;
@@ -271,8 +277,12 @@ export default function PromotionPage() {
             yearMatches &&
             programmeMatches
           );
-        }
-      );
+        })
+        .sort((a, b) =>
+          a.name.localeCompare(
+            b.name
+          )
+        );
     }, [
       classes,
       toYear,
@@ -324,6 +334,20 @@ export default function PromotionPage() {
     if (!fromClassId) {
       setError(
         'Please select the current class.'
+      );
+      return;
+    }
+
+    if (!toYear) {
+      setError(
+        'Please select the destination academic year.'
+      );
+      return;
+    }
+
+    if (!toClassId) {
+      setError(
+        'Please select the destination class.'
       );
       return;
     }
@@ -467,6 +491,13 @@ export default function PromotionPage() {
       return;
     }
 
+    if (!fromClassId) {
+      setError(
+        'Please select the current class.'
+      );
+      return;
+    }
+
     if (!toClassId) {
       setError(
         'Please select the destination class.'
@@ -494,6 +525,21 @@ export default function PromotionPage() {
     if (!destinationClass) {
       setError(
         'The selected destination class could not be found.'
+      );
+      return;
+    }
+
+    /*
+     * Safety check:
+     * Make sure the selected destination class
+     * actually belongs to the destination year.
+     */
+    if (
+      destinationClass.academic_year_id !==
+      toYear
+    ) {
+      setError(
+        'The selected destination class is not assigned to the selected destination academic year. Please assign the class to the correct academic year first.'
       );
       return;
     }
@@ -603,6 +649,7 @@ export default function PromotionPage() {
     <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-8 lg:pt-8">
       <div className="mx-auto max-w-7xl">
 
+        {/* Header */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
             Student Promotion
@@ -613,6 +660,7 @@ export default function PromotionPage() {
           </p>
         </div>
 
+        {/* Information */}
         <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4">
           <p className="font-semibold text-blue-900">
             Promotion preserves history
@@ -623,22 +671,26 @@ export default function PromotionPage() {
           </p>
         </div>
 
+        {/* Errors */}
         {error && (
           <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
             {error}
           </div>
         )}
 
+        {/* Success / information */}
         {message && (
           <div className="mb-5 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
             {message}
           </div>
         )}
 
+        {/* Selection panel */}
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
 
           <div className="grid gap-5 md:grid-cols-2">
 
+            {/* Current year */}
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
                 Current Academic Year
@@ -650,7 +702,9 @@ export default function PromotionPage() {
                   setFromYear(
                     e.target.value
                   );
+
                   setFromClassId('');
+                  setToClassId('');
                   setEnrollments([]);
                   setSelectedStudents([]);
                 }}
@@ -676,6 +730,7 @@ export default function PromotionPage() {
               </select>
             </div>
 
+            {/* Destination year */}
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
                 Destination Academic Year
@@ -687,7 +742,10 @@ export default function PromotionPage() {
                   setToYear(
                     e.target.value
                   );
+
                   setToClassId('');
+                  setEnrollments([]);
+                  setSelectedStudents([]);
                 }}
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3"
               >
@@ -708,6 +766,7 @@ export default function PromotionPage() {
               </select>
             </div>
 
+            {/* Programme */}
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
                 Programme
@@ -719,6 +778,7 @@ export default function PromotionPage() {
                   setProgrammeId(
                     e.target.value
                   );
+
                   setFromClassId('');
                   setToClassId('');
                   setEnrollments([]);
@@ -750,6 +810,7 @@ export default function PromotionPage() {
               </select>
             </div>
 
+            {/* Current class */}
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
                 Current Class
@@ -761,6 +822,7 @@ export default function PromotionPage() {
                   setFromClassId(
                     e.target.value
                   );
+
                   setEnrollments([]);
                   setSelectedStudents([]);
                 }}
@@ -777,16 +839,27 @@ export default function PromotionPage() {
                       value={item.id}
                     >
                       {item.name}
+                      {item.level
+                        ? ` — ${item.level}`
+                        : ''}
                     </option>
                   )
                 )}
               </select>
+
+              {fromYear &&
+                fromClasses.length ===
+                  0 && (
+                  <p className="mt-2 text-xs font-medium text-amber-600">
+                    No classes are assigned to this academic year. Please assign your existing class to the current academic year from the Classes page.
+                  </p>
+                )}
             </div>
 
+            {/* Destination class */}
             <div className="md:col-span-2">
-
               <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Promote To Class
+                Promotion Class
               </label>
 
               <select
@@ -796,10 +869,16 @@ export default function PromotionPage() {
                     e.target.value
                   )
                 }
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3"
+                disabled={!toYear}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
               >
                 <option value="">
-                  Select destination class
+                  {!toYear
+                    ? 'Select destination academic year first'
+                    : toClasses.length ===
+                        0
+                    ? 'No promotion classes available'
+                    : 'Select promotion class'}
                 </option>
 
                 {toClasses.map(
@@ -809,25 +888,47 @@ export default function PromotionPage() {
                       value={item.id}
                     >
                       {item.name}
+                      {item.level
+                        ? ` — ${item.level}`
+                        : ''}
                     </option>
                   )
                 )}
               </select>
 
+              {toYear &&
+                toClasses.length ===
+                  0 && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-xs font-semibold text-amber-800">
+                      No promotion class is available for{' '}
+                      {toYearName || 'the selected year'}.
+                    </p>
+
+                    <p className="mt-1 text-xs text-amber-700">
+                      Go to <strong>Classes</strong> and create or edit the destination class, then assign it to{' '}
+                      <strong>
+                        {toYearName || 'the destination academic year'}
+                      </strong>.
+                    </p>
+                  </div>
+                )}
             </div>
 
           </div>
 
+          {/* Promotion pathway */}
           <div className="mt-6 rounded-xl bg-slate-50 p-4">
-
             <p className="text-sm font-semibold text-slate-700">
               Promotion pathway
             </p>
 
             <p className="mt-1 text-sm text-slate-600">
-              {fromYearName || 'Current year'}{' '}
+              {fromYearName ||
+                'Current year'}{' '}
               →{' '}
-              {toYearName || 'Destination year'}
+              {toYearName ||
+                'Destination year'}
             </p>
 
             {fromClassName &&
@@ -837,13 +938,19 @@ export default function PromotionPage() {
                   {toClassName}
                 </p>
               )}
-
           </div>
 
+          {/* Load students */}
           <button
             onClick={loadStudents}
-            disabled={loading}
-            className="mt-5 rounded-xl bg-slate-800 px-5 py-3 font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+            disabled={
+              loading ||
+              !fromYear ||
+              !fromClassId ||
+              !toYear ||
+              !toClassId
+            }
+            className="mt-5 rounded-xl bg-slate-800 px-5 py-3 font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading
               ? 'Loading...'
@@ -852,6 +959,7 @@ export default function PromotionPage() {
 
         </div>
 
+        {/* Student list */}
         {enrollments.length >
           0 && (
           <div className="mt-6 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
