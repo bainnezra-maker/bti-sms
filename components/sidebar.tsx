@@ -1,10 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
-const menuSections = [
+type UserRole = 'admin' | 'teacher' | 'Student' | 'staff' | null;
+
+type MenuItem = {
+  name: string;
+  href: string;
+  icon: string;
+};
+
+type MenuSection = {
+  title: string;
+  items: MenuItem[];
+};
+
+const adminMenuSections: MenuSection[] = [
   {
     title: 'MAIN',
     items: [
@@ -125,12 +139,141 @@ const menuSections = [
   },
 ];
 
+const teacherMenuSections: MenuSection[] = [
+  {
+    title: 'TEACHER',
+    items: [
+      {
+        name: 'Teacher Dashboard',
+        href: '/teacher',
+        icon: 'fa-solid fa-chalkboard-user',
+      },
+      {
+        name: 'Attendance',
+        href: '/attendance',
+        icon: 'fa-solid fa-calendar-check',
+      },
+      {
+        name: 'Assessment',
+        href: '/assessment',
+        icon: 'fa-solid fa-clipboard-check',
+      },
+      {
+        name: 'Results',
+        href: '/results',
+        icon: 'fa-solid fa-chart-line',
+      },
+      {
+        name: 'Attendance Reports',
+        href: '/attendance-reports',
+        icon: 'fa-solid fa-chart-column',
+      },
+    ],
+  },
+];
+
+const studentMenuSections: MenuSection[] = [
+  {
+    title: 'STUDENT',
+    items: [
+      {
+        name: 'Student Dashboard',
+        href: '/student',
+        icon: 'fa-solid fa-user-graduate',
+      },
+    ],
+  },
+];
+
+const supabase = createClient();
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [role, setRole] = useState<UserRole>(null);
+  const [roleLoading, setRoleLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadRole() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        if (mounted) {
+          setRole(null);
+          setRoleLoading(false);
+        }
+
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role, is_active')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (!mounted) return;
+
+      if (!profile || profile.is_active === false) {
+        setRole(null);
+        setRoleLoading(false);
+        return;
+      }
+
+      if (
+        profile.role === 'admin' ||
+        profile.role === 'teacher' ||
+        profile.role === 'Student' ||
+        profile.role === 'staff'
+      ) {
+        setRole(profile.role as UserRole);
+      } else {
+        setRole(null);
+      }
+
+      setRoleLoading(false);
+    }
+
+    loadRole();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pathname]);
 
   function closeMobileMenu() {
     setMobileOpen(false);
+  }
+
+  async function handleLogout() {
+    closeMobileMenu();
+
+    await supabase.auth.signOut();
+
+    router.replace('/login');
+    router.refresh();
+  }
+
+  function getMenuSections(): MenuSection[] {
+    if (role === 'teacher') {
+      return teacherMenuSections;
+    }
+
+    if (role === 'Student') {
+      return studentMenuSections;
+    }
+
+    if (role === 'admin') {
+      return adminMenuSections;
+    }
+
+    return [];
   }
 
   function isItemActive(href: string) {
@@ -141,6 +284,8 @@ export default function Sidebar() {
     if (href === '/') {
       return false;
     }
+
+    const menuSections = getMenuSections();
 
     return (
       pathname.startsWith(`${href}/`) &&
@@ -154,6 +299,63 @@ export default function Sidebar() {
         )
       )
     );
+  }
+
+  const menuSections = getMenuSections();
+
+  const roleTitle =
+    role === 'admin'
+      ? 'Administrator'
+      : role === 'teacher'
+        ? 'Teacher Workspace'
+        : role === 'Student'
+          ? 'Student Portal'
+          : 'BTI-SMS';
+
+  /*
+   * Avoid showing the wrong role's navigation
+   * while the current user's profile is loading.
+   */
+  if (roleLoading) {
+    return (
+      <>
+        <link
+          rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+        />
+
+        <div className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur lg:hidden">
+          <div className="h-10 w-10 animate-pulse rounded-xl bg-slate-200" />
+
+          <div className="mx-auto h-6 w-24 animate-pulse rounded-lg bg-slate-200" />
+
+          <div className="h-10 w-10 animate-pulse rounded-xl bg-slate-200" />
+        </div>
+
+        <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 border-r border-slate-200 bg-white lg:block">
+          <div className="flex min-h-full flex-col">
+            <div className="h-28 animate-pulse bg-slate-900" />
+
+            <div className="space-y-3 p-5">
+              {[1, 2, 3, 4, 5, 6].map((item) => (
+                <div
+                  key={item}
+                  className="h-10 animate-pulse rounded-xl bg-slate-100"
+                />
+              ))}
+            </div>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  /*
+   * If there is no valid application role,
+   * don't expose navigation.
+   */
+  if (!role) {
+    return null;
   }
 
   return (
@@ -213,7 +415,7 @@ export default function Sidebar() {
 
         {/* Mobile Brand */}
         <Link
-          href="/"
+          href={role === 'admin' ? '/' : role === 'teacher' ? '/teacher' : '/student'}
           onClick={closeMobileMenu}
           className="group flex items-center gap-2"
         >
@@ -226,15 +428,21 @@ export default function Sidebar() {
           </span>
         </Link>
 
-        {/* Dashboard */}
-        <Link
-          href="/"
-          onClick={closeMobileMenu}
-          aria-label="Dashboard"
-          className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900"
+        {/* Role Indicator */}
+        <div
+          className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500"
+          title={roleTitle}
         >
-          <i className="fa-solid fa-house text-sm" />
-        </Link>
+          <i
+            className={
+              role === 'teacher'
+                ? 'fa-solid fa-chalkboard-user text-sm'
+                : role === 'Student'
+                  ? 'fa-solid fa-user-graduate text-sm'
+                  : 'fa-solid fa-user-shield text-sm'
+            }
+          />
+        </div>
       </div>
 
       {/* ========================================================= */}
@@ -266,13 +474,20 @@ export default function Sidebar() {
           {/* Drawer Header */}
           <div className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-5 py-6 text-white">
 
-            {/* Decorative circles */}
             <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/5" />
+
             <div className="absolute -bottom-14 -left-10 h-32 w-32 rounded-full bg-white/5" />
 
             <div className="relative flex items-center justify-between">
+
               <Link
-                href="/"
+                href={
+                  role === 'admin'
+                    ? '/'
+                    : role === 'teacher'
+                      ? '/teacher'
+                      : '/student'
+                }
                 onClick={closeMobileMenu}
                 className="group flex items-center gap-3"
               >
@@ -286,7 +501,7 @@ export default function Sidebar() {
                   </div>
 
                   <p className="mt-0.5 text-[11px] font-medium text-slate-300">
-                    School Management System
+                    {roleTitle}
                   </p>
                 </div>
               </Link>
@@ -304,6 +519,7 @@ export default function Sidebar() {
 
           {/* Mobile Navigation */}
           <nav className="flex-1 px-3 py-5">
+
             {menuSections.map((section) => (
               <div
                 key={section.title}
@@ -318,6 +534,7 @@ export default function Sidebar() {
                 </div>
 
                 <div className="space-y-1">
+
                   {section.items.map((item) => {
                     const isActive = isItemActive(item.href);
 
@@ -332,12 +549,10 @@ export default function Sidebar() {
                             : 'text-slate-600 hover:translate-x-1 hover:bg-slate-100 hover:text-slate-950'
                         }`}
                       >
-                        {/* Active indicator */}
                         {isActive && (
                           <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-white" />
                         )}
 
-                        {/* Icon */}
                         <span
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200 ${
                             isActive
@@ -345,7 +560,9 @@ export default function Sidebar() {
                               : 'bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-slate-900 group-hover:shadow-sm'
                           }`}
                         >
-                          <i className={`${item.icon} text-sm`} />
+                          <i
+                            className={`${item.icon} text-sm`}
+                          />
                         </span>
 
                         <span className="flex-1">
@@ -358,25 +575,28 @@ export default function Sidebar() {
                       </Link>
                     );
                   })}
+
                 </div>
               </div>
             ))}
+
           </nav>
 
           {/* Mobile Logout */}
           <div className="border-t border-slate-200 bg-slate-50 p-4">
-            <Link
-              href="/login"
-              onClick={closeMobileMenu}
-              className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-red-50 hover:text-red-600"
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-red-50 hover:text-red-600"
             >
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm transition-colors group-hover:text-red-500">
                 <i className="fa-solid fa-right-from-bracket text-sm" />
               </span>
 
               <span>Logout</span>
-            </Link>
+            </button>
           </div>
+
         </div>
       </aside>
 
@@ -391,12 +611,18 @@ export default function Sidebar() {
           {/* Desktop Brand */}
           <div className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-5 py-6 text-white">
 
-            {/* Decorative background */}
             <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-white/5" />
+
             <div className="absolute -bottom-16 -left-10 h-36 w-36 rounded-full bg-white/5" />
 
             <Link
-              href="/"
+              href={
+                role === 'admin'
+                  ? '/'
+                  : role === 'teacher'
+                    ? '/teacher'
+                    : '/student'
+              }
               className="group relative flex items-center gap-3"
             >
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 shadow-lg ring-1 ring-white/10 transition-all duration-300 group-hover:scale-105 group-hover:bg-white/15">
@@ -409,7 +635,7 @@ export default function Sidebar() {
                 </div>
 
                 <p className="mt-0.5 text-[11px] font-medium text-slate-300">
-                  School Management System
+                  {roleTitle}
                 </p>
               </div>
             </Link>
@@ -417,10 +643,11 @@ export default function Sidebar() {
 
           {/* Desktop Navigation */}
           <nav className="flex-1 px-3 py-5">
+
             {menuSections.map((section, sectionIndex) => (
               <div
                 key={section.title}
-                className={`mb-6 animate-[fadeInUp_0.45s_ease-out]`}
+                className="mb-6 animate-[fadeInUp_0.45s_ease-out]"
                 style={{
                   animationDelay: `${sectionIndex * 80}ms`,
                 }}
@@ -436,6 +663,7 @@ export default function Sidebar() {
 
                 {/* Menu Items */}
                 <div className="space-y-1">
+
                   {section.items.map((item) => {
                     const isActive = isItemActive(item.href);
 
@@ -451,7 +679,7 @@ export default function Sidebar() {
                       >
                         {/* Active indicator */}
                         {isActive && (
-                          <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-white animate-pulse" />
+                          <span className="absolute bottom-2 left-0 top-2 w-1 animate-pulse rounded-r-full bg-white" />
                         )}
 
                         {/* Icon */}
@@ -462,7 +690,9 @@ export default function Sidebar() {
                               : 'bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-slate-900 group-hover:shadow-sm'
                           }`}
                         >
-                          <i className={`${item.icon} text-sm transition-transform duration-200 group-hover:scale-110`} />
+                          <i
+                            className={`${item.icon} text-sm transition-transform duration-200 group-hover:scale-110`}
+                          />
                         </span>
 
                         {/* Name */}
@@ -477,16 +707,19 @@ export default function Sidebar() {
                       </Link>
                     );
                   })}
+
                 </div>
               </div>
             ))}
+
           </nav>
 
           {/* Desktop Logout */}
           <div className="border-t border-slate-200 bg-slate-50 p-4">
-            <Link
-              href="/login"
-              className="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-red-50 hover:text-red-600"
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-red-50 hover:text-red-600"
             >
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm transition-colors duration-200 group-hover:text-red-500">
                 <i className="fa-solid fa-right-from-bracket text-sm" />
@@ -495,28 +728,11 @@ export default function Sidebar() {
               <span>Logout</span>
 
               <i className="fa-solid fa-arrow-right-from-bracket ml-auto text-xs opacity-0 transition-all duration-200 group-hover:translate-x-1 group-hover:opacity-100" />
-            </Link>
+            </button>
           </div>
+
         </div>
       </aside>
-
-      {/* ========================================================= */}
-      {/* SIDEBAR ANIMATION STYLES */}
-      {/* ========================================================= */}
-
-      <style jsx global>{`
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
-          }
-
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
     </>
   );
 }
