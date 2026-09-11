@@ -8,51 +8,119 @@ const menuSections = [
   {
     title: 'MAIN',
     items: [
-      { name: 'Dashboard', href: '/', icon: '🏠' },
-      { name: 'Students', href: '/students', icon: '👨‍🎓' },
+      {
+        name: 'Dashboard',
+        href: '/',
+        icon: 'fa-solid fa-house',
+      },
+      {
+        name: 'Students',
+        href: '/students',
+        icon: 'fa-solid fa-user-graduate',
+      },
       {
         name: 'Transfer & Withdrawal',
         href: '/student-movements',
-        icon: '🔄',
+        icon: 'fa-solid fa-right-left',
       },
-      { name: 'Add Student', href: '/students/new', icon: '➕' },
-      { name: 'Attendance', href: '/attendance', icon: '📋' },
+      {
+        name: 'Add Student',
+        href: '/students/new',
+        icon: 'fa-solid fa-user-plus',
+      },
+      {
+        name: 'Attendance',
+        href: '/attendance',
+        icon: 'fa-solid fa-calendar-check',
+      },
       {
         name: 'Attendance Reports',
         href: '/attendance-reports',
-        icon: '📊',
+        icon: 'fa-solid fa-chart-column',
       },
-      { name: 'Assessment', href: '/assessment', icon: '📝' },
-      { name: 'Promotion', href: '/promotion', icon: '🎓' },
+      {
+        name: 'Assessment',
+        href: '/assessment',
+        icon: 'fa-solid fa-clipboard-check',
+      },
+      {
+        name: 'Promotion',
+        href: '/promotion',
+        icon: 'fa-solid fa-graduation-cap',
+      },
     ],
   },
 
   {
     title: 'ACADEMICS',
     items: [
-      { name: 'Classes', href: '/classes', icon: '🏫' },
-      { name: 'Subjects', href: '/subjects', icon: '📚' },
-      { name: 'Programmes', href: '/programmes', icon: '🎓' },
-      { name: 'Academic Years', href: '/academic-years', icon: '📅' },
-      { name: 'Semesters', href: '/terms', icon: '🗓️' },
-      { name: 'Enrollment', href: '/enrollment', icon: '📋' },
-      { name: 'Results', href: '/results', icon: '📈' },
+      {
+        name: 'Classes',
+        href: '/classes',
+        icon: 'fa-solid fa-school',
+      },
+      {
+        name: 'Subjects',
+        href: '/subjects',
+        icon: 'fa-solid fa-book-open',
+      },
+      {
+        name: 'Programmes',
+        href: '/programmes',
+        icon: 'fa-solid fa-layer-group',
+      },
+      {
+        name: 'Academic Years',
+        href: '/academic-years',
+        icon: 'fa-solid fa-calendar-days',
+      },
+      {
+        name: 'Semesters',
+        href: '/terms',
+        icon: 'fa-solid fa-calendar-week',
+      },
+      {
+        name: 'Enrollment',
+        href: '/enrollment',
+        icon: 'fa-solid fa-user-check',
+      },
+      {
+        name: 'Results',
+        href: '/results',
+        icon: 'fa-solid fa-chart-line',
+      },
     ],
   },
 
   {
     title: 'ADMINISTRATION',
     items: [
-      { name: 'Staff', href: '/staff', icon: '👥' },
-      { name: 'Fees', href: '/fees', icon: '💰' },
-      { name: 'Reports', href: '/reports', icon: '📊' },
+      {
+        name: 'Staff',
+        href: '/staff',
+        icon: 'fa-solid fa-users',
+      },
+      {
+        name: 'Fees',
+        href: '/fees',
+        icon: 'fa-solid fa-money-bill-wave',
+      },
+      {
+        name: 'Reports',
+        href: '/reports',
+        icon: 'fa-solid fa-file-lines',
+      },
     ],
   },
 
   {
     title: 'SYSTEM',
     items: [
-      { name: 'Settings', href: '/settings', icon: '⚙️' },
+      {
+        name: 'Settings',
+        href: '/settings',
+        icon: 'fa-solid fa-gear',
+      },
     ],
   },
 ];
@@ -90,9 +158,19 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile / Tablet Top Bar */}
-      <div className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:hidden">
-        {/* Hamburger Button */}
+      {/* Font Awesome */}
+      <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+      />
+
+      {/* ========================================================= */}
+      {/* MOBILE / TABLET TOP BAR */}
+      {/* ========================================================= */}
+
+      <div className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur lg:hidden">
+
+        {/* Hamburger */}
         <button
           type="button"
           onClick={() => setMobileOpen((open) => !open)}
@@ -102,51 +180,82 @@ export default function Sidebar() {
               : 'Open navigation menu'
           }
           aria-expanded={mobileOpen}
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100"
+          className="group flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md active:scale-95"
         >
           <span className="sr-only">
             {mobileOpen ? 'Close menu' : 'Open menu'}
           </span>
 
           <span className="flex flex-col gap-1.5">
-            <span className="block h-0.5 w-5 bg-current" />
-            <span className="block h-0.5 w-5 bg-current" />
-            <span className="block h-0.5 w-5 bg-current" />
+            <span
+              className={`block h-0.5 w-5 rounded-full bg-current transition-all duration-300 ${
+                mobileOpen
+                  ? 'translate-y-2 rotate-45'
+                  : ''
+              }`}
+            />
+
+            <span
+              className={`block h-0.5 w-5 rounded-full bg-current transition-all duration-300 ${
+                mobileOpen ? 'opacity-0' : ''
+              }`}
+            />
+
+            <span
+              className={`block h-0.5 w-5 rounded-full bg-current transition-all duration-300 ${
+                mobileOpen
+                  ? '-translate-y-2 -rotate-45'
+                  : ''
+              }`}
+            />
           </span>
         </button>
 
-        {/* BTI-SMS */}
+        {/* Mobile Brand */}
         <Link
           href="/"
           onClick={closeMobileMenu}
-          className="text-lg font-bold text-slate-900"
+          className="group flex items-center gap-2"
         >
-          BTI-SMS
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white shadow-md transition-transform duration-200 group-hover:scale-105">
+            <i className="fa-solid fa-school text-sm" />
+          </span>
+
+          <span className="text-lg font-extrabold tracking-tight text-slate-900">
+            BTI-SMS
+          </span>
         </Link>
 
         {/* Dashboard */}
         <Link
           href="/"
           onClick={closeMobileMenu}
-          className="text-sm font-medium text-slate-600"
+          aria-label="Dashboard"
+          className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900"
         >
-          Dashboard
+          <i className="fa-solid fa-house text-sm" />
         </Link>
       </div>
 
-      {/* Mobile / Tablet Background Overlay */}
+      {/* ========================================================= */}
+      {/* MOBILE / TABLET OVERLAY */}
+      {/* ========================================================= */}
+
       {mobileOpen && (
         <button
           type="button"
           aria-label="Close navigation menu"
           onClick={closeMobileMenu}
-          className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[2px] lg:hidden"
         />
       )}
 
-      {/* Mobile / Tablet Sidebar Drawer */}
+      {/* ========================================================= */}
+      {/* MOBILE / TABLET SIDEBAR DRAWER */}
+      {/* ========================================================= */}
+
       <aside
-        className={`fixed bottom-0 left-0 top-0 z-50 w-72 max-w-[85vw] overflow-y-auto border-r border-slate-200 bg-white shadow-xl transition-transform duration-200 lg:hidden ${
+        className={`fixed bottom-0 left-0 top-0 z-50 w-72 max-w-[88vw] overflow-y-auto border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
           mobileOpen
             ? 'translate-x-0'
             : '-translate-x-full'
@@ -155,64 +264,97 @@ export default function Sidebar() {
         <div className="flex min-h-full flex-col">
 
           {/* Drawer Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-5">
-            <div>
+          <div className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-5 py-6 text-white">
+
+            {/* Decorative circles */}
+            <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/5" />
+            <div className="absolute -bottom-14 -left-10 h-32 w-32 rounded-full bg-white/5" />
+
+            <div className="relative flex items-center justify-between">
               <Link
                 href="/"
                 onClick={closeMobileMenu}
-                className="text-xl font-bold text-slate-900"
+                className="group flex items-center gap-3"
               >
-                BTI-SMS
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 shadow-lg ring-1 ring-white/10 transition-transform duration-300 group-hover:scale-105">
+                  <i className="fa-solid fa-school text-lg" />
+                </span>
+
+                <div>
+                  <div className="text-xl font-extrabold tracking-tight">
+                    BTI-SMS
+                  </div>
+
+                  <p className="mt-0.5 text-[11px] font-medium text-slate-300">
+                    School Management System
+                  </p>
+                </div>
               </Link>
 
-              <p className="mt-1 text-xs text-slate-500">
-                School Management System
-              </p>
+              <button
+                type="button"
+                onClick={closeMobileMenu}
+                aria-label="Close navigation menu"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-slate-300 transition-all duration-200 hover:bg-white/20 hover:text-white active:scale-95"
+              >
+                <i className="fa-solid fa-xmark text-lg" />
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={closeMobileMenu}
-              aria-label="Close navigation menu"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-2xl text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-            >
-              ×
-            </button>
           </div>
 
-          {/* Mobile / Tablet Navigation */}
-          <nav className="flex-1 px-3 py-4">
+          {/* Mobile Navigation */}
+          <nav className="flex-1 px-3 py-5">
             {menuSections.map((section) => (
               <div
                 key={section.title}
-                className="mb-6"
+                className="mb-6 animate-[fadeInUp_0.4s_ease-out]"
               >
-                <p className="mb-2 px-3 text-xs font-semibold tracking-wider text-slate-400">
-                  {section.title}
-                </p>
+                <div className="mb-2 flex items-center gap-2 px-3">
+                  <span className="h-1 w-1 rounded-full bg-slate-400" />
+
+                  <p className="text-[10px] font-bold tracking-[0.18em] text-slate-400">
+                    {section.title}
+                  </p>
+                </div>
 
                 <div className="space-y-1">
                   {section.items.map((item) => {
-                    const isActive = isItemActive(
-                      item.href
-                    );
+                    const isActive = isItemActive(item.href);
 
                     return (
                       <Link
                         key={item.href}
                         href={item.href}
                         onClick={closeMobileMenu}
-                        className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition ${
+                        className={`group relative flex items-center gap-3 overflow-hidden rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200 ${
                           isActive
-                            ? 'bg-slate-900 text-white'
-                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                            ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10'
+                            : 'text-slate-600 hover:translate-x-1 hover:bg-slate-100 hover:text-slate-950'
                         }`}
                       >
-                        <span className="text-base">
-                          {item.icon}
+                        {/* Active indicator */}
+                        {isActive && (
+                          <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-white" />
+                        )}
+
+                        {/* Icon */}
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200 ${
+                            isActive
+                              ? 'bg-white/10 text-white'
+                              : 'bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-slate-900 group-hover:shadow-sm'
+                          }`}
+                        >
+                          <i className={`${item.icon} text-sm`} />
                         </span>
 
-                        <span>{item.name}</span>
+                        <span className="flex-1">
+                          {item.name}
+                        </span>
+
+                        {isActive && (
+                          <i className="fa-solid fa-chevron-right text-[10px] text-white/70" />
+                        )}
                       </Link>
                     );
                   })}
@@ -221,71 +363,117 @@ export default function Sidebar() {
             ))}
           </nav>
 
-          {/* Mobile / Tablet Logout */}
-          <div className="border-t border-slate-200 p-4">
+          {/* Mobile Logout */}
+          <div className="border-t border-slate-200 bg-slate-50 p-4">
             <Link
               href="/login"
               onClick={closeMobileMenu}
-              className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-red-50 hover:text-red-600"
             >
-              <span>🚪</span>
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm transition-colors group-hover:text-red-500">
+                <i className="fa-solid fa-right-from-bracket text-sm" />
+              </span>
+
               <span>Logout</span>
             </Link>
           </div>
-
         </div>
       </aside>
 
-      {/* Desktop Sidebar */}
-      <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 overflow-y-auto border-r border-slate-200 bg-white lg:block">
+      {/* ========================================================= */}
+      {/* DESKTOP SIDEBAR */}
+      {/* ========================================================= */}
+
+      <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 overflow-y-auto border-r border-slate-200 bg-white shadow-[4px_0_20px_rgba(15,23,42,0.04)] lg:block">
+
         <div className="flex min-h-full flex-col">
 
-          {/* Logo */}
-          <div className="border-b border-slate-200 px-6 py-5">
+          {/* Desktop Brand */}
+          <div className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-5 py-6 text-white">
+
+            {/* Decorative background */}
+            <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-white/5" />
+            <div className="absolute -bottom-16 -left-10 h-36 w-36 rounded-full bg-white/5" />
+
             <Link
               href="/"
-              className="text-xl font-bold text-slate-900"
+              className="group relative flex items-center gap-3"
             >
-              BTI-SMS
-            </Link>
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 shadow-lg ring-1 ring-white/10 transition-all duration-300 group-hover:scale-105 group-hover:bg-white/15">
+                <i className="fa-solid fa-school text-lg" />
+              </span>
 
-            <p className="mt-1 text-xs text-slate-500">
-              School Management System
-            </p>
+              <div>
+                <div className="text-xl font-extrabold tracking-tight">
+                  BTI-SMS
+                </div>
+
+                <p className="mt-0.5 text-[11px] font-medium text-slate-300">
+                  School Management System
+                </p>
+              </div>
+            </Link>
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="flex-1 px-3 py-4">
-            {menuSections.map((section) => (
+          <nav className="flex-1 px-3 py-5">
+            {menuSections.map((section, sectionIndex) => (
               <div
                 key={section.title}
-                className="mb-6"
+                className={`mb-6 animate-[fadeInUp_0.45s_ease-out]`}
+                style={{
+                  animationDelay: `${sectionIndex * 80}ms`,
+                }}
               >
-                <p className="mb-2 px-3 text-xs font-semibold tracking-wider text-slate-400">
-                  {section.title}
-                </p>
+                {/* Section Title */}
+                <div className="mb-2 flex items-center gap-2 px-3">
+                  <span className="h-1 w-1 rounded-full bg-slate-400" />
 
+                  <p className="text-[10px] font-bold tracking-[0.18em] text-slate-400">
+                    {section.title}
+                  </p>
+                </div>
+
+                {/* Menu Items */}
                 <div className="space-y-1">
                   {section.items.map((item) => {
-                    const isActive = isItemActive(
-                      item.href
-                    );
+                    const isActive = isItemActive(item.href);
 
                     return (
                       <Link
                         key={item.href}
                         href={item.href}
-                        className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                        className={`group relative flex items-center gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                           isActive
-                            ? 'bg-slate-900 text-white'
-                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                            ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10'
+                            : 'text-slate-600 hover:translate-x-1 hover:bg-slate-100 hover:text-slate-950'
                         }`}
                       >
-                        <span className="text-base">
-                          {item.icon}
+                        {/* Active indicator */}
+                        {isActive && (
+                          <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-white animate-pulse" />
+                        )}
+
+                        {/* Icon */}
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200 ${
+                            isActive
+                              ? 'bg-white/10 text-white'
+                              : 'bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-slate-900 group-hover:shadow-sm'
+                          }`}
+                        >
+                          <i className={`${item.icon} text-sm transition-transform duration-200 group-hover:scale-110`} />
                         </span>
 
-                        <span>{item.name}</span>
+                        {/* Name */}
+                        <span className="flex-1">
+                          {item.name}
+                        </span>
+
+                        {/* Active Arrow */}
+                        {isActive && (
+                          <i className="fa-solid fa-chevron-right text-[9px] text-white/60" />
+                        )}
                       </Link>
                     );
                   })}
@@ -295,18 +483,40 @@ export default function Sidebar() {
           </nav>
 
           {/* Desktop Logout */}
-          <div className="border-t border-slate-200 p-4">
+          <div className="border-t border-slate-200 bg-slate-50 p-4">
             <Link
               href="/login"
-              className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              className="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-red-50 hover:text-red-600"
             >
-              <span>🚪</span>
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm transition-colors duration-200 group-hover:text-red-500">
+                <i className="fa-solid fa-right-from-bracket text-sm" />
+              </span>
+
               <span>Logout</span>
+
+              <i className="fa-solid fa-arrow-right-from-bracket ml-auto text-xs opacity-0 transition-all duration-200 group-hover:translate-x-1 group-hover:opacity-100" />
             </Link>
           </div>
-
         </div>
       </aside>
+
+      {/* ========================================================= */}
+      {/* SIDEBAR ANIMATION STYLES */}
+      {/* ========================================================= */}
+
+      <style jsx global>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </>
   );
 }
