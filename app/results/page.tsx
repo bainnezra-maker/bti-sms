@@ -215,7 +215,7 @@ export default function ResultsPage() {
 
   /*
    * ---------------------------------------------------------
-   * LOAD TERMS
+   * LOAD SEMESTERS
    * ---------------------------------------------------------
    */
   useEffect(() => {
@@ -371,7 +371,7 @@ export default function ResultsPage() {
 
       /*
        * Get all assessments for these students
-       * in the selected term.
+       * in the selected semester.
        */
       const {
         data: assessmentData,
@@ -669,10 +669,10 @@ export default function ResultsPage() {
               </select>
             </div>
 
-            {/* TERM */}
+            {/* SEMESTER */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Term
+                Semester
               </label>
 
               <select
@@ -688,7 +688,7 @@ export default function ResultsPage() {
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none disabled:bg-slate-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
-                  Select Term
+                  Select Semester
                 </option>
 
                 {terms.map((term) => (
