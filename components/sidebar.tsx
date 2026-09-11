@@ -10,6 +10,11 @@ const menuSections = [
     items: [
       { name: 'Dashboard', href: '/', icon: '🏠' },
       { name: 'Students', href: '/students', icon: '👨‍🎓' },
+      {
+        name: 'Transfer & Withdrawal',
+        href: '/student-movements',
+        icon: '🔄',
+      },
       { name: 'Add Student', href: '/students/new', icon: '➕' },
       { name: 'Attendance', href: '/attendance', icon: '📋' },
       {
