@@ -66,13 +66,8 @@ export default function ClassesPage() {
         .eq('id', user.id)
         .single();
 
-    if (
-      profileError ||
-      !profile?.school_id
-    ) {
-      setError(
-        'School profile could not be found.'
-      );
+    if (profileError || !profile?.school_id) {
+      setError('School profile could not be found.');
       return null;
     }
 
@@ -105,9 +100,7 @@ export default function ClassesPage() {
 
       supabase
         .from('academic_years')
-        .select(
-          'id, name, is_current'
-        )
+        .select('id, name, is_current')
         .eq('school_id', schoolId)
         .order('start_date', {
           ascending: false,
@@ -116,59 +109,32 @@ export default function ClassesPage() {
 
       supabase
         .from('programmes')
-        .select(
-          'id, name, code'
-        )
+        .select('id, name, code')
         .eq('school_id', schoolId)
         .order('name'),
     ]);
 
     if (classesResult.error) {
-      setError(
-        classesResult.error.message
-      );
+      setError(classesResult.error.message);
     } else {
       setClasses(
-        (classesResult.data ||
-          []) as ClassRecord[]
+        (classesResult.data || []) as ClassRecord[]
       );
     }
 
     if (yearsResult.error) {
-      setError(
-        yearsResult.error.message
-      );
+      setError(yearsResult.error.message);
     } else {
       setAcademicYears(
-        yearsResult.data ||
-          []
+        yearsResult.data || []
       );
-
-      const currentYear =
-        (yearsResult.data ||
-          []).find(
-            (year) =>
-              year.is_current
-          );
-
-      if (
-        currentYear &&
-        !academicYearId
-      ) {
-        setAcademicYearId(
-          currentYear.id
-        );
-      }
     }
 
     if (programmesResult.error) {
-      setError(
-        programmesResult.error.message
-      );
+      setError(programmesResult.error.message);
     } else {
       setProgrammes(
-        programmesResult.data ||
-          []
+        programmesResult.data || []
       );
     }
 
@@ -178,36 +144,52 @@ export default function ClassesPage() {
   function resetForm() {
     setName('');
     setLevel('');
-    setAcademicYearId('');
     setProgrammeId('');
     setEditingId(null);
 
-    const currentYear =
-      academicYears.find(
-        (year) =>
-          year.is_current
-      );
+    const currentYear = academicYears.find(
+      (year) => year.is_current
+    );
 
-    if (currentYear) {
-      setAcademicYearId(
-        currentYear.id
-      );
-    }
+    setAcademicYearId(
+      currentYear?.id || ''
+    );
   }
 
-  function editClass(
-    record: ClassRecord
-  ) {
+  function cancelEdit() {
+    setName('');
+    setLevel('');
+    setProgrammeId('');
+    setEditingId(null);
+
+    const currentYear = academicYears.find(
+      (year) => year.is_current
+    );
+
+    setAcademicYearId(
+      currentYear?.id || ''
+    );
+
+    setError('');
+    setMessage('');
+  }
+
+  function editClass(record: ClassRecord) {
     setEditingId(record.id);
     setName(record.name || '');
     setLevel(record.level || '');
+
+    /*
+     * IMPORTANT:
+     * When editing an existing class, always use the
+     * academic year stored on that class.
+     */
     setAcademicYearId(
-      record.academic_year_id ||
-        ''
+      record.academic_year_id || ''
     );
+
     setProgrammeId(
-      record.programme_id ||
-        ''
+      record.programme_id || ''
     );
 
     setError('');
@@ -241,87 +223,168 @@ export default function ClassesPage() {
       return;
     }
 
-    const schoolId =
-      await getSchoolId();
+    const schoolId = await getSchoolId();
 
-    if (!schoolId) return;
+    if (!schoolId) {
+      return;
+    }
 
     setSaving(true);
 
     const payload = {
       school_id: schoolId,
       name: name.trim(),
-      level:
-        level.trim() || null,
-      academic_year_id:
-        academicYearId,
-      programme_id:
-        programmeId || null,
+      level: level.trim() || null,
+      academic_year_id: academicYearId,
+      programme_id: programmeId || null,
     };
 
-    if (editingId) {
-      const { error: updateError } =
-        await supabase
+    try {
+      if (editingId) {
+        /*
+         * UPDATE EXISTING CLASS
+         *
+         * We use .select() so Supabase returns the
+         * actual updated database row.
+         */
+        const {
+          data: updatedRows,
+          error: updateError,
+        } = await supabase
           .from('classes')
           .update(payload)
           .eq('id', editingId)
-          .eq(
-            'school_id',
-            schoolId
+          .eq('school_id', schoolId)
+          .select(
+            'id, name, level, programme_id, academic_year_id'
           );
 
-      if (updateError) {
-        setError(
-          updateError.message
-        );
-      } else {
-        setMessage(
-          'Class updated successfully.'
+        if (updateError) {
+          setError(
+            `Unable to update class: ${updateError.message}`
+          );
+          return;
+        }
+
+        /*
+         * If no row comes back, the update was not actually
+         * permitted or the class was not found.
+         */
+        if (!updatedRows || updatedRows.length === 0) {
+          setError(
+            'The class could not be updated. Please check that your account has permission to update classes.'
+          );
+          return;
+        }
+
+        const updatedClass =
+          updatedRows[0] as ClassRecord;
+
+        /*
+         * Update the visible list immediately using the
+         * exact record returned from Supabase.
+         */
+        setClasses((current) =>
+          current.map((item) =>
+            item.id === updatedClass.id
+              ? updatedClass
+              : item
+          )
         );
 
-        resetForm();
+        setMessage(
+          `Class "${updatedClass.name}" updated successfully to ${
+            getYearName(updatedClass.academic_year_id)
+          }.`
+        );
+
+        /*
+         * Clear editing mode but deliberately do NOT
+         * reload stale form values.
+         */
+        setName('');
+        setLevel('');
+        setProgrammeId('');
+        setEditingId(null);
+
+        const currentYear =
+          academicYears.find(
+            (year) => year.is_current
+          );
+
+        setAcademicYearId(
+          currentYear?.id || ''
+        );
+
+        /*
+         * Refresh from database as a final confirmation.
+         */
         await loadData();
-      }
-    } else {
-      const { error: insertError } =
-        await supabase
+      } else {
+        /*
+         * CREATE NEW CLASS
+         */
+        const {
+          data: insertedRows,
+          error: insertError,
+        } = await supabase
           .from('classes')
-          .insert(payload);
+          .insert(payload)
+          .select(
+            'id, name, level, programme_id, academic_year_id'
+          );
 
-      if (insertError) {
-        setError(
-          insertError.message
-        );
-      } else {
+        if (insertError) {
+          setError(
+            `Unable to create class: ${insertError.message}`
+          );
+          return;
+        }
+
+        if (!insertedRows || insertedRows.length === 0) {
+          setError(
+            'The class could not be created.'
+          );
+          return;
+        }
+
+        const newClass =
+          insertedRows[0] as ClassRecord;
+
+        setClasses((current) => [
+          ...current,
+          newClass,
+        ]);
+
         setMessage(
-          'Class created successfully.'
+          `Class "${newClass.name}" created successfully.`
         );
 
         resetForm();
+
         await loadData();
       }
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
   }
 
-  async function deleteClass(
-    id: string
-  ) {
-    const record =
-      classes.find(
-        (item) =>
-          item.id === id
-      );
+  async function deleteClass(id: string) {
+    const record = classes.find(
+      (item) => item.id === id
+    );
 
-    if (!record) return;
+    if (!record) {
+      return;
+    }
 
-    const confirmed =
-      window.confirm(
-        `Delete class ${record.name}?`
-      );
+    const confirmed = window.confirm(
+      `Delete class ${record.name}?`
+    );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     setError('');
     setMessage('');
@@ -345,8 +408,7 @@ export default function ClassesPage() {
 
     setClasses((current) =>
       current.filter(
-        (item) =>
-          item.id !== id
+        (item) => item.id !== id
       )
     );
   }
@@ -368,7 +430,9 @@ export default function ClassesPage() {
         )?.name || '';
 
       const text =
-        `${record.name} ${record.level || ''} ${yearName} ${programmeName}`
+        `${record.name} ${
+          record.level || ''
+        } ${yearName} ${programmeName}`
           .toLowerCase();
 
       return text.includes(
@@ -396,7 +460,8 @@ export default function ClassesPage() {
       programmes.find(
         (programme) =>
           programme.id === id
-      )?.name || 'All programmes'
+      )?.name ||
+      'All programmes'
     );
   }
 
@@ -432,7 +497,7 @@ export default function ClassesPage() {
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
-          {/* Form */}
+          {/* FORM */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
             <h2 className="text-lg font-bold text-slate-900">
@@ -506,12 +571,8 @@ export default function ClassesPage() {
                   {programmes.map(
                     (programme) => (
                       <option
-                        key={
-                          programme.id
-                        }
-                        value={
-                          programme.id
-                        }
+                        key={programme.id}
+                        value={programme.id}
                       >
                         {programme.name}
                         {programme.code
@@ -575,7 +636,7 @@ export default function ClassesPage() {
               {editingId && (
                 <button
                   type="button"
-                  onClick={resetForm}
+                  onClick={cancelEdit}
                   className="w-full rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Cancel Edit
@@ -585,7 +646,7 @@ export default function ClassesPage() {
             </form>
           </div>
 
-          {/* Class list */}
+          {/* CLASS LIST */}
           <div className="lg:col-span-2">
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -599,8 +660,7 @@ export default function ClassesPage() {
 
                   <p className="text-sm text-slate-500">
                     {classes.length} class
-                    {classes.length !==
-                    1
+                    {classes.length !== 1
                       ? 'es'
                       : ''}
                   </p>
@@ -624,8 +684,7 @@ export default function ClassesPage() {
                 <p className="py-10 text-center text-slate-500">
                   Loading...
                 </p>
-              ) : filteredClasses.length ===
-                0 ? (
+              ) : filteredClasses.length === 0 ? (
                 <div className="py-10 text-center">
                   <div className="mb-2 text-4xl">
                     📭
@@ -656,6 +715,7 @@ export default function ClassesPage() {
                             <div className="mt-2 flex flex-wrap gap-2">
 
                               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                Academic Year:{' '}
                                 {getYearName(
                                   record.academic_year_id
                                 )}
@@ -680,6 +740,7 @@ export default function ClassesPage() {
                           <div className="flex flex-wrap gap-2">
 
                             <button
+                              type="button"
                               onClick={() =>
                                 editClass(
                                   record
@@ -691,6 +752,7 @@ export default function ClassesPage() {
                             </button>
 
                             <button
+                              type="button"
                               onClick={() =>
                                 deleteClass(
                                   record.id
