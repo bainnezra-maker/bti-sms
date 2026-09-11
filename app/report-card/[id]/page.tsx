@@ -1480,7 +1480,7 @@ export default function ReportCardPage() {
           <div className="rounded-lg border border-slate-300 p-4">
 
             <p className="text-xs font-bold uppercase text-slate-500">
-              Next Term Begins
+              Next Semester Begins
             </p>
 
             <p className="mt-2 text-sm font-bold">
