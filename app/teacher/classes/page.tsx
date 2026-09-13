@@ -31,6 +31,14 @@ type Semester = {
   is_current: boolean | null;
 };
 
+type Student = {
+  id: string;
+  full_name: string;
+  admission_number: string;
+  gender: string | null;
+  status: string | null;
+};
+
 type Assignment = {
   id: string;
   teacher_id: string;
@@ -55,18 +63,12 @@ type Assignment = {
   } | null;
 };
 
-type Enrollment = {
+type RawEnrollment = {
   id: string;
   student_id: string;
   class_id: string;
   academic_year_id: string;
-  student: {
-    id: string;
-    full_name: string;
-    admission_number: string;
-    gender: string | null;
-    status: string | null;
-  } | null;
+  student: Student[] | Student | null;
 };
 
 type ClassWorkspace = {
@@ -85,7 +87,7 @@ type ClassWorkspace = {
     code: string | null;
   }[];
   studentCount: number;
-  students: Enrollment['student'][];
+  students: Student[];
 };
 
 export default function TeacherClassesPage() {
@@ -101,9 +103,9 @@ export default function TeacherClassesPage() {
   const [selectedSemesterId, setSelectedSemesterId] = useState('');
   const [search, setSearch] = useState('');
 
-  const [workspaceClasses, setWorkspaceClasses] = useState<ClassWorkspace[]>(
-    []
-  );
+  const [workspaceClasses, setWorkspaceClasses] = useState<
+    ClassWorkspace[]
+  >([]);
 
   const [selectedClass, setSelectedClass] =
     useState<ClassWorkspace | null>(null);
@@ -131,13 +133,14 @@ export default function TeacherClassesPage() {
         return;
       }
 
-      const { data: userProfile, error: profileError } = await supabase
-        .from('users')
-        .select(
-          'id, school_id, full_name, email, role, is_active'
-        )
-        .eq('id', user.id)
-        .maybeSingle();
+      const { data: userProfile, error: profileError } =
+        await supabase
+          .from('users')
+          .select(
+            'id, school_id, full_name, email, role, is_active'
+          )
+          .eq('id', user.id)
+          .maybeSingle();
 
       if (profileError) {
         throw profileError;
@@ -179,14 +182,23 @@ export default function TeacherClassesPage() {
       ] = await Promise.all([
         supabase
           .from('academic_years')
-          .select('id, name, start_date, end_date, is_current')
+          .select(
+            'id, name, start_date, end_date, is_current'
+          )
           .eq('school_id', userProfile.school_id)
           .order('start_date', { ascending: false }),
 
         supabase
           .from('terms')
           .select(
-            'id, academic_year_id, name, start_date, end_date, is_current'
+            `
+              id,
+              academic_year_id,
+              name,
+              start_date,
+              end_date,
+              is_current
+            `
           )
           .order('start_date', { ascending: true }),
 
@@ -225,12 +237,15 @@ export default function TeacherClassesPage() {
       if (assignmentError) throw assignmentError;
 
       const years = (yearData ?? []) as AcademicYear[];
+
       const semestersData = (semesterData ?? []) as Semester[];
+
       const assignmentRows = normalizeAssignments(
         assignmentData ?? []
       );
 
       setAcademicYears(years);
+
       setSemesters(
         semestersData.filter(
           (semester) =>
@@ -238,6 +253,7 @@ export default function TeacherClassesPage() {
             semester.name === 'Semester 2'
         )
       );
+
       setAssignments(assignmentRows);
 
       const currentYear =
@@ -254,7 +270,9 @@ export default function TeacherClassesPage() {
         );
 
         const currentSemester =
-          yearSemesters.find((semester) => semester.is_current) ??
+          yearSemesters.find(
+            (semester) => semester.is_current
+          ) ??
           yearSemesters.find(
             (semester) => semester.name === 'Semester 1'
           ) ??
@@ -266,6 +284,7 @@ export default function TeacherClassesPage() {
       }
     } catch (err: any) {
       console.error('Teacher My Classes error:', err);
+
       setError(
         err?.message ||
           'Unable to load your classes right now.'
@@ -282,20 +301,39 @@ export default function TeacherClassesPage() {
       class_id: row.class_id,
       subject_id: row.subject_id,
       term_id: row.term_id,
+
       class: Array.isArray(row.class)
         ? row.class[0] ?? null
         : row.class ?? null,
+
       subject: Array.isArray(row.subject)
         ? row.subject[0] ?? null
         : row.subject ?? null,
+
       term: Array.isArray(row.term)
         ? row.term[0] ?? null
         : row.term ?? null,
     }));
   }
 
+  function normalizeStudent(
+    student: Student[] | Student | null | undefined
+  ): Student | null {
+    if (!student) {
+      return null;
+    }
+
+    if (Array.isArray(student)) {
+      return student[0] ?? null;
+    }
+
+    return student;
+  }
+
   const availableSemesters = useMemo(() => {
-    if (!selectedYearId) return [];
+    if (!selectedYearId) {
+      return [];
+    }
 
     return semesters.filter(
       (semester) =>
@@ -306,19 +344,28 @@ export default function TeacherClassesPage() {
   const filteredClasses = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) return workspaceClasses;
+    if (!query) {
+      return workspaceClasses;
+    }
 
     return workspaceClasses.filter((item) => {
       const subjectText = item.subjects
-        .map((subject) => `${subject.name} ${subject.code ?? ''}`)
+        .map(
+          (subject) =>
+            `${subject.name} ${subject.code ?? ''}`
+        )
         .join(' ')
         .toLowerCase();
 
       return (
         item.className.toLowerCase().includes(query) ||
         (item.level ?? '').toLowerCase().includes(query) ||
-        (item.programmeName ?? '').toLowerCase().includes(query) ||
-        item.academicYearName.toLowerCase().includes(query) ||
+        (item.programmeName ?? '')
+          .toLowerCase()
+          .includes(query) ||
+        item.academicYearName
+          .toLowerCase()
+          .includes(query) ||
         item.semesterName.toLowerCase().includes(query) ||
         subjectText.includes(query)
       );
@@ -340,16 +387,29 @@ export default function TeacherClassesPage() {
   }, [workspaceClasses]);
 
   useEffect(() => {
-    if (!profile || !selectedYearId || !selectedSemesterId) {
+    if (
+      !profile ||
+      !selectedYearId ||
+      !selectedSemesterId
+    ) {
       setWorkspaceClasses([]);
       return;
     }
 
     loadClassesForSelection();
-  }, [profile, selectedYearId, selectedSemesterId, assignments]);
+  }, [
+    profile,
+    selectedYearId,
+    selectedSemesterId,
+    assignments,
+  ]);
 
   async function loadClassesForSelection() {
-    if (!profile || !selectedYearId || !selectedSemesterId) {
+    if (
+      !profile ||
+      !selectedYearId ||
+      !selectedSemesterId
+    ) {
       return;
     }
 
@@ -394,50 +454,77 @@ export default function TeacherClassesPage() {
         return;
       }
 
-      const { data: classRows, error: classError } = await supabase
-        .from('classes')
-        .select(
-          `
-            id,
-            name,
-            level,
-            programme_id,
-            programmes (
-              id,
-              name
-            )
-          `
-        )
-        .in('id', classIds)
-        .eq('school_id', profile.school_id)
-        .order('name', { ascending: true });
-
-      if (classError) throw classError;
-
-      const { data: enrollmentRows, error: enrollmentError } =
+      const { data: classRows, error: classError } =
         await supabase
-          .from('enrollments')
+          .from('classes')
           .select(
             `
               id,
-              student_id,
-              class_id,
-              academic_year_id,
-              student:students (
+              name,
+              level,
+              programme_id,
+              programmes (
                 id,
-                full_name,
-                admission_number,
-                gender,
-                status
+                name
               )
             `
           )
-          .in('class_id', classIds)
-          .eq('academic_year_id', selectedYearId);
+          .in('id', classIds)
+          .eq('school_id', profile.school_id)
+          .order('name', { ascending: true });
 
-      if (enrollmentError) throw enrollmentError;
+      if (classError) {
+        throw classError;
+      }
 
-      const enrollments = (enrollmentRows ?? []) as Enrollment[];
+      const {
+        data: enrollmentRows,
+        error: enrollmentError,
+      } = await supabase
+        .from('enrollments')
+        .select(
+          `
+            id,
+            student_id,
+            class_id,
+            academic_year_id,
+            student:students (
+              id,
+              full_name,
+              admission_number,
+              gender,
+              status
+            )
+          `
+        )
+        .in('class_id', classIds)
+        .eq('academic_year_id', selectedYearId);
+
+      if (enrollmentError) {
+        throw enrollmentError;
+      }
+
+      /*
+       * Supabase returns the nested student relationship
+       * as an array in the generated response shape.
+       *
+       * We normalize it here into a single Student object.
+       */
+      const rawEnrollments =
+        (enrollmentRows ?? []) as RawEnrollment[];
+
+      const enrollments = rawEnrollments
+        .map((enrollment) => ({
+          ...enrollment,
+          student: normalizeStudent(enrollment.student),
+        }))
+        .filter(
+          (
+            enrollment
+          ): enrollment is RawEnrollment & {
+            student: Student;
+          } => Boolean(enrollment.student)
+        );
 
       const classMap = new Map<string, ClassWorkspace>();
 
@@ -446,9 +533,11 @@ export default function TeacherClassesPage() {
           ? row.programmes[0] ?? null
           : row.programmes ?? null;
 
-        const classAssignments = relevantAssignments.filter(
-          (assignment) => assignment.class_id === row.id
-        );
+        const classAssignments =
+          relevantAssignments.filter(
+            (assignment) =>
+              assignment.class_id === row.id
+          );
 
         const subjectMap = new Map<
           string,
@@ -471,11 +560,9 @@ export default function TeacherClassesPage() {
         const students = enrollments
           .filter(
             (enrollment) =>
-              enrollment.class_id === row.id &&
-              enrollment.student
+              enrollment.class_id === row.id
           )
-          .map((enrollment) => enrollment.student)
-          .filter(Boolean);
+          .map((enrollment) => enrollment.student);
 
         classMap.set(row.id, {
           classId: row.id,
@@ -483,22 +570,31 @@ export default function TeacherClassesPage() {
           level: row.level ?? null,
           programmeId: row.programme_id ?? null,
           programmeName: programme?.name ?? null,
+
           academicYearId: selectedYearId,
+
           academicYearName:
             academicYears.find(
               (year) => year.id === selectedYearId
             )?.name ?? 'Academic Year',
+
           semesterId: selectedSemesterId,
           semesterName: selectedSemester.name,
-          subjects: Array.from(subjectMap.values()).sort(
-            (a, b) => a.name.localeCompare(b.name)
+
+          subjects: Array.from(
+            subjectMap.values()
+          ).sort((a, b) =>
+            a.name.localeCompare(b.name)
           ),
+
           studentCount: students.length,
           students,
         });
       });
 
-      const result = Array.from(classMap.values()).sort((a, b) =>
+      const result = Array.from(
+        classMap.values()
+      ).sort((a, b) =>
         a.className.localeCompare(b.className)
       );
 
@@ -507,17 +603,23 @@ export default function TeacherClassesPage() {
       if (
         selectedClass &&
         !result.some(
-          (item) => item.classId === selectedClass.classId
+          (item) =>
+            item.classId === selectedClass.classId
         )
       ) {
         setSelectedClass(null);
       }
     } catch (err: any) {
-      console.error('Loading teacher classes failed:', err);
+      console.error(
+        'Loading teacher classes failed:',
+        err
+      );
+
       setError(
         err?.message ||
           'Unable to load your assigned classes.'
       );
+
       setWorkspaceClasses([]);
     } finally {
       setLoadingClasses(false);
@@ -528,46 +630,52 @@ export default function TeacherClassesPage() {
     try {
       setLoadingStudents(true);
 
-      const { data: enrollmentRows, error: enrollmentError } =
-        await supabase
-          .from('enrollments')
-          .select(
-            `
+      const {
+        data: enrollmentRows,
+        error: enrollmentError,
+      } = await supabase
+        .from('enrollments')
+        .select(
+          `
+            id,
+            student_id,
+            class_id,
+            academic_year_id,
+            student:students (
               id,
-              student_id,
-              class_id,
-              academic_year_id,
-              student:students (
-                id,
-                full_name,
-                admission_number,
-                gender,
-                status
-              )
-            `
-          )
-          .eq('class_id', item.classId)
-          .eq('academic_year_id', item.academicYearId)
-          .order('created_at', {
-            ascending: true,
-          });
+              full_name,
+              admission_number,
+              gender,
+              status
+            )
+          `
+        )
+        .eq('class_id', item.classId)
+        .eq('academic_year_id', item.academicYearId)
+        .order('created_at', {
+          ascending: true,
+        });
 
       if (enrollmentError) {
         console.warn(
           'Unable to refresh class roster:',
           enrollmentError
         );
+
         setSelectedClass(item);
         return;
       }
 
-      const freshStudents = (enrollmentRows ?? [])
-        .map((row: any) =>
-          Array.isArray(row.student)
-            ? row.student[0] ?? null
-            : row.student ?? null
+      const freshStudents = (
+        (enrollmentRows ?? []) as RawEnrollment[]
+      )
+        .map((row) =>
+          normalizeStudent(row.student)
         )
-        .filter(Boolean);
+        .filter(
+          (student): student is Student =>
+            Boolean(student)
+        );
 
       setSelectedClass({
         ...item,
@@ -576,6 +684,7 @@ export default function TeacherClassesPage() {
       });
     } catch (err) {
       console.error('Open class error:', err);
+
       setSelectedClass(item);
     } finally {
       setLoadingStudents(false);
@@ -591,38 +700,22 @@ export default function TeacherClassesPage() {
       .split(' ')
       .filter(Boolean)
       .slice(0, 2)
-      .map((part) => part.charAt(0).toUpperCase())
+      .map((part) =>
+        part.charAt(0).toUpperCase()
+      )
       .join('');
-  }
-
-  function formatDate(value: string) {
-    if (!value) return '';
-
-    return new Date(value).toLocaleDateString(
-      'en-GH',
-      {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      }
-    );
   }
 
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8">
         <style jsx global>{`
-          @keyframes btiClassesSpin {
-            to {
-              transform: rotate(360deg);
-            }
-          }
-
           @keyframes btiClassesPulse {
             0%,
             100% {
               opacity: 0.45;
             }
+
             50% {
               opacity: 1;
             }
@@ -670,6 +763,7 @@ export default function TeacherClassesPage() {
             opacity: 0;
             transform: translateY(18px);
           }
+
           to {
             opacity: 1;
             transform: translateY(0);
@@ -681,6 +775,7 @@ export default function TeacherClassesPage() {
             opacity: 0;
             transform: scale(0.96);
           }
+
           to {
             opacity: 1;
             transform: scale(1);
@@ -692,17 +787,9 @@ export default function TeacherClassesPage() {
           100% {
             transform: translateY(0);
           }
+
           50% {
             transform: translateY(-5px);
-          }
-        }
-
-        @keyframes btiClassesShimmer {
-          0% {
-            transform: translateX(-100%);
-          }
-          100% {
-            transform: translateX(100%);
           }
         }
 
@@ -711,6 +798,7 @@ export default function TeacherClassesPage() {
           100% {
             opacity: 1;
           }
+
           50% {
             opacity: 0.55;
           }
@@ -766,8 +854,9 @@ export default function TeacherClassesPage() {
               </h1>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-blue-100 sm:text-base">
-                Manage the classes assigned to you and quickly access
-                attendance, assessments, results and student rosters.
+                Manage the classes assigned to you and quickly
+                access attendance, assessments, results and
+                student rosters.
               </p>
 
               <p className="mt-3 text-sm font-semibold text-white/90">
@@ -792,9 +881,15 @@ export default function TeacherClassesPage() {
           <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800 shadow-sm">
             <div className="flex items-start gap-3">
               <i className="fa-solid fa-circle-exclamation mt-0.5" />
+
               <div className="flex-1">
-                <p className="font-bold">Something went wrong</p>
-                <p className="mt-1 text-sm">{error}</p>
+                <p className="font-bold">
+                  Something went wrong
+                </p>
+
+                <p className="mt-1 text-sm">
+                  {error}
+                </p>
               </div>
 
               <button
@@ -826,20 +921,25 @@ export default function TeacherClassesPage() {
                   value={selectedYearId}
                   onChange={(event) => {
                     const value = event.target.value;
+
                     setSelectedYearId(value);
 
-                    const yearSemesters = semesters.filter(
-                      (semester) =>
-                        semester.academic_year_id === value
-                    );
+                    const yearSemesters =
+                      semesters.filter(
+                        (semester) =>
+                          semester.academic_year_id ===
+                          value
+                      );
 
                     const nextSemester =
                       yearSemesters.find(
-                        (semester) => semester.is_current
+                        (semester) =>
+                          semester.is_current
                       ) ??
                       yearSemesters.find(
                         (semester) =>
-                          semester.name === 'Semester 1'
+                          semester.name ===
+                          'Semester 1'
                       ) ??
                       yearSemesters[0];
 
@@ -856,9 +956,14 @@ export default function TeacherClassesPage() {
                   )}
 
                   {academicYears.map((year) => (
-                    <option key={year.id} value={year.id}>
+                    <option
+                      key={year.id}
+                      value={year.id}
+                    >
                       {year.name}
-                      {year.is_current ? ' — Current' : ''}
+                      {year.is_current
+                        ? ' — Current'
+                        : ''}
                     </option>
                   ))}
                 </select>
@@ -876,7 +981,9 @@ export default function TeacherClassesPage() {
                 <select
                   value={selectedSemesterId}
                   onChange={(event) =>
-                    setSelectedSemesterId(event.target.value)
+                    setSelectedSemesterId(
+                      event.target.value
+                    )
                   }
                   className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
                 >
@@ -886,15 +993,19 @@ export default function TeacherClassesPage() {
                     </option>
                   )}
 
-                  {availableSemesters.map((semester) => (
-                    <option
-                      key={semester.id}
-                      value={semester.id}
-                    >
-                      {semester.name}
-                      {semester.is_current ? ' — Current' : ''}
-                    </option>
-                  ))}
+                  {availableSemesters.map(
+                    (semester) => (
+                      <option
+                        key={semester.id}
+                        value={semester.id}
+                      >
+                        {semester.name}
+                        {semester.is_current
+                          ? ' — Current'
+                          : ''}
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
             </div>
@@ -926,9 +1037,11 @@ export default function TeacherClassesPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
               <i className="fa-solid fa-chalkboard" />
             </div>
+
             <p className="text-2xl font-black text-slate-900">
               {workspaceClasses.length}
             </p>
+
             <p className="mt-1 text-xs font-semibold text-slate-500">
               Assigned Classes
             </p>
@@ -938,9 +1051,11 @@ export default function TeacherClassesPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
               <i className="fa-solid fa-users" />
             </div>
+
             <p className="text-2xl font-black text-slate-900">
               {totalStudents}
             </p>
+
             <p className="mt-1 text-xs font-semibold text-slate-500">
               Students
             </p>
@@ -950,9 +1065,11 @@ export default function TeacherClassesPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
               <i className="fa-solid fa-book-open" />
             </div>
+
             <p className="text-2xl font-black text-slate-900">
               {totalSubjects}
             </p>
+
             <p className="mt-1 text-xs font-semibold text-slate-500">
               Subject Assignments
             </p>
@@ -962,21 +1079,29 @@ export default function TeacherClassesPage() {
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
               <i className="fa-solid fa-calendar-check" />
             </div>
+
             <p className="text-2xl font-black text-slate-900">
               {selectedSemesterId
-                ? semesters.find(
-                    (semester) =>
-                      semester.id === selectedSemesterId
-                  )?.name.replace('Semester ', 'S') || '—'
+                ? semesters
+                    .find(
+                      (semester) =>
+                        semester.id ===
+                        selectedSemesterId
+                    )
+                    ?.name.replace(
+                      'Semester ',
+                      'S'
+                    ) || '—'
                 : '—'}
             </p>
+
             <p className="mt-1 text-xs font-semibold text-slate-500">
               Active Semester
             </p>
           </div>
         </div>
 
-        {/* Class cards */}
+        {/* Classes */}
         {loadingClasses ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
@@ -1002,9 +1127,10 @@ export default function TeacherClassesPage() {
             </h2>
 
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-              There are no classes assigned to you for the selected
-              academic year and semester. If this looks incorrect,
-              please contact the administrator.
+              There are no classes assigned to you for the
+              selected academic year and semester. If this
+              looks incorrect, please contact the
+              administrator.
             </p>
 
             {search && (
@@ -1026,6 +1152,7 @@ export default function TeacherClassesPage() {
               >
                 <div className="relative overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 p-5 text-white">
                   <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10" />
+
                   <div className="absolute -bottom-16 -left-10 h-36 w-36 rounded-full bg-white/5" />
 
                   <div className="relative">
@@ -1057,6 +1184,7 @@ export default function TeacherClassesPage() {
                     <div className="rounded-2xl bg-slate-50 p-3">
                       <div className="flex items-center gap-2 text-slate-500">
                         <i className="fa-solid fa-users text-xs" />
+
                         <span className="text-[11px] font-bold uppercase tracking-wide">
                           Students
                         </span>
@@ -1070,6 +1198,7 @@ export default function TeacherClassesPage() {
                     <div className="rounded-2xl bg-slate-50 p-3">
                       <div className="flex items-center gap-2 text-slate-500">
                         <i className="fa-solid fa-book-open text-xs" />
+
                         <span className="text-[11px] font-bold uppercase tracking-wide">
                           Subjects
                         </span>
@@ -1092,21 +1221,26 @@ export default function TeacherClassesPage() {
                           No subjects found.
                         </span>
                       ) : (
-                        item.subjects.map((subject) => (
-                          <span
-                            key={subject.id}
-                            className="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-bold text-blue-700"
-                          >
-                            {subject.name}
-                          </span>
-                        ))
+                        item.subjects.map(
+                          (subject) => (
+                            <span
+                              key={subject.id}
+                              className="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-bold text-blue-700"
+                            >
+                              {subject.name}
+                            </span>
+                          )
+                        )
                       )}
                     </div>
                   </div>
 
                   <div className="mb-5 flex items-center gap-2 text-xs text-slate-500">
                     <i className="fa-solid fa-calendar-days text-blue-500" />
-                    <span>{item.academicYearName}</span>
+
+                    <span>
+                      {item.academicYearName}
+                    </span>
                   </div>
 
                   <button
@@ -1133,7 +1267,7 @@ export default function TeacherClassesPage() {
                   'btiClassesScale 0.25s ease both',
               }}
             >
-              {/* Modal header */}
+              {/* Modal Header */}
               <div className="bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-5 text-white sm:p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
@@ -1171,7 +1305,7 @@ export default function TeacherClassesPage() {
               </div>
 
               <div className="max-h-[calc(94vh-112px)] overflow-y-auto p-4 sm:p-6">
-                {/* Quick actions */}
+                {/* Quick Actions */}
                 <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <Link
                     href={`/attendance?classId=${selectedClass.classId}&academicYearId=${selectedClass.academicYearId}`}
@@ -1242,7 +1376,7 @@ export default function TeacherClassesPage() {
                   </Link>
                 </div>
 
-                {/* Subject assignments */}
+                {/* Subjects */}
                 <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
@@ -1251,7 +1385,8 @@ export default function TeacherClassesPage() {
                       </h3>
 
                       <p className="mt-1 text-xs text-slate-500">
-                        Your assignments for this class and semester.
+                        Your assignments for this class and
+                        semester.
                       </p>
                     </div>
 
@@ -1261,32 +1396,34 @@ export default function TeacherClassesPage() {
                   </div>
 
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {selectedClass.subjects.map((subject) => (
-                      <div
-                        key={subject.id}
-                        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3"
-                      >
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                          <i className="fa-solid fa-book" />
-                        </div>
+                    {selectedClass.subjects.map(
+                      (subject) => (
+                        <div
+                          key={subject.id}
+                          className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3"
+                        >
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                            <i className="fa-solid fa-book" />
+                          </div>
 
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-slate-800">
-                            {subject.name}
-                          </p>
-
-                          {subject.code && (
-                            <p className="text-[11px] font-semibold text-slate-400">
-                              {subject.code}
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-slate-800">
+                              {subject.name}
                             </p>
-                          )}
+
+                            {subject.code && (
+                              <p className="text-[11px] font-semibold text-slate-400">
+                                {subject.code}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    )}
                   </div>
                 </div>
 
-                {/* Student roster */}
+                {/* Student Roster */}
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                   <div className="border-b border-slate-200 bg-slate-50 p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1296,12 +1433,14 @@ export default function TeacherClassesPage() {
                         </h3>
 
                         <p className="mt-1 text-xs text-slate-500">
-                          Students currently enrolled in this class.
+                          Students currently enrolled in this
+                          class.
                         </p>
                       </div>
 
                       <span className="w-fit rounded-full bg-slate-900 px-3 py-1.5 text-xs font-black text-white">
-                        {selectedClass.studentCount} Students
+                        {selectedClass.studentCount}{' '}
+                        Students
                       </span>
                     </div>
                   </div>
@@ -1309,11 +1448,13 @@ export default function TeacherClassesPage() {
                   {loadingStudents ? (
                     <div className="p-10 text-center">
                       <i className="fa-solid fa-spinner fa-spin text-xl text-blue-600" />
+
                       <p className="mt-3 text-sm font-semibold text-slate-500">
                         Loading roster...
                       </p>
                     </div>
-                  ) : selectedClass.students.length === 0 ? (
+                  ) : selectedClass.students.length ===
+                    0 ? (
                     <div className="p-10 text-center">
                       <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
                         <i className="fa-solid fa-user-group" />
@@ -1324,7 +1465,8 @@ export default function TeacherClassesPage() {
                       </p>
 
                       <p className="mt-1 text-sm text-slate-500">
-                        There are currently no students in this class.
+                        There are currently no students in
+                        this class.
                       </p>
                     </div>
                   ) : (
@@ -1358,7 +1500,7 @@ export default function TeacherClassesPage() {
                           {selectedClass.students.map(
                             (student, index) => (
                               <tr
-                                key={student?.id ?? index}
+                                key={student.id}
                                 className="border-b border-slate-100 transition hover:bg-blue-50/40"
                               >
                                 <td className="px-4 py-3 text-sm font-bold text-slate-400">
@@ -1369,36 +1511,38 @@ export default function TeacherClassesPage() {
                                   <div className="flex items-center gap-3">
                                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-xs font-black text-white">
                                       {getInitials(
-                                        student?.full_name || 'Student'
+                                        student.full_name
                                       )}
                                     </div>
 
                                     <div className="min-w-0">
                                       <p className="truncate text-sm font-bold text-slate-800">
-                                        {student?.full_name ||
-                                          'Unknown Student'}
+                                        {student.full_name}
                                       </p>
                                     </div>
                                   </div>
                                 </td>
 
                                 <td className="px-4 py-3 text-sm font-semibold text-slate-600">
-                                  {student?.admission_number || '—'}
+                                  {student.admission_number ||
+                                    '—'}
                                 </td>
 
                                 <td className="px-4 py-3 text-sm font-medium text-slate-500">
-                                  {student?.gender || '—'}
+                                  {student.gender || '—'}
                                 </td>
 
                                 <td className="px-4 py-3">
                                   <span
                                     className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${
-                                      student?.status === 'active'
+                                      student.status ===
+                                      'active'
                                         ? 'bg-emerald-100 text-emerald-700'
                                         : 'bg-slate-100 text-slate-600'
                                     }`}
                                   >
-                                    {student?.status || 'Unknown'}
+                                    {student.status ||
+                                      'Unknown'}
                                   </span>
                                 </td>
                               </tr>
@@ -1422,7 +1566,8 @@ export default function TeacherClassesPage() {
 
           <p className="font-semibold">
             <i className="fa-solid fa-shield-halved mr-1" />
-            Your classes are based on your teacher assignments.
+            Your classes are based on your teacher
+            assignments.
           </p>
         </div>
       </div>
