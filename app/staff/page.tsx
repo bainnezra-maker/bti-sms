@@ -89,7 +89,7 @@ const documentIcons: Record<DocumentType, string> = {
 };
 
 const inputClass =
-  'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-100';
+  'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition duration-300 placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-100';
 
 function formatDate(value: string | null) {
   if (!value) return '—';
@@ -147,7 +147,6 @@ function Field({
         {label}
         {required && <span className="text-red-500"> *</span>}
       </label>
-
       {children}
     </div>
   );
@@ -161,7 +160,7 @@ function Info({
   value: string;
 }) {
   return (
-    <div>
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
         {label}
       </p>
@@ -302,33 +301,21 @@ export default function StaffPage() {
     }
 
     if (documentsResult.error) {
-      setError(
-        (current) => current || documentsResult.error!.message
-      );
+      setError((current) => current || documentsResult.error!.message);
     } else {
-      setDocuments(
-        (documentsResult.data || []) as DocumentRecord[]
-      );
+      setDocuments((documentsResult.data || []) as DocumentRecord[]);
     }
 
     if (yearsResult.error) {
-      setError(
-        (current) => current || yearsResult.error!.message
-      );
+      setError((current) => current || yearsResult.error!.message);
     } else {
-      setAcademicYears(
-        (yearsResult.data || []) as AcademicYear[]
-      );
+      setAcademicYears((yearsResult.data || []) as AcademicYear[]);
     }
 
     if (semestersResult.error) {
-      setError(
-        (current) => current || semestersResult.error!.message
-      );
+      setError((current) => current || semestersResult.error!.message);
     } else {
-      setSemesters(
-        (semestersResult.data || []) as Semester[]
-      );
+      setSemesters((semestersResult.data || []) as Semester[]);
     }
 
     setLoading(false);
@@ -489,9 +476,7 @@ export default function StaffPage() {
       )
     );
 
-    setMessage(
-      `${person.full_name} is now ${nextStatus}.`
-    );
+    setMessage(`${person.full_name} is now ${nextStatus}.`);
   }
 
   async function deleteStaff(person: Staff) {
@@ -657,9 +642,7 @@ export default function StaffPage() {
 
       resetDocumentForm();
 
-      setMessage(
-        'Teaching document uploaded successfully.'
-      );
+      setMessage('Teaching document uploaded successfully.');
     }
 
     setUploading(false);
@@ -671,15 +654,9 @@ export default function StaffPage() {
     const { data, error: signedUrlError } =
       await supabase.storage
         .from('staff-documents')
-        .createSignedUrl(
-          document.file_path,
-          60 * 10
-        );
+        .createSignedUrl(document.file_path, 60 * 10);
 
-    if (
-      signedUrlError ||
-      !data?.signedUrl
-    ) {
+    if (signedUrlError || !data?.signedUrl) {
       setError(
         signedUrlError?.message ||
           'The document could not be opened.'
@@ -695,9 +672,7 @@ export default function StaffPage() {
     );
   }
 
-  async function deleteDocument(
-    document: DocumentRecord
-  ) {
+  async function deleteDocument(document: DocumentRecord) {
     const confirmed = window.confirm(
       `Delete ${document.file_name}?`
     );
@@ -729,14 +704,10 @@ export default function StaffPage() {
     }
 
     setDocuments((current) =>
-      current.filter(
-        (item) => item.id !== document.id
-      )
+      current.filter((item) => item.id !== document.id)
     );
 
-    setMessage(
-      'Teaching document deleted successfully.'
-    );
+    setMessage('Teaching document deleted successfully.');
   }
 
   const departments = useMemo(
@@ -757,26 +728,15 @@ export default function StaffPage() {
     return staff.filter((person) => {
       const matchesSearch =
         !query ||
-        person.full_name
-          .toLowerCase()
-          .includes(query) ||
-        person.staff_number
-          .toLowerCase()
-          .includes(query) ||
-        (person.department || '')
-          .toLowerCase()
-          .includes(query) ||
-        (person.position || '')
-          .toLowerCase()
-          .includes(query) ||
-        (person.phone || '')
-          .toLowerCase()
-          .includes(query);
+        person.full_name.toLowerCase().includes(query) ||
+        person.staff_number.toLowerCase().includes(query) ||
+        (person.department || '').toLowerCase().includes(query) ||
+        (person.position || '').toLowerCase().includes(query) ||
+        (person.phone || '').toLowerCase().includes(query);
 
       const matchesCategory =
         categoryFilter === 'all' ||
-        person.staff_category ===
-          categoryFilter;
+        person.staff_category === categoryFilter;
 
       const matchesStatus =
         statusFilter === 'all' ||
@@ -804,26 +764,17 @@ export default function StaffPage() {
   const stats = useMemo(
     () => ({
       total: staff.length,
-
       teaching: staff.filter(
-        (person) =>
-          person.staff_category === 'teaching'
+        (person) => person.staff_category === 'teaching'
       ).length,
-
       nonTeaching: staff.filter(
-        (person) =>
-          person.staff_category ===
-          'non_teaching'
+        (person) => person.staff_category === 'non_teaching'
       ).length,
-
       active: staff.filter(
-        (person) =>
-          person.status === 'active'
+        (person) => person.status === 'active'
       ).length,
-
       inactive: staff.filter(
-        (person) =>
-          person.status === 'inactive'
+        (person) => person.status === 'inactive'
       ).length,
     }),
     [staff]
@@ -831,59 +782,45 @@ export default function StaffPage() {
 
   const selectedStaff =
     staff.find(
-      (person) =>
-        person.id === selectedStaffId
+      (person) => person.id === selectedStaffId
     ) || null;
 
-  const selectedDocuments =
-    documents.filter(
-      (document) =>
-        document.staff_id ===
-        selectedStaffId
-    );
+  const selectedDocuments = documents.filter(
+    (document) => document.staff_id === selectedStaffId
+  );
 
   const selectedUnitDocuments =
     selectedDocuments.filter(
       (document) =>
-        document.document_type ===
-        'unit_specification'
+        document.document_type === 'unit_specification'
     );
 
   const selectedLspDocuments =
     selectedDocuments.filter(
       (document) =>
-        document.document_type ===
-        'learning_session_plan'
+        document.document_type === 'learning_session_plan'
     );
 
   const selectedParticularsDocuments =
     selectedDocuments.filter(
       (document) =>
-        document.document_type ===
-        'particulars_of_work_done'
+        document.document_type === 'particulars_of_work_done'
     );
 
-  const selectedYearSemesters =
-    semesters.filter(
-      (semester) =>
-        semester.academic_year_id ===
-        documentYearId
-    );
+  const selectedYearSemesters = semesters.filter(
+    (semester) =>
+      semester.academic_year_id === documentYearId
+  );
 
-  function getSemesterName(
-    semesterId: string | null
-  ) {
+  function getSemesterName(semesterId: string | null) {
     return (
       semesters.find(
-        (semester) =>
-          semester.id === semesterId
+        (semester) => semester.id === semesterId
       )?.name || '—'
     );
   }
 
-  function getYearName(
-    yearId: string | null
-  ) {
+  function getYearName(yearId: string | null) {
     return (
       academicYears.find(
         (year) => year.id === yearId
@@ -898,13 +835,88 @@ export default function StaffPage() {
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
       />
 
-      <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+      <style jsx global>{`
+        @keyframes btiStaffFadeUp {
+          from {
+            opacity: 0;
+            transform: translateY(18px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes btiStaffScale {
+          from {
+            opacity: 0;
+            transform: scale(0.96);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+
+        @keyframes btiStaffModal {
+          from {
+            opacity: 0;
+            transform: translateY(24px) scale(0.97);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes btiStaffPulse {
+          0%,
+          100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.04);
+          }
+        }
+
+        .bti-staff-page {
+          animation: btiStaffFadeUp 0.55s ease-out both;
+        }
+
+        .bti-staff-card {
+          animation: btiStaffFadeUp 0.55s ease-out both;
+        }
+
+        .bti-staff-stat {
+          animation: btiStaffScale 0.45s ease-out both;
+        }
+
+        .bti-staff-modal {
+          animation: btiStaffModal 0.32s cubic-bezier(0.22, 1, 0.36, 1)
+            both;
+        }
+
+        .bti-staff-icon-pulse:hover {
+          animation: btiStaffPulse 0.7s ease-in-out;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .bti-staff-page,
+          .bti-staff-card,
+          .bti-staff-stat,
+          .bti-staff-modal {
+            animation: none !important;
+          }
+        }
+      `}</style>
+
+      <div className="bti-staff-page min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
         <div className="mx-auto max-w-7xl">
 
           {/* HEADER */}
           <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg">
+              <div className="bti-staff-icon-pulse mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg transition duration-300">
                 <i className="fa-solid fa-users text-lg" />
               </div>
 
@@ -922,23 +934,23 @@ export default function StaffPage() {
             <button
               type="button"
               onClick={openAddForm}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-slate-900/10 transition hover:-translate-y-0.5 hover:bg-slate-800"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-slate-900/10 transition duration-300 hover:-translate-y-1 hover:bg-slate-800 hover:shadow-xl"
             >
-              <i className="fa-solid fa-user-plus" />
+              <i className="fa-solid fa-user-plus transition duration-300 group-hover:rotate-6" />
               Add Staff
             </button>
           </div>
 
           {/* ALERTS */}
           {error && (
-            <div className="mb-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+            <div className="mb-5 flex animate-[btiStaffFadeUp_.35s_ease-out] items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
               <i className="fa-solid fa-circle-exclamation mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
           {message && (
-            <div className="mb-5 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700">
+            <div className="mb-5 flex animate-[btiStaffFadeUp_.35s_ease-out] items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700">
               <i className="fa-solid fa-circle-check mt-0.5" />
               <span>{message}</span>
             </div>
@@ -972,10 +984,13 @@ export default function StaffPage() {
                 value: stats.inactive,
                 icon: 'fa-solid fa-user-slash',
               },
-            ].map((item) => (
+            ].map((item, index) => (
               <div
                 key={item.label}
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                style={{
+                  animationDelay: `${index * 70}ms`,
+                }}
+                className="bti-staff-stat group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -983,12 +998,12 @@ export default function StaffPage() {
                       {item.label}
                     </p>
 
-                    <p className="mt-2 text-3xl font-bold text-slate-900">
+                    <p className="mt-2 text-3xl font-bold text-slate-900 transition duration-300 group-hover:scale-105 group-hover:origin-left">
                       {item.value}
                     </p>
                   </div>
 
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                  <div className="bti-staff-icon-pulse flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition duration-300 group-hover:bg-slate-900 group-hover:text-white">
                     <i className={item.icon} />
                   </div>
                 </div>
@@ -997,11 +1012,11 @@ export default function StaffPage() {
           </div>
 
           {/* SEARCH / FILTERS */}
-          <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:shadow-md sm:p-5">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
 
               <div className="relative xl:col-span-2">
-                <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition duration-300" />
 
                 <input
                   value={search}
@@ -1009,77 +1024,51 @@ export default function StaffPage() {
                     setSearch(event.target.value)
                   }
                   placeholder="Search name, Staff ID, department, position..."
-                  className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                  className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                 />
               </div>
 
               <select
                 value={categoryFilter}
                 onChange={(event) =>
-                  setCategoryFilter(
-                    event.target.value
-                  )
+                  setCategoryFilter(event.target.value)
                 }
                 className={inputClass}
               >
-                <option value="all">
-                  All Categories
-                </option>
-
-                <option value="teaching">
-                  Teaching
-                </option>
-
-                <option value="non_teaching">
-                  Non-Teaching
-                </option>
+                <option value="all">All Categories</option>
+                <option value="teaching">Teaching</option>
+                <option value="non_teaching">Non-Teaching</option>
               </select>
 
               <select
                 value={statusFilter}
                 onChange={(event) =>
-                  setStatusFilter(
-                    event.target.value
-                  )
+                  setStatusFilter(event.target.value)
                 }
                 className={inputClass}
               >
-                <option value="all">
-                  All Statuses
-                </option>
-
-                <option value="active">
-                  Active
-                </option>
-
-                <option value="inactive">
-                  Inactive
-                </option>
+                <option value="all">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
               </select>
 
               <select
                 value={departmentFilter}
                 onChange={(event) =>
-                  setDepartmentFilter(
-                    event.target.value
-                  )
+                  setDepartmentFilter(event.target.value)
                 }
                 className={inputClass}
               >
-                <option value="all">
-                  All Departments
-                </option>
+                <option value="all">All Departments</option>
 
-                {departments.map(
-                  (department) => (
-                    <option
-                      key={department}
-                      value={department}
-                    >
-                      {department}
-                    </option>
-                  )
-                )}
+                {departments.map((department) => (
+                  <option
+                    key={department}
+                    value={department}
+                  >
+                    {department}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -1093,29 +1082,27 @@ export default function StaffPage() {
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Showing {filteredStaff.length} of{' '}
-                  {staff.length} staff member
-                  {staff.length === 1
-                    ? ''
-                    : 's'}
+                  Showing {filteredStaff.length} of {staff.length}{' '}
+                  staff member{staff.length === 1 ? '' : 's'}
                 </p>
               </div>
 
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <i className="fa-solid fa-building-columns" />
                 BTI Staff Records
               </div>
             </div>
 
             {loading ? (
               <div className="flex min-h-64 items-center justify-center text-slate-500">
-                <div className="flex items-center gap-3">
-                  <i className="fa-solid fa-spinner fa-spin" />
+                <div className="flex animate-[btiStaffFadeUp_.4s_ease-out] items-center gap-3">
+                  <i className="fa-solid fa-spinner fa-spin text-lg" />
                   Loading staff records...
                 </div>
               </div>
             ) : filteredStaff.length === 0 ? (
-              <div className="px-6 py-16 text-center">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <div className="px-6 py-16 text-center animate-[btiStaffFadeUp_.4s_ease-out]">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 transition duration-300 hover:scale-110">
                   <i className="fa-solid fa-users-slash text-xl" />
                 </div>
 
@@ -1124,182 +1111,162 @@ export default function StaffPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Try changing your search or
-                  filters, or add a new staff member.
+                  Try changing your search or filters, or add a new
+                  staff member.
                 </p>
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {filteredStaff.map(
-                  (person) => (
-                    <div
-                      key={person.id}
-                      className="p-5 transition hover:bg-slate-50/80"
-                    >
-                      <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                {filteredStaff.map((person, index) => (
+                  <div
+                    key={person.id}
+                    style={{
+                      animationDelay: `${Math.min(index, 12) * 45}ms`,
+                    }}
+                    className="bti-staff-card p-5 transition duration-300 hover:bg-slate-50/80"
+                  >
+                    <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
 
-                        {/* IDENTITY */}
-                        <div className="flex min-w-0 items-center gap-4">
-                          {person.photo_url ? (
-                            <img
-                              src={person.photo_url}
-                              alt={person.full_name}
-                              className="h-14 w-14 shrink-0 rounded-2xl object-cover ring-2 ring-slate-100"
-                            />
-                          ) : (
-                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
-                              {initials(
-                                person.full_name
-                              )}
-                            </div>
-                          )}
-
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="truncate text-base font-bold text-slate-900">
-                                {person.full_name}
-                              </h3>
-
-                              <span
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                                  person.status ===
-                                  'active'
-                                    ? 'bg-emerald-100 text-emerald-700'
-                                    : 'bg-slate-100 text-slate-600'
-                                }`}
-                              >
-                                {person.status ===
-                                'active'
-                                  ? 'ACTIVE'
-                                  : 'INACTIVE'}
-                              </span>
-                            </div>
-
-                            <p className="mt-1 text-sm text-slate-500">
-                              {person.staff_number} ·{' '}
-                              {person.position ||
-                                'Position not set'}
-                            </p>
-
-                            <p className="mt-1 text-xs text-slate-400">
-                              {person.department ||
-                                'No department'}{' '}
-                              ·{' '}
-                              {person.staff_category ===
-                              'teaching'
-                                ? 'Teaching'
-                                : 'Non-Teaching'}
-                            </p>
+                      {/* IDENTITY */}
+                      <div className="flex min-w-0 items-center gap-4">
+                        {person.photo_url ? (
+                          <img
+                            src={person.photo_url}
+                            alt={person.full_name}
+                            className="h-14 w-14 shrink-0 rounded-2xl object-cover ring-2 ring-slate-100 transition duration-300 hover:scale-105 hover:ring-slate-300"
+                          />
+                        ) : (
+                          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white transition duration-300 hover:scale-105 hover:rotate-2">
+                            {initials(person.full_name)}
                           </div>
-                        </div>
+                        )}
 
-                        {/* QUICK DETAILS */}
-                        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:min-w-[560px]">
-                          <div className="rounded-xl bg-slate-50 p-3">
-                            <p className="text-xs font-medium text-slate-400">
-                              Phone
-                            </p>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-base font-bold text-slate-900">
+                              {person.full_name}
+                            </h3>
 
-                            <p className="mt-1 truncate font-semibold text-slate-700">
-                              {person.phone || '—'}
-                            </p>
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                person.status === 'active'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {person.status === 'active'
+                                ? 'ACTIVE'
+                                : 'INACTIVE'}
+                            </span>
                           </div>
 
-                          <div className="rounded-xl bg-slate-50 p-3">
-                            <p className="text-xs font-medium text-slate-400">
-                              Qualification
-                            </p>
+                          <p className="mt-1 text-sm text-slate-500">
+                            {person.staff_number} ·{' '}
+                            {person.position || 'Position not set'}
+                          </p>
 
-                            <p className="mt-1 truncate font-semibold text-slate-700">
-                              {person.qualification ||
-                                '—'}
-                            </p>
-                          </div>
-
-                          <div className="rounded-xl bg-slate-50 p-3">
-                            <p className="text-xs font-medium text-slate-400">
-                              Employed
-                            </p>
-
-                            <p className="mt-1 truncate font-semibold text-slate-700">
-                              {formatDate(
-                                person.employment_date
-                              )}
-                            </p>
-                          </div>
-
-                          <div className="rounded-xl bg-slate-50 p-3">
-                            <p className="text-xs font-medium text-slate-400">
-                              Documents
-                            </p>
-
-                            <p className="mt-1 font-semibold text-slate-700">
-                              {
-                                documents.filter(
-                                  (document) =>
-                                    document.staff_id ===
-                                    person.id
-                                ).length
-                              }
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* ACTIONS */}
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openDetails(person)
-                            }
-                            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-white"
-                          >
-                            <i className="fa-solid fa-eye" />
-                            Details
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openEditForm(person)
-                            }
-                            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-white"
-                          >
-                            <i className="fa-solid fa-pen" />
-                            Edit
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              toggleStatus(person)
-                            }
-                            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${
-                              person.status ===
-                              'active'
-                                ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-                                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                            }`}
-                          >
-                            <i
-                              className={
-                                person.status ===
-                                'active'
-                                  ? 'fa-solid fa-user-slash'
-                                  : 'fa-solid fa-user-check'
-                              }
-                            />
-
-                            {person.status ===
-                            'active'
-                              ? 'Deactivate'
-                              : 'Activate'}
-                          </button>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {person.department || 'No department'} ·{' '}
+                            {person.staff_category === 'teaching'
+                              ? 'Teaching'
+                              : 'Non-Teaching'}
+                          </p>
                         </div>
                       </div>
+
+                      {/* QUICK DETAILS */}
+                      <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:min-w-[560px]">
+                        <div className="rounded-xl bg-slate-50 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
+                          <p className="text-xs font-medium text-slate-400">
+                            Phone
+                          </p>
+
+                          <p className="mt-1 truncate font-semibold text-slate-700">
+                            {person.phone || '—'}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl bg-slate-50 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
+                          <p className="text-xs font-medium text-slate-400">
+                            Qualification
+                          </p>
+
+                          <p className="mt-1 truncate font-semibold text-slate-700">
+                            {person.qualification || '—'}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl bg-slate-50 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
+                          <p className="text-xs font-medium text-slate-400">
+                            Employed
+                          </p>
+
+                          <p className="mt-1 truncate font-semibold text-slate-700">
+                            {formatDate(person.employment_date)}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl bg-slate-50 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
+                          <p className="text-xs font-medium text-slate-400">
+                            Documents
+                          </p>
+
+                          <p className="mt-1 font-semibold text-slate-700">
+                            {
+                              documents.filter(
+                                (document) =>
+                                  document.staff_id === person.id
+                              ).length
+                            }
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* ACTIONS */}
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openDetails(person)}
+                          className="group inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm"
+                        >
+                          <i className="fa-solid fa-eye transition group-hover:scale-110" />
+                          Details
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openEditForm(person)}
+                          className="group inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm"
+                        >
+                          <i className="fa-solid fa-pen transition group-hover:rotate-6" />
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleStatus(person)}
+                          className={`group inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition duration-300 hover:-translate-y-0.5 ${
+                            person.status === 'active'
+                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          }`}
+                        >
+                          <i
+                            className={
+                              person.status === 'active'
+                                ? 'fa-solid fa-user-slash'
+                                : 'fa-solid fa-user-check'
+                            }
+                          />
+
+                          {person.status === 'active'
+                            ? 'Deactivate'
+                            : 'Activate'}
+                        </button>
+                      </div>
                     </div>
-                  )
-                )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1309,7 +1276,7 @@ export default function StaffPage() {
       {/* ADD / EDIT STAFF MODAL */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm sm:p-6">
-          <div className="my-4 w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl sm:my-8">
+          <div className="bti-staff-modal my-4 w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl sm:my-8">
 
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-5 sm:px-7">
               <div>
@@ -1326,10 +1293,8 @@ export default function StaffPage() {
 
               <button
                 type="button"
-                onClick={() =>
-                  setShowForm(false)
-                }
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200"
+                onClick={() => setShowForm(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition duration-300 hover:rotate-90 hover:bg-slate-200"
               >
                 <i className="fa-solid fa-xmark" />
               </button>
@@ -1342,27 +1307,31 @@ export default function StaffPage() {
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
 
                 <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
-                  <p className="text-sm font-bold text-slate-800">
-                    Basic Information
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm">
+                      <i className="fa-solid fa-id-card" />
+                    </div>
 
-                  <p className="mt-1 text-xs text-slate-500">
-                    Enter the staff member&apos;s official
-                    school details.
-                  </p>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">
+                        Basic Information
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-500">
+                        Enter the staff member&apos;s official school
+                        details.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                <Field
-                  label="Staff ID"
-                  required
-                >
+                <Field label="Staff ID" required>
                   <input
                     value={form.staff_number}
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        staff_number:
-                          event.target.value,
+                        staff_number: event.target.value,
                       })
                     }
                     placeholder="e.g. BTI-ST-001"
@@ -1371,17 +1340,13 @@ export default function StaffPage() {
                   />
                 </Field>
 
-                <Field
-                  label="Full Name"
-                  required
-                >
+                <Field label="Full Name" required>
                   <input
                     value={form.full_name}
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        full_name:
-                          event.target.value,
+                        full_name: event.target.value,
                       })
                     }
                     placeholder="Full name"
@@ -1390,61 +1355,41 @@ export default function StaffPage() {
                   />
                 </Field>
 
-                <Field
-                  label="Staff Category"
-                  required
-                >
+                <Field label="Staff Category" required>
                   <select
-                    value={
-                      form.staff_category
-                    }
+                    value={form.staff_category}
                     onChange={(event) =>
                       setForm({
                         ...form,
                         staff_category:
-                          event.target
-                            .value as
+                          event.target.value as
                             | 'teaching'
                             | 'non_teaching',
                       })
                     }
                     className={inputClass}
                   >
-                    <option value="teaching">
-                      Teaching
-                    </option>
-
-                    <option value="non_teaching">
-                      Non-Teaching
-                    </option>
+                    <option value="teaching">Teaching</option>
+                    <option value="non_teaching">Non-Teaching</option>
                   </select>
                 </Field>
 
-                <Field
-                  label="Status"
-                  required
-                >
+                <Field label="Status" required>
                   <select
                     value={form.status}
                     onChange={(event) =>
                       setForm({
                         ...form,
                         status:
-                          event.target
-                            .value as
+                          event.target.value as
                             | 'active'
                             | 'inactive',
                       })
                     }
                     className={inputClass}
                   >
-                    <option value="active">
-                      Active
-                    </option>
-
-                    <option value="inactive">
-                      Inactive
-                    </option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
                   </select>
                 </Field>
 
@@ -1454,41 +1399,26 @@ export default function StaffPage() {
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        gender:
-                          event.target.value,
+                        gender: event.target.value,
                       })
                     }
                     className={inputClass}
                   >
-                    <option value="">
-                      Select gender
-                    </option>
-
-                    <option value="Male">
-                      Male
-                    </option>
-
-                    <option value="Female">
-                      Female
-                    </option>
-
-                    <option value="Other">
-                      Other
-                    </option>
+                    <option value="">Select gender</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
                   </select>
                 </Field>
 
                 <Field label="Date of Birth">
                   <input
                     type="date"
-                    value={
-                      form.date_of_birth
-                    }
+                    value={form.date_of_birth}
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        date_of_birth:
-                          event.target.value,
+                        date_of_birth: event.target.value,
                       })
                     }
                     className={inputClass}
@@ -1501,8 +1431,7 @@ export default function StaffPage() {
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        department:
-                          event.target.value,
+                        department: event.target.value,
                       })
                     }
                     placeholder="e.g. Science"
@@ -1516,8 +1445,7 @@ export default function StaffPage() {
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        position:
-                          event.target.value,
+                        position: event.target.value,
                       })
                     }
                     placeholder="e.g. Science Teacher"
@@ -1528,14 +1456,11 @@ export default function StaffPage() {
                 <Field label="Date Employed">
                   <input
                     type="date"
-                    value={
-                      form.employment_date
-                    }
+                    value={form.employment_date}
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        employment_date:
-                          event.target.value,
+                        employment_date: event.target.value,
                       })
                     }
                     className={inputClass}
@@ -1544,14 +1469,11 @@ export default function StaffPage() {
 
                 <Field label="Qualification">
                   <input
-                    value={
-                      form.qualification
-                    }
+                    value={form.qualification}
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        qualification:
-                          event.target.value,
+                        qualification: event.target.value,
                       })
                     }
                     placeholder="e.g. B.Ed, M.Ed"
@@ -1561,14 +1483,11 @@ export default function StaffPage() {
 
                 <Field label="Specialization">
                   <input
-                    value={
-                      form.specialization
-                    }
+                    value={form.specialization}
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        specialization:
-                          event.target.value,
+                        specialization: event.target.value,
                       })
                     }
                     placeholder="e.g. Integrated Science"
@@ -1582,8 +1501,7 @@ export default function StaffPage() {
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        phone:
-                          event.target.value,
+                        phone: event.target.value,
                       })
                     }
                     placeholder="Phone number"
@@ -1598,8 +1516,7 @@ export default function StaffPage() {
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        email:
-                          event.target.value,
+                        email: event.target.value,
                       })
                     }
                     placeholder="name@example.com"
@@ -1613,8 +1530,7 @@ export default function StaffPage() {
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        photo_url:
-                          event.target.value,
+                        photo_url: event.target.value,
                       })
                     }
                     placeholder="https://..."
@@ -1628,8 +1544,7 @@ export default function StaffPage() {
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        address:
-                          event.target.value,
+                        address: event.target.value,
                       })
                     }
                     placeholder="Residential address"
@@ -1642,10 +1557,8 @@ export default function StaffPage() {
               <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowForm(false)
-                  }
-                  className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  onClick={() => setShowForm(false)}
+                  className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 transition duration-300 hover:-translate-y-0.5 hover:bg-slate-50"
                 >
                   Cancel
                 </button>
@@ -1653,8 +1566,18 @@ export default function StaffPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-bold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800 disabled:opacity-60"
                 >
+                  <i
+                    className={
+                      saving
+                        ? 'fa-solid fa-spinner fa-spin'
+                        : editingId
+                          ? 'fa-solid fa-floppy-disk'
+                          : 'fa-solid fa-user-plus'
+                    }
+                  />
+
                   {saving
                     ? 'Saving...'
                     : editingId
@@ -1670,7 +1593,7 @@ export default function StaffPage() {
       {/* STAFF DETAILS MODAL */}
       {showDetails && selectedStaff && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm sm:p-6">
-          <div className="my-4 w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-2xl sm:my-8">
+          <div className="bti-staff-modal my-4 w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-2xl sm:my-8">
 
             {/* PROFILE HEADER */}
             <div className="border-b border-slate-200 bg-slate-900 px-5 py-6 text-white sm:px-7">
@@ -1679,19 +1602,13 @@ export default function StaffPage() {
                 <div className="flex items-center gap-4">
                   {selectedStaff.photo_url ? (
                     <img
-                      src={
-                        selectedStaff.photo_url
-                      }
-                      alt={
-                        selectedStaff.full_name
-                      }
-                      className="h-16 w-16 rounded-2xl object-cover ring-2 ring-white/20"
+                      src={selectedStaff.photo_url}
+                      alt={selectedStaff.full_name}
+                      className="h-16 w-16 rounded-2xl object-cover ring-2 ring-white/20 transition duration-300 hover:scale-105"
                     />
                   ) : (
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10 text-lg font-bold">
-                      {initials(
-                        selectedStaff.full_name
-                      )}
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10 text-lg font-bold transition duration-300 hover:scale-105">
+                      {initials(selectedStaff.full_name)}
                     </div>
                   )}
 
@@ -1706,18 +1623,15 @@ export default function StaffPage() {
 
                     <p className="mt-1 text-sm text-white/60">
                       {selectedStaff.staff_number} ·{' '}
-                      {selectedStaff.position ||
-                        'Position not set'}
+                      {selectedStaff.position || 'Position not set'}
                     </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowDetails(false)
-                  }
-                  className="flex h-10 w-10 self-end items-center justify-center rounded-xl bg-white/10 text-white hover:bg-white/20 sm:self-auto"
+                  onClick={() => setShowDetails(false)}
+                  className="flex h-10 w-10 self-end items-center justify-center rounded-xl bg-white/10 text-white transition duration-300 hover:rotate-90 hover:bg-white/20 sm:self-auto"
                 >
                   <i className="fa-solid fa-xmark" />
                 </button>
@@ -1731,7 +1645,7 @@ export default function StaffPage() {
                 <div className="space-y-5 lg:col-span-2">
 
                   {/* STAFF INFORMATION */}
-                  <div className="rounded-2xl border border-slate-200 p-5">
+                  <div className="rounded-2xl border border-slate-200 p-5 transition duration-300 hover:shadow-md">
                     <div className="mb-4 flex items-center justify-between">
                       <div>
                         <h3 className="font-bold text-slate-900">
@@ -1745,8 +1659,7 @@ export default function StaffPage() {
 
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-bold ${
-                          selectedStaff.status ===
-                          'active'
+                          selectedStaff.status === 'active'
                             ? 'bg-emerald-100 text-emerald-700'
                             : 'bg-slate-100 text-slate-600'
                         }`}
@@ -1755,19 +1668,16 @@ export default function StaffPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Info
                         label="Staff ID"
-                        value={
-                          selectedStaff.staff_number
-                        }
+                        value={selectedStaff.staff_number}
                       />
 
                       <Info
                         label="Category"
                         value={
-                          selectedStaff.staff_category ===
-                          'teaching'
+                          selectedStaff.staff_category === 'teaching'
                             ? 'Teaching'
                             : 'Non-Teaching'
                         }
@@ -1775,86 +1685,58 @@ export default function StaffPage() {
 
                       <Info
                         label="Gender"
-                        value={
-                          selectedStaff.gender ||
-                          '—'
-                        }
+                        value={selectedStaff.gender || '—'}
                       />
 
                       <Info
                         label="Department"
-                        value={
-                          selectedStaff.department ||
-                          '—'
-                        }
+                        value={selectedStaff.department || '—'}
                       />
 
                       <Info
                         label="Position / Role"
-                        value={
-                          selectedStaff.position ||
-                          '—'
-                        }
+                        value={selectedStaff.position || '—'}
                       />
 
                       <Info
                         label="Qualification"
-                        value={
-                          selectedStaff.qualification ||
-                          '—'
-                        }
+                        value={selectedStaff.qualification || '—'}
                       />
 
                       <Info
                         label="Specialization"
-                        value={
-                          selectedStaff.specialization ||
-                          '—'
-                        }
+                        value={selectedStaff.specialization || '—'}
                       />
 
                       <Info
                         label="Date Employed"
-                        value={formatDate(
-                          selectedStaff.employment_date
-                        )}
+                        value={formatDate(selectedStaff.employment_date)}
                       />
 
                       <Info
                         label="Date of Birth"
-                        value={formatDate(
-                          selectedStaff.date_of_birth
-                        )}
+                        value={formatDate(selectedStaff.date_of_birth)}
                       />
 
                       <Info
                         label="Phone"
-                        value={
-                          selectedStaff.phone ||
-                          '—'
-                        }
+                        value={selectedStaff.phone || '—'}
                       />
 
                       <Info
                         label="Email"
-                        value={
-                          selectedStaff.email ||
-                          '—'
-                        }
+                        value={selectedStaff.email || '—'}
                       />
 
                       <Info
                         label="Address"
-                        value={
-                          selectedStaff.address ||
-                          '—'
-                        }
+                        value={selectedStaff.address || '—'}
                       />
                     </div>
                   </div>
 
                   {/* TEACHING DOCUMENTS */}
-                  <div className="rounded-2xl border border-slate-200 p-5">
+                  <div className="rounded-2xl border border-slate-200 p-5 transition duration-300 hover:shadow-md">
 
                     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -1863,26 +1745,20 @@ export default function StaffPage() {
                         </h3>
 
                         <p className="mt-1 text-xs text-slate-500">
-                          Upload and retrieve teaching
-                          documents for this staff member.
+                          Upload and retrieve teaching documents for
+                          this staff member.
                         </p>
                       </div>
 
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                        {selectedDocuments.length}{' '}
-                        document
-                        {selectedDocuments.length ===
-                        1
-                          ? ''
-                          : 's'}
+                        {selectedDocuments.length} document
+                        {selectedDocuments.length === 1 ? '' : 's'}
                       </span>
                     </div>
 
                     {/* UPLOAD FORM */}
                     <form
-                      onSubmit={
-                        uploadDocument
-                      }
+                      onSubmit={uploadDocument}
                       className="rounded-2xl bg-slate-50 p-4"
                     >
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1892,8 +1768,7 @@ export default function StaffPage() {
                             value={documentType}
                             onChange={(event) =>
                               setDocumentType(
-                                event.target
-                                  .value as DocumentType
+                                event.target.value as DocumentType
                               )
                             }
                             className={inputClass}
@@ -1914,96 +1789,58 @@ export default function StaffPage() {
 
                         <Field label="Document Title">
                           <input
-                            value={
-                              documentTitle
-                            }
+                            value={documentTitle}
                             onChange={(event) =>
-                              setDocumentTitle(
-                                event.target
-                                  .value
-                              )
+                              setDocumentTitle(event.target.value)
                             }
-                            placeholder={
-                              documentLabels[
-                                documentType
-                              ]
-                            }
+                            placeholder={documentLabels[documentType]}
                             className={inputClass}
                           />
                         </Field>
 
-                        {documentType ===
-                          'unit_specification' && (
+                        {documentType === 'unit_specification' && (
                           <>
                             <Field
                               label="Academic Year"
                               required
                             >
                               <select
-                                value={
-                                  documentYearId
-                                }
-                                onChange={(
-                                  event
-                                ) => {
+                                value={documentYearId}
+                                onChange={(event) => {
                                   setDocumentYearId(
-                                    event.target
-                                      .value
+                                    event.target.value
                                   );
-
-                                  setDocumentSemesterId(
-                                    ''
-                                  );
+                                  setDocumentSemesterId('');
                                 }}
                                 required
-                                className={
-                                  inputClass
-                                }
+                                className={inputClass}
                               >
                                 <option value="">
                                   Select academic year
                                 </option>
 
-                                {academicYears.map(
-                                  (year) => (
-                                    <option
-                                      key={
-                                        year.id
-                                      }
-                                      value={
-                                        year.id
-                                      }
-                                    >
-                                      {year.name}
-                                    </option>
-                                  )
-                                )}
+                                {academicYears.map((year) => (
+                                  <option
+                                    key={year.id}
+                                    value={year.id}
+                                  >
+                                    {year.name}
+                                  </option>
+                                ))}
                               </select>
                             </Field>
 
-                            <Field
-                              label="Semester"
-                              required
-                            >
+                            <Field label="Semester" required>
                               <select
-                                value={
-                                  documentSemesterId
-                                }
-                                onChange={(
-                                  event
-                                ) =>
+                                value={documentSemesterId}
+                                onChange={(event) =>
                                   setDocumentSemesterId(
-                                    event.target
-                                      .value
+                                    event.target.value
                                   )
                                 }
                                 required
-                                className={
-                                  inputClass
-                                }
-                                disabled={
-                                  !documentYearId
-                                }
+                                className={inputClass}
+                                disabled={!documentYearId}
                               >
                                 <option value="">
                                   {documentYearId
@@ -2012,20 +1849,12 @@ export default function StaffPage() {
                                 </option>
 
                                 {selectedYearSemesters.map(
-                                  (
-                                    semester
-                                  ) => (
+                                  (semester) => (
                                     <option
-                                      key={
-                                        semester.id
-                                      }
-                                      value={
-                                        semester.id
-                                      }
+                                      key={semester.id}
+                                      value={semester.id}
                                     >
-                                      {
-                                        semester.name
-                                      }
+                                      {semester.name}
                                     </option>
                                   )
                                 )}
@@ -2034,17 +1863,12 @@ export default function StaffPage() {
                           </>
                         )}
 
-                        <Field
-                          label="File"
-                          required
-                        >
+                        <Field label="File" required>
                           <input
                             type="file"
                             onChange={(event) =>
                               setDocumentFile(
-                                event.target
-                                  .files?.[0] ||
-                                  null
+                                event.target.files?.[0] || null
                               )
                             }
                             required
@@ -2054,14 +1878,9 @@ export default function StaffPage() {
 
                         <Field label="Notes">
                           <input
-                            value={
-                              documentNotes
-                            }
+                            value={documentNotes}
                             onChange={(event) =>
-                              setDocumentNotes(
-                                event.target
-                                  .value
-                              )
+                              setDocumentNotes(event.target.value)
                             }
                             placeholder="Optional note"
                             className={inputClass}
@@ -2076,10 +1895,8 @@ export default function StaffPage() {
 
                         <button
                           type="submit"
-                          disabled={
-                            uploading
-                          }
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-60"
+                          disabled={uploading}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800 disabled:opacity-60"
                         >
                           <i
                             className={
@@ -2101,33 +1918,28 @@ export default function StaffPage() {
                       {[
                         {
                           type: 'unit_specification' as const,
-                          label:
-                            'Unit Specification',
-                          count:
-                            selectedUnitDocuments.length,
+                          label: 'Unit Specification',
+                          count: selectedUnitDocuments.length,
                         },
                         {
                           type: 'learning_session_plan' as const,
-                          label:
-                            'Learning Session Plans',
-                          count:
-                            selectedLspDocuments.length,
+                          label: 'Learning Session Plans',
+                          count: selectedLspDocuments.length,
                         },
                         {
                           type: 'particulars_of_work_done' as const,
-                          label:
-                            'Particulars of Work',
+                          label: 'Particulars of Work',
                           count:
                             selectedParticularsDocuments.length,
                         },
                       ].map((item) => (
                         <div
                           key={item.type}
-                          className="rounded-xl border border-slate-200 p-4"
+                          className="group rounded-xl border border-slate-200 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-md"
                         >
                           <div className="flex items-center justify-between gap-2">
                             <i
-                              className={`${documentIcons[item.type]} text-slate-500`}
+                              className={`${documentIcons[item.type]} text-slate-500 transition duration-300 group-hover:scale-110 group-hover:text-slate-900`}
                             />
 
                             <span className="text-lg font-bold text-slate-900">
@@ -2143,30 +1955,31 @@ export default function StaffPage() {
                     </div>
 
                     {/* DOCUMENT LIST */}
-                    {selectedDocuments.length ===
-                    0 ? (
-                      <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-7 text-center text-sm text-slate-500">
-                        No teaching documents have
-                        been uploaded for this staff
-                        member yet.
+                    {selectedDocuments.length === 0 ? (
+                      <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-7 text-center text-sm text-slate-500 animate-[btiStaffFadeUp_.35s_ease-out]">
+                        <i className="fa-solid fa-folder-open mb-3 text-2xl text-slate-300" />
+                        <p>
+                          No teaching documents have been uploaded for
+                          this staff member yet.
+                        </p>
                       </div>
                     ) : (
                       <div className="mt-5 space-y-3">
                         {selectedDocuments.map(
-                          (document) => (
+                          (document, index) => (
                             <div
-                              key={
-                                document.id
-                              }
-                              className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"
+                              key={document.id}
+                              style={{
+                                animationDelay: `${index * 55}ms`,
+                              }}
+                              className="bti-staff-card flex flex-col gap-3 rounded-xl border border-slate-200 p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-md sm:flex-row sm:items-center sm:justify-between"
                             >
                               <div className="flex min-w-0 items-center gap-3">
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition duration-300 hover:scale-110">
                                   <i
                                     className={
                                       documentIcons[
-                                        document
-                                          .document_type
+                                        document.document_type
                                       ]
                                     }
                                   />
@@ -2174,23 +1987,16 @@ export default function StaffPage() {
 
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-bold text-slate-800">
-                                    {
-                                      document.title
-                                    }
+                                    {document.title}
                                   </p>
 
                                   <p className="mt-1 text-xs text-slate-500">
                                     {
                                       documentLabels[
-                                        document
-                                          .document_type
+                                        document.document_type
                                       ]
                                     }{' '}
-                                    ·{' '}
-                                    {
-                                      document.file_name
-                                    }{' '}
-                                    ·{' '}
+                                    · {document.file_name} ·{' '}
                                     {formatFileSize(
                                       document.file_size
                                     )}
@@ -2215,24 +2021,20 @@ export default function StaffPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    openDocument(
-                                      document
-                                    )
+                                    openDocument(document)
                                   }
-                                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                                  className="group rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800"
                                 >
-                                  <i className="fa-solid fa-arrow-up-right-from-square mr-1" />
+                                  <i className="fa-solid fa-arrow-up-right-from-square mr-1 transition group-hover:scale-110" />
                                   Open
                                 </button>
 
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    deleteDocument(
-                                      document
-                                    )
+                                    deleteDocument(document)
                                   }
-                                  className="rounded-lg px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
+                                  className="rounded-lg px-3 py-2 text-xs font-bold text-red-600 transition duration-300 hover:-translate-y-0.5 hover:bg-red-50"
                                 >
                                   <i className="fa-solid fa-trash" />
                                 </button>
@@ -2249,89 +2051,87 @@ export default function StaffPage() {
                 <div className="space-y-5">
 
                   {/* UNIT SPECIFICATION COMPLIANCE */}
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                    <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                      Teaching Compliance
-                    </p>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm">
+                        <i className="fa-solid fa-clipboard-check" />
+                      </div>
 
-                    <h3 className="mt-2 text-lg font-bold text-slate-900">
-                      Unit Specification
-                    </h3>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                          Teaching Compliance
+                        </p>
 
-                    <p className="mt-1 text-sm leading-6 text-slate-500">
-                      Every teacher is expected to
-                      upload one Unit Specification
-                      Breakdown for each semester.
+                        <h3 className="mt-1 text-lg font-bold text-slate-900">
+                          Unit Specification
+                        </h3>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 text-sm leading-6 text-slate-500">
+                      Every teacher is expected to upload one Unit
+                      Specification Breakdown for each semester.
                     </p>
 
                     <div className="mt-5 space-y-3">
-                      {academicYears
-                        .slice(0, 4)
-                        .map((year) => {
-                          const yearSemesters =
-                            semesters.filter(
-                              (semester) =>
-                                semester.academic_year_id ===
-                                year.id
+                      {academicYears.slice(0, 4).map((year) => {
+                        const yearSemesters = semesters.filter(
+                          (semester) =>
+                            semester.academic_year_id === year.id
+                        );
+
+                        return yearSemesters.map((semester) => {
+                          const uploaded =
+                            selectedUnitDocuments.some(
+                              (document) =>
+                                document.academic_year_id ===
+                                  year.id &&
+                                document.semester_id === semester.id
                             );
 
-                          return yearSemesters.map(
-                            (semester) => {
-                              const uploaded =
-                                selectedUnitDocuments.some(
-                                  (document) =>
-                                    document.academic_year_id ===
-                                      year.id &&
-                                    document.semester_id ===
-                                      semester.id
-                                );
+                          return (
+                            <div
+                              key={`${year.id}-${semester.id}`}
+                              className="group flex items-center justify-between rounded-xl border border-white bg-white p-3 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-md"
+                            >
+                              <div>
+                                <p className="text-xs font-bold text-slate-700">
+                                  {year.name}
+                                </p>
 
-                              return (
-                                <div
-                                  key={`${year.id}-${semester.id}`}
-                                  className="flex items-center justify-between rounded-xl border border-white bg-white p-3 shadow-sm"
-                                >
-                                  <div>
-                                    <p className="text-xs font-bold text-slate-700">
-                                      {year.name}
-                                    </p>
+                                <p className="mt-0.5 text-xs text-slate-400">
+                                  {semester.name}
+                                </p>
+                              </div>
 
-                                    <p className="mt-0.5 text-xs text-slate-400">
-                                      {
-                                        semester.name
-                                      }
-                                    </p>
-                                  </div>
+                              <span
+                                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                  uploaded
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-red-100 text-red-700'
+                                }`}
+                              >
+                                <i
+                                  className={
+                                    uploaded
+                                      ? 'fa-solid fa-circle-check'
+                                      : 'fa-solid fa-circle-xmark'
+                                  }
+                                />
 
-                                  <span
-                                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                                      uploaded
-                                        ? 'bg-emerald-100 text-emerald-700'
-                                        : 'bg-red-100 text-red-700'
-                                    }`}
-                                  >
-                                    <i
-                                      className={
-                                        uploaded
-                                          ? 'fa-solid fa-circle-check'
-                                          : 'fa-solid fa-circle-xmark'
-                                      }
-                                    />
-
-                                    {uploaded
-                                      ? 'Uploaded'
-                                      : 'Not Uploaded'}
-                                  </span>
-                                </div>
-                              );
-                            }
+                                {uploaded
+                                  ? 'Uploaded'
+                                  : 'Not Uploaded'}
+                              </span>
+                            </div>
                           );
-                        })}
+                        });
+                      })}
                     </div>
                   </div>
 
                   {/* RECORD ACTIONS */}
-                  <div className="rounded-2xl border border-slate-200 p-5">
+                  <div className="rounded-2xl border border-slate-200 p-5 transition duration-300 hover:shadow-md">
                     <h3 className="font-bold text-slate-900">
                       Record Actions
                     </h3>
@@ -2341,36 +2141,30 @@ export default function StaffPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          openEditForm(
-                            selectedStaff
-                          )
+                          openEditForm(selectedStaff)
                         }
-                        className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700 transition duration-300 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"
                       >
-                        <i className="fa-solid fa-pen w-4 text-center" />
+                        <i className="fa-solid fa-pen w-4 text-center transition group-hover:rotate-6" />
                         Edit Staff Details
                       </button>
 
                       <button
                         type="button"
                         onClick={() =>
-                          toggleStatus(
-                            selectedStaff
-                          )
+                          toggleStatus(selectedStaff)
                         }
-                        className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700 transition duration-300 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"
                       >
                         <i
                           className={`${
-                            selectedStaff.status ===
-                            'active'
+                            selectedStaff.status === 'active'
                               ? 'fa-solid fa-user-slash'
                               : 'fa-solid fa-user-check'
-                          } w-4 text-center`}
+                          } w-4 text-center transition group-hover:scale-110`}
                         />
 
-                        {selectedStaff.status ===
-                        'active'
+                        {selectedStaff.status === 'active'
                           ? 'Deactivate Staff'
                           : 'Activate Staff'}
                       </button>
@@ -2378,13 +2172,11 @@ export default function StaffPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          deleteStaff(
-                            selectedStaff
-                          )
+                          deleteStaff(selectedStaff)
                         }
-                        className="flex w-full items-center gap-3 rounded-xl border border-red-100 px-4 py-3 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
+                        className="group flex w-full items-center gap-3 rounded-xl border border-red-100 px-4 py-3 text-left text-sm font-semibold text-red-600 transition duration-300 hover:-translate-y-0.5 hover:bg-red-50"
                       >
-                        <i className="fa-solid fa-trash w-4 text-center" />
+                        <i className="fa-solid fa-trash w-4 text-center transition group-hover:scale-110" />
                         Delete Staff Record
                       </button>
                     </div>
