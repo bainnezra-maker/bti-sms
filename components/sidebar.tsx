@@ -110,6 +110,11 @@ const adminMenuSections: MenuSection[] = [
     title: 'ADMINISTRATION',
     items: [
       {
+        name: 'Announcements',
+        href: '/announcements',
+        icon: 'fa-solid fa-bullhorn',
+      },
+      {
         name: 'Staff',
         href: '/staff',
         icon: 'fa-solid fa-users',
@@ -371,15 +376,12 @@ export default function Sidebar() {
       {/* ========================================================= */}
 
       <div className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur lg:hidden">
-
         {/* Hamburger */}
         <button
           type="button"
           onClick={() => setMobileOpen((open) => !open)}
           aria-label={
-            mobileOpen
-              ? 'Close navigation menu'
-              : 'Open navigation menu'
+            mobileOpen ? 'Close navigation menu' : 'Open navigation menu'
           }
           aria-expanded={mobileOpen}
           className="group flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md active:scale-95"
@@ -391,9 +393,7 @@ export default function Sidebar() {
           <span className="flex flex-col gap-1.5">
             <span
               className={`block h-0.5 w-5 rounded-full bg-current transition-all duration-300 ${
-                mobileOpen
-                  ? 'translate-y-2 rotate-45'
-                  : ''
+                mobileOpen ? 'translate-y-2 rotate-45' : ''
               }`}
             />
 
@@ -405,9 +405,7 @@ export default function Sidebar() {
 
             <span
               className={`block h-0.5 w-5 rounded-full bg-current transition-all duration-300 ${
-                mobileOpen
-                  ? '-translate-y-2 -rotate-45'
-                  : ''
+                mobileOpen ? '-translate-y-2 -rotate-45' : ''
               }`}
             />
           </span>
@@ -415,7 +413,13 @@ export default function Sidebar() {
 
         {/* Mobile Brand */}
         <Link
-          href={role === 'admin' ? '/' : role === 'teacher' ? '/teacher' : '/student'}
+          href={
+            role === 'admin'
+              ? '/'
+              : role === 'teacher'
+                ? '/teacher'
+                : '/student'
+          }
           onClick={closeMobileMenu}
           className="group flex items-center gap-2"
         >
@@ -464,22 +468,17 @@ export default function Sidebar() {
 
       <aside
         className={`fixed bottom-0 left-0 top-0 z-50 w-72 max-w-[88vw] overflow-y-auto border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
-          mobileOpen
-            ? 'translate-x-0'
-            : '-translate-x-full'
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex min-h-full flex-col">
-
           {/* Drawer Header */}
           <div className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-5 py-6 text-white">
-
             <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/5" />
 
             <div className="absolute -bottom-14 -left-10 h-32 w-32 rounded-full bg-white/5" />
 
             <div className="relative flex items-center justify-between">
-
               <Link
                 href={
                   role === 'admin'
@@ -519,7 +518,6 @@ export default function Sidebar() {
 
           {/* Mobile Navigation */}
           <nav className="flex-1 px-3 py-5">
-
             {menuSections.map((section) => (
               <div
                 key={section.title}
@@ -534,7 +532,6 @@ export default function Sidebar() {
                 </div>
 
                 <div className="space-y-1">
-
                   {section.items.map((item) => {
                     const isActive = isItemActive(item.href);
 
@@ -560,14 +557,10 @@ export default function Sidebar() {
                               : 'bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-slate-900 group-hover:shadow-sm'
                           }`}
                         >
-                          <i
-                            className={`${item.icon} text-sm`}
-                          />
+                          <i className={`${item.icon} text-sm`} />
                         </span>
 
-                        <span className="flex-1">
-                          {item.name}
-                        </span>
+                        <span className="flex-1">{item.name}</span>
 
                         {isActive && (
                           <i className="fa-solid fa-chevron-right text-[10px] text-white/70" />
@@ -575,11 +568,9 @@ export default function Sidebar() {
                       </Link>
                     );
                   })}
-
                 </div>
               </div>
             ))}
-
           </nav>
 
           {/* Mobile Logout */}
@@ -596,7 +587,6 @@ export default function Sidebar() {
               <span>Logout</span>
             </button>
           </div>
-
         </div>
       </aside>
 
@@ -605,12 +595,9 @@ export default function Sidebar() {
       {/* ========================================================= */}
 
       <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 overflow-y-auto border-r border-slate-200 bg-white shadow-[4px_0_20px_rgba(15,23,42,0.04)] lg:block">
-
         <div className="flex min-h-full flex-col">
-
           {/* Desktop Brand */}
           <div className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-5 py-6 text-white">
-
             <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-white/5" />
 
             <div className="absolute -bottom-16 -left-10 h-36 w-36 rounded-full bg-white/5" />
@@ -643,7 +630,6 @@ export default function Sidebar() {
 
           {/* Desktop Navigation */}
           <nav className="flex-1 px-3 py-5">
-
             {menuSections.map((section, sectionIndex) => (
               <div
                 key={section.title}
@@ -663,7 +649,6 @@ export default function Sidebar() {
 
                 {/* Menu Items */}
                 <div className="space-y-1">
-
                   {section.items.map((item) => {
                     const isActive = isItemActive(item.href);
 
@@ -696,9 +681,7 @@ export default function Sidebar() {
                         </span>
 
                         {/* Name */}
-                        <span className="flex-1">
-                          {item.name}
-                        </span>
+                        <span className="flex-1">{item.name}</span>
 
                         {/* Active Arrow */}
                         {isActive && (
@@ -707,11 +690,9 @@ export default function Sidebar() {
                       </Link>
                     );
                   })}
-
                 </div>
               </div>
             ))}
-
           </nav>
 
           {/* Desktop Logout */}
@@ -730,7 +711,6 @@ export default function Sidebar() {
               <i className="fa-solid fa-arrow-right-from-bracket ml-auto text-xs opacity-0 transition-all duration-200 group-hover:translate-x-1 group-hover:opacity-100" />
             </button>
           </div>
-
         </div>
       </aside>
     </>
