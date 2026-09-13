@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 type AcademicYear = {
@@ -65,45 +64,74 @@ function statusLabel(status: Status) {
 }
 
 function statusIcon(status: Status) {
-  if (status === 'present') return 'fa-solid fa-circle-check';
-  if (status === 'absent') return 'fa-solid fa-circle-xmark';
-  if (status === 'late') return 'fa-solid fa-clock';
+  if (status === 'present') {
+    return 'fa-solid fa-circle-check';
+  }
+
+  if (status === 'absent') {
+    return 'fa-solid fa-circle-xmark';
+  }
+
+  if (status === 'late') {
+    return 'fa-solid fa-clock';
+  }
+
   return 'fa-solid fa-shield-heart';
 }
 
 export default function AttendancePage() {
   const supabase = createClient();
-  const searchParams = useSearchParams();
-
-  const initialClassId = searchParams.get('classId') || '';
-  const initialYearId = searchParams.get('yearId') || '';
 
   const [schoolId, setSchoolId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [role, setRole] = useState('');
 
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
-  const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [classes, setClasses] = useState<ClassItem[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
+  const [academicYears, setAcademicYears] = useState<
+    AcademicYear[]
+  >([]);
 
-  const [selectedYear, setSelectedYear] = useState(initialYearId);
-  const [selectedProgramme, setSelectedProgramme] = useState('');
-  const [selectedClass, setSelectedClass] = useState(initialClassId);
-  const [selectedDate, setSelectedDate] = useState(todayString());
+  const [programmes, setProgrammes] = useState<
+    Programme[]
+  >([]);
+
+  const [classes, setClasses] = useState<ClassItem[]>(
+    []
+  );
+
+  const [students, setStudents] = useState<Student[]>(
+    []
+  );
+
+  const [selectedYear, setSelectedYear] =
+    useState('');
+
+  const [selectedProgramme, setSelectedProgramme] =
+    useState('');
+
+  const [selectedClass, setSelectedClass] =
+    useState('');
+
+  const [selectedDate, setSelectedDate] =
+    useState(todayString());
+
   const [search, setSearch] = useState('');
 
-  const [marks, setMarks] = useState<Record<string, Status>>({});
+  const [marks, setMarks] = useState<
+    Record<string, Status>
+  >({});
 
   const [loading, setLoading] = useState(true);
-  const [loadingStudents, setLoadingStudents] = useState(false);
-  const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const [loadingStudents, setLoadingStudents] =
+    useState(false);
+
+  const [loadingAttendance, setLoadingAttendance] =
+    useState(false);
+
   const [saving, setSaving] = useState(false);
 
   const [message, setMessage] = useState('');
-  const [messageType, setMessageType] = useState<
-    'info' | 'success' | 'error'
-  >('info');
+  const [messageType, setMessageType] =
+    useState<'info' | 'success' | 'error'>('info');
 
   // ------------------------------------------------------------
   // LOAD USER, SCHOOL AND ACADEMIC DATA
@@ -126,12 +154,16 @@ export default function AttendancePage() {
 
       setUserId(user.id);
 
-      const { data: profile, error: profileError } =
-        await supabase
-          .from('users')
-          .select('id, school_id, role, is_active')
-          .eq('id', user.id)
-          .maybeSingle();
+      const {
+        data: profile,
+        error: profileError,
+      } = await supabase
+        .from('users')
+        .select(
+          'id, school_id, role, is_active'
+        )
+        .eq('id', user.id)
+        .maybeSingle();
 
       if (
         profileError ||
@@ -146,10 +178,16 @@ export default function AttendancePage() {
         return;
       }
 
-      const typedProfile = profile as UserProfile;
+      const typedProfile =
+        profile as UserProfile;
 
-      setSchoolId(typedProfile.school_id);
-      setRole(typedProfile.role);
+      setSchoolId(
+        typedProfile.school_id
+      );
+
+      setRole(
+        typedProfile.role
+      );
 
       const [
         academicYearsResult,
@@ -158,14 +196,26 @@ export default function AttendancePage() {
       ] = await Promise.all([
         supabase
           .from('academic_years')
-          .select('id, name, is_current')
-          .eq('school_id', typedProfile.school_id)
-          .order('name', { ascending: false }),
+          .select(
+            'id, name, is_current'
+          )
+          .eq(
+            'school_id',
+            typedProfile.school_id
+          )
+          .order('name', {
+            ascending: false,
+          }),
 
         supabase
           .from('programmes')
-          .select('id, name, code')
-          .eq('school_id', typedProfile.school_id)
+          .select(
+            'id, name, code'
+          )
+          .eq(
+            'school_id',
+            typedProfile.school_id
+          )
           .order('name'),
 
         supabase
@@ -173,34 +223,45 @@ export default function AttendancePage() {
           .select(
             'id, name, level, programme_id, academic_year_id'
           )
-          .eq('school_id', typedProfile.school_id)
+          .eq(
+            'school_id',
+            typedProfile.school_id
+          )
           .order('name'),
       ]);
 
       if (academicYearsResult.error) {
         setMessageType('error');
-        setMessage(academicYearsResult.error.message);
+        setMessage(
+          academicYearsResult.error.message
+        );
       } else {
-        const years = academicYearsResult.data || [];
+        const years =
+          academicYearsResult.data || [];
 
         setAcademicYears(years);
 
-        if (!selectedYear) {
-          const currentYear = years.find(
+        const currentYear =
+          years.find(
             (year) => year.is_current
           );
 
-          if (currentYear) {
-            setSelectedYear(currentYear.id);
-          } else if (years.length) {
-            setSelectedYear(years[0].id);
-          }
+        if (currentYear) {
+          setSelectedYear(
+            currentYear.id
+          );
+        } else if (years.length) {
+          setSelectedYear(
+            years[0].id
+          );
         }
       }
 
       if (programmesResult.error) {
         setMessageType('error');
-        setMessage(programmesResult.error.message);
+        setMessage(
+          programmesResult.error.message
+        );
       } else {
         setProgrammes(
           programmesResult.data || []
@@ -209,74 +270,61 @@ export default function AttendancePage() {
 
       if (classesResult.error) {
         setMessageType('error');
-        setMessage(classesResult.error.message);
+        setMessage(
+          classesResult.error.message
+        );
       } else {
         let loadedClasses =
           classesResult.data || [];
 
         /*
-         * Teachers should only work with classes assigned
-         * to them. Administrators retain school-wide access.
+         * Teachers only see classes assigned to them.
+         * Administrators retain school-wide access.
          */
         if (
           typedProfile.role.toLowerCase() ===
           'teacher'
         ) {
-          const { data: assignments, error: assignmentError } =
-            await supabase
-              .from('teacher_assignments')
-              .select(
-                'class_id, term_id'
-              )
-              .eq(
-                'teacher_id',
-                typedProfile.id
-              );
+          const {
+            data: assignments,
+            error: assignmentError,
+          } = await supabase
+            .from('teacher_assignments')
+            .select('class_id')
+            .eq(
+              'teacher_id',
+              typedProfile.id
+            );
 
           if (assignmentError) {
             setMessageType('error');
             setMessage(
               `Could not load your teaching assignments: ${assignmentError.message}`
             );
+
             loadedClasses = [];
           } else {
-            const assignedClassIds = new Set(
-              (assignments || []).map(
-                (assignment) =>
-                  assignment.class_id
-              )
-            );
+            const assignedClassIds =
+              new Set(
+                (assignments || []).map(
+                  (assignment) =>
+                    assignment.class_id
+                )
+              );
 
-            loadedClasses = loadedClasses.filter(
-              (classItem) =>
-                assignedClassIds.has(classItem.id)
-            );
+            loadedClasses =
+              loadedClasses.filter(
+                (classItem) =>
+                  assignedClassIds.has(
+                    classItem.id
+                  )
+              );
           }
         }
 
-        setClasses(loadedClasses);
-
-        /*
-         * If My Classes sent a classId, keep it only when
-         * that class is actually available to this user.
-         */
-        if (
-          initialClassId &&
-          loadedClasses.some(
-            (classItem) =>
-              classItem.id === initialClassId
-          )
-        ) {
-          setSelectedClass(initialClassId);
-        } else if (
-          initialClassId &&
-          !loadedClasses.some(
-            (classItem) =>
-              classItem.id === initialClassId
-          )
-        ) {
-          setSelectedClass('');
-        }
+        setClasses(
+          loadedClasses
+        );
       }
 
       setLoading(false);
@@ -289,20 +337,24 @@ export default function AttendancePage() {
   // FILTER CLASSES
   // ------------------------------------------------------------
   const filteredClasses = useMemo(() => {
-    return classes.filter((item) => {
-      const matchesYear =
-        !selectedYear ||
-        item.academic_year_id === selectedYear;
+    return classes.filter(
+      (item) => {
+        const matchesYear =
+          !selectedYear ||
+          item.academic_year_id ===
+            selectedYear;
 
-      const matchesProgramme =
-        !selectedProgramme ||
-        item.programme_id === selectedProgramme;
+        const matchesProgramme =
+          !selectedProgramme ||
+          item.programme_id ===
+            selectedProgramme;
 
-      return (
-        matchesYear &&
-        matchesProgramme
-      );
-    });
+        return (
+          matchesYear &&
+          matchesProgramme
+        );
+      }
+    );
   }, [
     classes,
     selectedYear,
@@ -316,7 +368,9 @@ export default function AttendancePage() {
     if (
       selectedClass &&
       !filteredClasses.some(
-        (item) => item.id === selectedClass
+        (item) =>
+          item.id ===
+          selectedClass
       )
     ) {
       setSelectedClass('');
@@ -329,14 +383,20 @@ export default function AttendancePage() {
   // ------------------------------------------------------------
   // SELECTED CLASS
   // ------------------------------------------------------------
-  const selectedClassItem = useMemo(() => {
-    return classes.find(
-      (item) => item.id === selectedClass
-    );
-  }, [classes, selectedClass]);
+  const selectedClassItem =
+    useMemo(() => {
+      return classes.find(
+        (item) =>
+          item.id ===
+          selectedClass
+      );
+    }, [
+      classes,
+      selectedClass,
+    ]);
 
   // ------------------------------------------------------------
-  // LOAD STUDENTS
+  // LOAD STUDENTS IN SELECTED CLASS
   // ------------------------------------------------------------
   useEffect(() => {
     async function loadStudents() {
@@ -359,18 +419,25 @@ export default function AttendancePage() {
       } = await supabase
         .from('enrollments')
         .select('student_id')
-        .eq('class_id', selectedClass)
+        .eq(
+          'class_id',
+          selectedClass
+        )
         .eq(
           'academic_year_id',
           selectedYear
         )
-        .eq('status', 'active');
+        .eq(
+          'status',
+          'active'
+        );
 
       if (enrollmentError) {
         setMessageType('error');
         setMessage(
           `Could not load class enrollment: ${enrollmentError.message}`
         );
+
         setStudents([]);
         setLoadingStudents(false);
         return;
@@ -378,7 +445,8 @@ export default function AttendancePage() {
 
       const studentIds =
         enrollmentData?.map(
-          (item) => item.student_id
+          (item) =>
+            item.student_id
         ) || [];
 
       if (!studentIds.length) {
@@ -396,9 +464,18 @@ export default function AttendancePage() {
         .select(
           'id, full_name, admission_number'
         )
-        .eq('school_id', schoolId)
-        .eq('status', 'active')
-        .in('id', studentIds)
+        .eq(
+          'school_id',
+          schoolId
+        )
+        .eq(
+          'status',
+          'active'
+        )
+        .in(
+          'id',
+          studentIds
+        )
         .order('full_name');
 
       if (studentError) {
@@ -406,6 +483,7 @@ export default function AttendancePage() {
         setMessage(
           `Could not load students: ${studentError.message}`
         );
+
         setStudents([]);
         setLoadingStudents(false);
         return;
@@ -414,19 +492,27 @@ export default function AttendancePage() {
       const loadedStudents =
         studentData || [];
 
-      setStudents(loadedStudents);
+      setStudents(
+        loadedStudents
+      );
 
       const initialMarks: Record<
         string,
         Status
       > = {};
 
-      loadedStudents.forEach((student) => {
-        initialMarks[student.id] =
-          'present';
-      });
+      loadedStudents.forEach(
+        (student) => {
+          initialMarks[
+            student.id
+          ] = 'present';
+        }
+      );
 
-      setMarks(initialMarks);
+      setMarks(
+        initialMarks
+      );
+
       setLoadingStudents(false);
     }
 
@@ -438,7 +524,7 @@ export default function AttendancePage() {
   ]);
 
   // ------------------------------------------------------------
-  // LOAD EXISTING ATTENDANCE
+  // LOAD EXISTING ATTENDANCE FOR DATE
   // ------------------------------------------------------------
   useEffect(() => {
     async function loadAttendance() {
@@ -455,7 +541,8 @@ export default function AttendancePage() {
 
       const studentIds =
         students.map(
-          (student) => student.id
+          (student) =>
+            student.id
         );
 
       const {
@@ -480,6 +567,7 @@ export default function AttendancePage() {
         setMessage(
           `Could not load attendance: ${error.message}`
         );
+
         setLoadingAttendance(false);
         return;
       }
@@ -489,32 +577,41 @@ export default function AttendancePage() {
         Status
       > = {};
 
-      students.forEach((student) => {
-        existingMarks[student.id] =
-          'present';
-      });
+      students.forEach(
+        (student) => {
+          existingMarks[
+            student.id
+          ] = 'present';
+        }
+      );
 
       const records =
         (data || []) as AttendanceRecord[];
 
-      records.forEach((record) => {
-        if (
-          record.status ===
-            'present' ||
-          record.status ===
-            'absent' ||
-          record.status ===
-            'late' ||
-          record.status ===
-            'excused'
-        ) {
-          existingMarks[
-            record.student_id
-          ] = record.status;
+      records.forEach(
+        (record) => {
+          if (
+            record.status ===
+              'present' ||
+            record.status ===
+              'absent' ||
+            record.status ===
+              'late' ||
+            record.status ===
+              'excused'
+          ) {
+            existingMarks[
+              record.student_id
+            ] =
+              record.status;
+          }
         }
-      });
+      );
 
-      setMarks(existingMarks);
+      setMarks(
+        existingMarks
+      );
+
       setLoadingAttendance(false);
     }
 
@@ -528,22 +625,30 @@ export default function AttendancePage() {
   // ------------------------------------------------------------
   // SEARCH STUDENTS
   // ------------------------------------------------------------
-  const filteredStudents = useMemo(() => {
-    const query =
-      search.trim().toLowerCase();
+  const filteredStudents =
+    useMemo(() => {
+      const query =
+        search
+          .trim()
+          .toLowerCase();
 
-    if (!query) return students;
+      if (!query) {
+        return students;
+      }
 
-    return students.filter(
-      (student) =>
-        student.full_name
-          .toLowerCase()
-          .includes(query) ||
-        student.admission_number
-          .toLowerCase()
-          .includes(query)
-    );
-  }, [students, search]);
+      return students.filter(
+        (student) =>
+          student.full_name
+            .toLowerCase()
+            .includes(query) ||
+          student.admission_number
+            .toLowerCase()
+            .includes(query)
+      );
+    }, [
+      students,
+      search,
+    ]);
 
   // ------------------------------------------------------------
   // COUNTS
@@ -554,31 +659,55 @@ export default function AttendancePage() {
     let late = 0;
     let excused = 0;
 
-    students.forEach((student) => {
-      const status =
-        marks[student.id];
+    students.forEach(
+      (student) => {
+        const status =
+          marks[student.id];
 
-      if (status === 'present')
-        present++;
+        if (
+          status ===
+          'present'
+        ) {
+          present++;
+        }
 
-      if (status === 'absent')
-        absent++;
+        if (
+          status ===
+          'absent'
+        ) {
+          absent++;
+        }
 
-      if (status === 'late')
-        late++;
+        if (
+          status ===
+          'late'
+        ) {
+          late++;
+        }
 
-      if (status === 'excused')
-        excused++;
-    });
+        if (
+          status ===
+          'excused'
+        ) {
+          excused++;
+        }
+      }
+    );
 
-    const total = students.length;
+    const total =
+      students.length;
 
+    /*
+     * Present + Late count as attended.
+     * Excused remains separate.
+     */
     const attended =
       present + late;
 
     const attendancePercentage =
       total > 0
-        ? (attended / total) * 100
+        ? (attended / total) *
+          100
         : 0;
 
     return {
@@ -590,36 +719,49 @@ export default function AttendancePage() {
       attended,
       attendancePercentage,
     };
-  }, [students, marks]);
+  }, [
+    students,
+    marks,
+  ]);
 
   // ------------------------------------------------------------
-  // SET INDIVIDUAL STATUS
+  // CHANGE INDIVIDUAL STATUS
   // ------------------------------------------------------------
   function setMark(
     studentId: string,
     status: Status
   ) {
-    setMarks((previous) => ({
-      ...previous,
-      [studentId]: status,
-    }));
+    setMarks(
+      (previous) => ({
+        ...previous,
+        [studentId]:
+          status,
+      })
+    );
   }
 
   // ------------------------------------------------------------
   // MARK EVERYONE
   // ------------------------------------------------------------
-  function markAll(status: Status) {
+  function markAll(
+    status: Status
+  ) {
     const newMarks: Record<
       string,
       Status
     > = {};
 
-    students.forEach((student) => {
-      newMarks[student.id] =
-        status;
-    });
+    students.forEach(
+      (student) => {
+        newMarks[
+          student.id
+        ] = status;
+      }
+    );
 
-    setMarks(newMarks);
+    setMarks(
+      newMarks
+    );
   }
 
   // ------------------------------------------------------------
@@ -633,47 +775,75 @@ export default function AttendancePage() {
       !selectedDate ||
       !students.length
     ) {
-      setMessageType('error');
+      setMessageType(
+        'error'
+      );
+
       setMessage(
         'Please select an academic year and class first.'
       );
+
       return;
     }
 
     setSaving(true);
     setMessage('');
 
-    const rows = students.map(
-      (student) => ({
-        student_id: student.id,
-        school_id: schoolId,
-        class_id: selectedClass,
-        date: selectedDate,
-        status:
-          marks[student.id] ||
-          'present',
-        recorded_by: userId,
-      })
-    );
+    const rows =
+      students.map(
+        (student) => ({
+          student_id:
+            student.id,
 
-    const { error } =
-      await supabase
-        .from('attendance')
-        .upsert(rows, {
+          school_id:
+            schoolId,
+
+          class_id:
+            selectedClass,
+
+          date:
+            selectedDate,
+
+          status:
+            marks[
+              student.id
+            ] ||
+            'present',
+
+          recorded_by:
+            userId,
+        })
+      );
+
+    const {
+      error,
+    } = await supabase
+      .from('attendance')
+      .upsert(
+        rows,
+        {
           onConflict:
             'student_id,date',
-        });
+        }
+      );
 
     if (error) {
-      setMessageType('error');
+      setMessageType(
+        'error'
+      );
+
       setMessage(
         `Could not save attendance: ${error.message}`
       );
+
       setSaving(false);
       return;
     }
 
-    setMessageType('success');
+    setMessageType(
+      'success'
+    );
+
     setMessage(
       `Attendance saved successfully for ${students.length} students.`
     );
@@ -682,7 +852,7 @@ export default function AttendancePage() {
   }
 
   // ------------------------------------------------------------
-  // LOADING
+  // LOADING SCREEN
   // ------------------------------------------------------------
   if (loading) {
     return (
@@ -693,6 +863,7 @@ export default function AttendancePage() {
               opacity: 0;
               transform: translateY(12px);
             }
+
             to {
               opacity: 1;
               transform: translateY(0);
@@ -700,11 +871,14 @@ export default function AttendancePage() {
           }
 
           .bti-attendance-loading {
-            animation: btiAttendanceFade
+            animation:
+              btiAttendanceFade
               0.5s ease-out both;
           }
 
-          @media (prefers-reduced-motion: reduce) {
+          @media (
+            prefers-reduced-motion: reduce
+          ) {
             .bti-attendance-loading {
               animation: none;
             }
@@ -732,6 +906,9 @@ export default function AttendancePage() {
     );
   }
 
+  // ------------------------------------------------------------
+  // PAGE
+  // ------------------------------------------------------------
   return (
     <>
       <style jsx global>{`
@@ -740,6 +917,7 @@ export default function AttendancePage() {
             opacity: 0;
             transform: translateY(18px);
           }
+
           to {
             opacity: 1;
             transform: translateY(0);
@@ -751,6 +929,7 @@ export default function AttendancePage() {
             opacity: 0;
             transform: scale(0.97);
           }
+
           to {
             opacity: 1;
             transform: scale(1);
@@ -768,18 +947,21 @@ export default function AttendancePage() {
           100% {
             transform: scale(1);
           }
+
           50% {
             transform: scale(1.04);
           }
         }
 
         .bti-attendance-fade {
-          animation: btiAttendanceFadeUp
+          animation:
+            btiAttendanceFadeUp
             0.55s ease-out both;
         }
 
         .bti-attendance-scale {
-          animation: btiAttendanceScale
+          animation:
+            btiAttendanceScale
             0.45s ease-out both;
         }
 
@@ -800,16 +982,20 @@ export default function AttendancePage() {
         }
 
         .bti-attendance-progress {
-          animation: btiAttendanceProgress
+          animation:
+            btiAttendanceProgress
             0.9s ease-out both;
         }
 
         .bti-attendance-pulse:hover {
-          animation: btiAttendancePulse
+          animation:
+            btiAttendancePulse
             0.7s ease-in-out;
         }
 
-        @media (prefers-reduced-motion: reduce) {
+        @media (
+          prefers-reduced-motion: reduce
+        ) {
           .bti-attendance-fade,
           .bti-attendance-scale,
           .bti-attendance-progress,
@@ -841,7 +1027,8 @@ export default function AttendancePage() {
                 </div>
               </div>
 
-              {role.toLowerCase() === 'teacher' && (
+              {role.toLowerCase() ===
+                'teacher' && (
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
                   <i className="fa-solid fa-chalkboard-user" />
                   Teacher Attendance Workspace
@@ -850,7 +1037,8 @@ export default function AttendancePage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {role.toLowerCase() === 'teacher' && (
+              {role.toLowerCase() ===
+                'teacher' && (
                 <Link
                   href="/teacher/classes"
                   className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50"
@@ -883,14 +1071,14 @@ export default function AttendancePage() {
                 </h2>
 
                 <p className="text-xs text-slate-500">
-                  Select the academic period, class and date.
+                  Select the academic year, class and date.
                 </p>
               </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
-              {/* YEAR */}
+              {/* ACADEMIC YEAR */}
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-slate-700">
                   Academic Year
@@ -932,7 +1120,9 @@ export default function AttendancePage() {
                 </label>
 
                 <select
-                  value={selectedProgramme}
+                  value={
+                    selectedProgramme
+                  }
                   onChange={(event) =>
                     setSelectedProgramme(
                       event.target.value
@@ -947,10 +1137,16 @@ export default function AttendancePage() {
                   {programmes.map(
                     (programme) => (
                       <option
-                        key={programme.id}
-                        value={programme.id}
+                        key={
+                          programme.id
+                        }
+                        value={
+                          programme.id
+                        }
                       >
-                        {programme.name}
+                        {
+                          programme.name
+                        }
                         {programme.code
                           ? ` (${programme.code})`
                           : ''}
@@ -967,7 +1163,9 @@ export default function AttendancePage() {
                 </label>
 
                 <select
-                  value={selectedClass}
+                  value={
+                    selectedClass
+                  }
                   onChange={(event) =>
                     setSelectedClass(
                       event.target.value
@@ -982,10 +1180,16 @@ export default function AttendancePage() {
                   {filteredClasses.map(
                     (classItem) => (
                       <option
-                        key={classItem.id}
-                        value={classItem.id}
+                        key={
+                          classItem.id
+                        }
+                        value={
+                          classItem.id
+                        }
                       >
-                        {classItem.name}
+                        {
+                          classItem.name
+                        }
                         {classItem.level
                           ? ` • ${classItem.level}`
                           : ''}
@@ -1003,7 +1207,9 @@ export default function AttendancePage() {
 
                 <input
                   type="date"
-                  value={selectedDate}
+                  value={
+                    selectedDate
+                  }
                   onChange={(event) =>
                     setSelectedDate(
                       event.target.value
@@ -1012,7 +1218,6 @@ export default function AttendancePage() {
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                 />
               </div>
-
             </div>
 
             {selectedClassItem && (
@@ -1020,12 +1225,17 @@ export default function AttendancePage() {
                 <i className="fa-solid fa-building-columns text-blue-600" />
 
                 <span className="font-semibold text-slate-800">
-                  {selectedClassItem.name}
+                  {
+                    selectedClassItem.name
+                  }
                 </span>
 
                 {selectedClassItem.level && (
                   <span className="text-slate-500">
-                    • {selectedClassItem.level}
+                    •{' '}
+                    {
+                      selectedClassItem.level
+                    }
                   </span>
                 )}
               </div>
@@ -1036,9 +1246,11 @@ export default function AttendancePage() {
           {message && (
             <div
               className={`bti-attendance-fade rounded-2xl border px-4 py-3 text-sm ${
-                messageType === 'success'
+                messageType ===
+                'success'
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                  : messageType === 'error'
+                  : messageType ===
+                    'error'
                   ? 'border-red-200 bg-red-50 text-red-800'
                   : 'border-blue-200 bg-blue-50 text-blue-800'
               }`}
@@ -1046,15 +1258,19 @@ export default function AttendancePage() {
               <div className="flex items-start gap-3">
                 <i
                   className={`mt-0.5 ${
-                    messageType === 'success'
+                    messageType ===
+                    'success'
                       ? 'fa-solid fa-circle-check'
-                      : messageType === 'error'
+                      : messageType ===
+                        'error'
                       ? 'fa-solid fa-circle-exclamation'
                       : 'fa-solid fa-circle-info'
                   }`}
                 />
 
-                <span>{message}</span>
+                <span>
+                  {message}
+                </span>
               </div>
             </div>
           )}
@@ -1075,7 +1291,8 @@ export default function AttendancePage() {
                 the student attendance register.
               </p>
 
-              {role.toLowerCase() === 'teacher' && (
+              {role.toLowerCase() ===
+                'teacher' && (
                 <Link
                   href="/teacher/classes"
                   className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700"
@@ -1096,68 +1313,102 @@ export default function AttendancePage() {
                 {[
                   {
                     label: 'Total',
-                    value: counts.total,
-                    icon: 'fa-solid fa-users',
-                    style: 'bg-slate-50 text-slate-700',
+                    value:
+                      counts.total,
+                    icon:
+                      'fa-solid fa-users',
+                    style:
+                      'bg-slate-50 text-slate-700',
                   },
                   {
                     label: 'Present',
-                    value: counts.present,
-                    icon: 'fa-solid fa-circle-check',
-                    style: 'bg-emerald-50 text-emerald-700',
+                    value:
+                      counts.present,
+                    icon:
+                      'fa-solid fa-circle-check',
+                    style:
+                      'bg-emerald-50 text-emerald-700',
                   },
                   {
                     label: 'Absent',
-                    value: counts.absent,
-                    icon: 'fa-solid fa-circle-xmark',
-                    style: 'bg-red-50 text-red-700',
+                    value:
+                      counts.absent,
+                    icon:
+                      'fa-solid fa-circle-xmark',
+                    style:
+                      'bg-red-50 text-red-700',
                   },
                   {
                     label: 'Late',
-                    value: counts.late,
-                    icon: 'fa-solid fa-clock',
-                    style: 'bg-orange-50 text-orange-700',
+                    value:
+                      counts.late,
+                    icon:
+                      'fa-solid fa-clock',
+                    style:
+                      'bg-orange-50 text-orange-700',
                   },
                   {
                     label: 'Excused',
-                    value: counts.excused,
-                    icon: 'fa-solid fa-shield-heart',
-                    style: 'bg-purple-50 text-purple-700',
+                    value:
+                      counts.excused,
+                    icon:
+                      'fa-solid fa-shield-heart',
+                    style:
+                      'bg-purple-50 text-purple-700',
                   },
                   {
                     label: 'Attendance',
                     value: `${counts.attendancePercentage.toFixed(
                       1
                     )}%`,
-                    icon: 'fa-solid fa-chart-line',
-                    style: 'bg-blue-50 text-blue-700',
+                    icon:
+                      'fa-solid fa-chart-line',
+                    style:
+                      'bg-blue-50 text-blue-700',
                   },
-                ].map((card, index) => (
-                  <div
-                    key={card.label}
-                    className={`bti-attendance-fade bti-attendance-delay-${
-                      (index % 4) + 1
-                    } rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md`}
-                  >
+                ].map(
+                  (
+                    card,
+                    index
+                  ) => (
                     <div
-                      className={`flex h-9 w-9 items-center justify-center rounded-xl ${card.style}`}
+                      key={
+                        card.label
+                      }
+                      className={`bti-attendance-fade bti-attendance-delay-${
+                        (index %
+                          4) +
+                        1
+                      } rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md`}
                     >
-                      <i className={card.icon} />
+                      <div
+                        className={`flex h-9 w-9 items-center justify-center rounded-xl ${card.style}`}
+                      >
+                        <i
+                          className={
+                            card.icon
+                          }
+                        />
+                      </div>
+
+                      <p className="mt-3 text-xs font-semibold text-slate-500">
+                        {
+                          card.label
+                        }
+                      </p>
+
+                      <p className="mt-1 text-2xl font-black text-slate-900">
+                        {
+                          card.value
+                        }
+                      </p>
                     </div>
-
-                    <p className="mt-3 text-xs font-semibold text-slate-500">
-                      {card.label}
-                    </p>
-
-                    <p className="mt-1 text-2xl font-black text-slate-900">
-                      {card.value}
-                    </p>
-                  </div>
-                ))}
+                  )
+                )}
 
               </div>
 
-              {/* ATTENDANCE REGISTER */}
+              {/* REGISTER */}
               <div className="bti-attendance-fade bti-attendance-delay-2 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
 
                 {/* REGISTER HEADER */}
@@ -1176,7 +1427,9 @@ export default function AttendancePage() {
                           </h2>
 
                           <p className="text-xs text-slate-500">
-                            {selectedDate}
+                            {
+                              selectedDate
+                            }
                             {selectedClassItem
                               ? ` • ${selectedClassItem.name}`
                               : ''}
@@ -1189,7 +1442,9 @@ export default function AttendancePage() {
                       <button
                         type="button"
                         onClick={() =>
-                          markAll('present')
+                          markAll(
+                            'present'
+                          )
                         }
                         className="bti-attendance-pulse inline-flex items-center gap-2 rounded-xl bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-200"
                       >
@@ -1200,7 +1455,9 @@ export default function AttendancePage() {
                       <button
                         type="button"
                         onClick={() =>
-                          markAll('absent')
+                          markAll(
+                            'absent'
+                          )
                         }
                         className="bti-attendance-pulse inline-flex items-center gap-2 rounded-xl bg-red-100 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-200"
                       >
@@ -1211,7 +1468,9 @@ export default function AttendancePage() {
                       <button
                         type="button"
                         onClick={() =>
-                          markAll('late')
+                          markAll(
+                            'late'
+                          )
                         }
                         className="bti-attendance-pulse inline-flex items-center gap-2 rounded-xl bg-orange-100 px-3 py-2 text-xs font-bold text-orange-700 transition hover:bg-orange-200"
                       >
@@ -1227,10 +1486,15 @@ export default function AttendancePage() {
 
                     <input
                       type="text"
-                      value={search}
-                      onChange={(event) =>
+                      value={
+                        search
+                      }
+                      onChange={(
+                        event
+                      ) =>
                         setSearch(
-                          event.target.value
+                          event.target
+                            .value
                         )
                       }
                       placeholder="Search student name or admission number..."
@@ -1260,7 +1524,8 @@ export default function AttendancePage() {
                 {/* EMPTY */}
                 {!loadingStudents &&
                   !loadingAttendance &&
-                  students.length === 0 && (
+                  students.length ===
+                    0 && (
                     <div className="p-10 text-center">
                       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
                         <i className="fa-solid fa-user-group text-xl" />
@@ -1281,14 +1546,18 @@ export default function AttendancePage() {
                 {/* STUDENTS */}
                 {!loadingStudents &&
                   !loadingAttendance &&
-                  filteredStudents.length > 0 && (
+                  filteredStudents.length >
+                    0 && (
                     <div className="divide-y divide-slate-100">
-
                       {filteredStudents.map(
-                        (student, index) => {
+                        (
+                          student,
+                          index
+                        ) => {
                           const currentStatus =
                             marks[
-                              student.id
+                              student
+                                .id
                             ] ||
                             'present';
 
@@ -1304,8 +1573,10 @@ export default function AttendancePage() {
                                 {/* STUDENT INFO */}
                                 <div className="flex items-center gap-3">
                                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-black text-slate-600">
-                                    {index +
-                                      1}
+                                    {
+                                      index +
+                                      1
+                                    }
                                   </div>
 
                                   <div className="min-w-0">
@@ -1317,6 +1588,7 @@ export default function AttendancePage() {
 
                                     <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
                                       <i className="fa-solid fa-id-card" />
+
                                       {
                                         student.admission_number
                                       }
@@ -1358,9 +1630,11 @@ export default function AttendancePage() {
                                             )}
                                           />
 
-                                          {statusLabel(
-                                            status
-                                          )}
+                                          {
+                                            statusLabel(
+                                              status
+                                            )
+                                          }
                                         </button>
                                       );
                                     }
@@ -1371,14 +1645,14 @@ export default function AttendancePage() {
                           );
                         }
                       )}
-
                     </div>
                   )}
 
                 {/* NO SEARCH RESULTS */}
                 {!loadingStudents &&
                   !loadingAttendance &&
-                  students.length > 0 &&
+                  students.length >
+                    0 &&
                   filteredStudents.length ===
                     0 && (
                     <div className="p-10 text-center">
@@ -1392,8 +1666,9 @@ export default function AttendancePage() {
                     </div>
                   )}
 
-                {/* ATTENDANCE BAR */}
-                {students.length > 0 && (
+                {/* PROGRESS */}
+                {students.length >
+                  0 && (
                   <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
                       <span>
@@ -1401,8 +1676,14 @@ export default function AttendancePage() {
                       </span>
 
                       <span>
-                        {counts.attended}/
-                        {counts.total} attended
+                        {
+                          counts.attended
+                        }
+                        /
+                        {
+                          counts.total
+                        }{' '}
+                        attended
                       </span>
                     </div>
 
@@ -1421,14 +1702,17 @@ export default function AttendancePage() {
                 )}
 
                 {/* SAVE */}
-                {students.length > 0 && (
+                {students.length >
+                  0 && (
                   <div className="border-t border-slate-200 p-4 sm:p-6">
                     <button
                       type="button"
                       onClick={
                         saveAttendance
                       }
-                      disabled={saving}
+                      disabled={
+                        saving
+                      }
                       className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 font-bold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                     >
                       <i
@@ -1445,14 +1729,13 @@ export default function AttendancePage() {
                     </button>
                   </div>
                 )}
-
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* Font Awesome */}
+      {/* FONT AWESOME */}
       <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
