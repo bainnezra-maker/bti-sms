@@ -4,9 +4,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
+type LoginMode = 'admin' | 'teacher' | 'student';
+
 export default function LoginPage() {
+  const [loginMode, setLoginMode] = useState<LoginMode>('admin');
+
   const [email, setEmail] = useState('');
+  const [admissionNumber, setAdmissionNumber] = useState('');
   const [password, setPassword] = useState('');
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -14,27 +20,159 @@ export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
 
+  function changeLoginMode(mode: LoginMode) {
+    if (loading) return;
+
+    setLoginMode(mode);
+    setError('');
+    setEmail('');
+    setAdmissionNumber('');
+    setPassword('');
+    setShowPassword(false);
+  }
+
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
 
     setError('');
 
-    if (!email || !password) {
-      setError('Please enter your email and password.');
+    if (!password) {
+      setError('Please enter your password.');
+      return;
+    }
+
+    if (loginMode === 'student' && !admissionNumber.trim()) {
+      setError('Please enter your admission number.');
+      return;
+    }
+
+    if (loginMode !== 'student' && !email.trim()) {
+      setError('Please enter your email address.');
       return;
     }
 
     setLoading(true);
 
+    /*
+     * ============================================================
+     * STUDENT LOGIN
+     * ============================================================
+     *
+     * Students do not enter their email address.
+     *
+     * The server securely converts the admission number into
+     * the linked Supabase Auth account and verifies the password.
+     */
+    if (loginMode === 'student') {
+      try {
+        const response = await fetch('/api/student-login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            admissionNumber: admissionNumber.trim().toUpperCase(),
+            password,
+          }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          setLoading(false);
+          setError(
+            result?.error ||
+              'Unable to sign in. Please check your admission number and password.'
+          );
+          return;
+        }
+
+        if (!result?.access_token || !result?.refresh_token) {
+          setLoading(false);
+          setError(
+            'Unable to establish your student session. Please try again.'
+          );
+          return;
+        }
+
+        const { error: sessionError } =
+          await supabase.auth.setSession({
+            access_token: result.access_token,
+            refresh_token: result.refresh_token,
+          });
+
+        if (sessionError) {
+          setLoading(false);
+          setError(
+            'Your account was verified, but we could not establish your session. Please try again.'
+          );
+          return;
+        }
+
+        /*
+         * Confirm the authenticated user is actually a Student
+         * account linked to a student record.
+         */
+        const { data: profile, error: profileError } = await supabase
+          .from('users')
+          .select(
+            'id, full_name, email, role, is_active, school_id, student_id'
+          )
+          .eq('id', result.user_id)
+          .maybeSingle();
+
+        if (profileError || !profile) {
+          await supabase.auth.signOut();
+          setLoading(false);
+          setError(
+            'We could not load your student profile. Please contact the administrator.'
+          );
+          return;
+        }
+
+        if (
+          profile.role !== 'Student' ||
+          profile.is_active === false ||
+          !profile.student_id
+        ) {
+          await supabase.auth.signOut();
+          setLoading(false);
+          setError(
+            'Your account is not configured as an active student account.'
+          );
+          return;
+        }
+
+        router.replace('/student');
+        return;
+      } catch (studentLoginError) {
+        console.error('Student login error:', studentLoginError);
+
+        setLoading(false);
+        setError(
+          'Unable to connect to the student login service. Please try again.'
+        );
+        return;
+      }
+    }
+
+    /*
+     * ============================================================
+     * ADMINISTRATOR / TEACHER LOGIN
+     * ============================================================
+     *
+     * These accounts continue using normal Supabase email/password
+     * authentication.
+     */
     const { data: authData, error: signInError } =
       await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password,
       });
 
     if (signInError) {
       setLoading(false);
-      setError(signInError.message);
+      setError('Invalid email or password.');
       return;
     }
 
@@ -46,13 +184,12 @@ export default function LoginPage() {
 
     /*
      * Load the user's BTI-SMS profile.
-     *
-     * The users table is protected by RLS, but authenticated
-     * users are allowed to read their own profile.
      */
     const { data: profile, error: profileError } = await supabase
       .from('users')
-      .select('id, full_name, email, role, is_active, school_id')
+      .select(
+        'id, full_name, email, role, is_active, school_id, student_id'
+      )
       .eq('id', authData.user.id)
       .maybeSingle();
 
@@ -87,37 +224,35 @@ export default function LoginPage() {
     }
 
     /*
-     * Role-based routing.
-     *
-     * Exact database enum values:
-     *
-     * admin
-     * teacher
-     * Student
-     * staff
-     *
-     * Staff is deliberately not allowed to log in because
-     * BTI-SMS currently uses only Admin, Teacher and Student
-     * as login roles.
+     * Administrator.
      */
     if (profile.role === 'admin') {
       router.replace('/');
       return;
     }
 
+    /*
+     * Teacher.
+     */
     if (profile.role === 'teacher') {
       router.replace('/teacher');
       return;
     }
 
+    /*
+     * Student accounts should use the Student login option.
+     */
     if (profile.role === 'Student') {
-      router.replace('/student');
+      await supabase.auth.signOut();
+      setLoading(false);
+      setError(
+        'Please use the Student login option with your admission number.'
+      );
       return;
     }
 
     /*
-     * Any other role, including the legacy "staff" role,
-     * is denied access.
+     * Staff and all other roles are denied access.
      */
     await supabase.auth.signOut();
 
@@ -127,6 +262,8 @@ export default function LoginPage() {
       'Your account does not have a valid BTI-SMS login role. Please contact the administrator.'
     );
   }
+
+  const isStudent = loginMode === 'student';
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-950">
@@ -208,12 +345,24 @@ export default function LoginPage() {
               <div className="flex items-center gap-3">
 
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white shadow-md">
-                  <i className="fa-solid fa-right-to-bracket" />
+                  <i
+                    className={
+                      isStudent
+                        ? 'fa-solid fa-graduation-cap'
+                        : loginMode === 'teacher'
+                          ? 'fa-solid fa-chalkboard-user'
+                          : 'fa-solid fa-user-shield'
+                    }
+                  />
                 </div>
 
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">
-                    Welcome back
+                    {isStudent
+                      ? 'Student Portal'
+                      : loginMode === 'teacher'
+                        ? 'Teacher Portal'
+                        : 'Administrator Portal'}
                   </h2>
 
                   <p className="mt-0.5 text-sm text-slate-500">
@@ -224,46 +373,146 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Form */}
+            {/* ================================================= */}
+            {/* PORTAL SELECTOR */}
+            {/* ================================================= */}
+
+            <div className="border-b border-slate-100 px-6 pt-5 sm:px-8">
+              <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                Select your portal
+              </p>
+
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => changeLoginMode('admin')}
+                  disabled={loading}
+                  className={`flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all ${
+                    loginMode === 'admin'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+                      : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-user-shield text-base" />
+                  <span>Administrator</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => changeLoginMode('teacher')}
+                  disabled={loading}
+                  className={`flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all ${
+                    loginMode === 'teacher'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+                      : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-chalkboard-user text-base" />
+                  <span>Teacher</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => changeLoginMode('student')}
+                  disabled={loading}
+                  className={`flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all ${
+                    loginMode === 'student'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+                      : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-graduation-cap text-base" />
+                  <span>Student</span>
+                </button>
+              </div>
+            </div>
+
+            {/* ================================================= */}
+            {/* FORM */}
+            {/* ================================================= */}
+
             <form
               onSubmit={handleSignIn}
               className="space-y-5 px-6 py-6 sm:px-8 sm:py-7"
             >
 
               {/* ================================================= */}
-              {/* EMAIL */}
+              {/* ADMIN / TEACHER EMAIL */}
               {/* ================================================= */}
 
-              <div>
-                <label
-                  htmlFor="email"
-                  className="mb-2 block text-sm font-semibold text-slate-700"
-                >
-                  Email Address
-                </label>
+              {!isStudent && (
+                <div>
+                  <label
+                    htmlFor="email"
+                    className="mb-2 block text-sm font-semibold text-slate-700"
+                  >
+                    Email Address
+                  </label>
 
-                <div className="group relative">
+                  <div className="group relative">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex w-12 items-center justify-center text-slate-400 transition-colors duration-200 group-focus-within:text-slate-900">
+                      <i className="fa-solid fa-envelope text-sm" />
+                    </div>
 
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex w-12 items-center justify-center text-slate-400 transition-colors duration-200 group-focus-within:text-slate-900">
-                    <i className="fa-solid fa-envelope text-sm" />
+                    <input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder={
+                        loginMode === 'teacher'
+                          ? 'teacher@bti.edu.gh'
+                          : 'admin@bti.edu.gh'
+                      }
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        setError('');
+                      }}
+                      disabled={loading}
+                      className="h-13 w-full rounded-xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-sm font-medium text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ================================================= */}
+              {/* STUDENT ADMISSION NUMBER */}
+              {/* ================================================= */}
+
+              {isStudent && (
+                <div>
+                  <label
+                    htmlFor="admissionNumber"
+                    className="mb-2 block text-sm font-semibold text-slate-700"
+                  >
+                    Admission Number
+                  </label>
+
+                  <div className="group relative">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex w-12 items-center justify-center text-slate-400 transition-colors duration-200 group-focus-within:text-slate-900">
+                      <i className="fa-solid fa-id-card text-sm" />
+                    </div>
+
+                    <input
+                      id="admissionNumber"
+                      type="text"
+                      autoComplete="username"
+                      placeholder="e.g. BTI/2026/0002"
+                      value={admissionNumber}
+                      onChange={(e) => {
+                        setAdmissionNumber(e.target.value.toUpperCase());
+                        setError('');
+                      }}
+                      disabled={loading}
+                      className="h-13 w-full rounded-xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-sm font-medium uppercase tracking-wide text-slate-900 outline-none transition-all duration-200 placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
                   </div>
 
-                  <input
-                    id="email"
-                    type="email"
-                    autoComplete="email"
-                    placeholder="name@bti.edu.gh"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      setError('');
-                    }}
-                    disabled={loading}
-                    className="h-13 w-full rounded-xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-sm font-medium text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5 disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-
+                  <p className="mt-2 text-xs text-slate-400">
+                    Use the admission number issued by Biriwa Technical Institute.
+                  </p>
                 </div>
-              </div>
+              )}
 
               {/* ================================================= */}
               {/* PASSWORD */}
@@ -278,7 +527,6 @@ export default function LoginPage() {
                 </label>
 
                 <div className="group relative">
-
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex w-12 items-center justify-center text-slate-400 transition-colors duration-200 group-focus-within:text-slate-900">
                     <i className="fa-solid fa-lock text-sm" />
                   </div>
@@ -294,7 +542,7 @@ export default function LoginPage() {
                       setError('');
                     }}
                     disabled={loading}
-                    className="h-13 w-full rounded-xl border border-slate-200 bg-slate-50 pl-12 pr-12 text-sm font-medium text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="h-13 w-full rounded-xl border border-slate-200 bg-slate-50 pl-12 pr-12 text-sm font-medium text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-900 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                   />
 
                   <button
@@ -318,7 +566,6 @@ export default function LoginPage() {
                       }
                     />
                   </button>
-
                 </div>
               </div>
 
@@ -328,7 +575,6 @@ export default function LoginPage() {
 
               {error && (
                 <div className="flex animate-[errorShake_0.35s_ease-out] items-start gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
-
                   <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-100">
                     <i className="fa-solid fa-circle-exclamation text-xs" />
                   </div>
@@ -336,7 +582,6 @@ export default function LoginPage() {
                   <p className="leading-6">
                     {error}
                   </p>
-
                 </div>
               )}
 
@@ -349,7 +594,6 @@ export default function LoginPage() {
                 disabled={loading}
                 className="group relative flex h-13 w-full items-center justify-center overflow-hidden rounded-xl bg-slate-900 px-5 text-sm font-bold text-white shadow-lg shadow-slate-900/20 transition-all duration-300 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-xl hover:shadow-slate-900/25 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
               >
-
                 <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
 
                 {loading ? (
@@ -363,21 +607,21 @@ export default function LoginPage() {
                     <i className="fa-solid fa-arrow-right text-xs transition-transform duration-200 group-hover:translate-x-1" />
                   </span>
                 )}
-
               </button>
 
               {/* ================================================= */}
-              {/* SECURITY NOTE */}
+              {/* LOGIN HELP */}
               {/* ================================================= */}
 
               <div className="flex items-center justify-center gap-2 pt-1 text-xs text-slate-400">
                 <i className="fa-solid fa-shield-halved text-slate-400" />
 
                 <span>
-                  Secure access to the BTI management portal
+                  {isStudent
+                    ? 'Secure access to your BTI student portal'
+                    : 'Secure access to the BTI management portal'}
                 </span>
               </div>
-
             </form>
           </div>
 
@@ -386,7 +630,6 @@ export default function LoginPage() {
           {/* ===================================================== */}
 
           <div className="mt-6 text-center">
-
             <p className="text-xs text-slate-500">
               © {new Date().getFullYear()} Biriwa Technical Institute
             </p>
@@ -394,9 +637,7 @@ export default function LoginPage() {
             <p className="mt-1 text-[11px] text-slate-600">
               BTI School Management System
             </p>
-
           </div>
-
         </div>
       </div>
 
