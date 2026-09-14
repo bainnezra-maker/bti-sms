@@ -257,7 +257,7 @@ export default function AssessmentPage() {
           await supabase
             .from('teacher_assignments')
             .select('class_id')
-            .eq('teacher_id', data?.id ?? '');
+            .eq('teacher_id', profile.id);
 
         if (assignmentError) {
           setError(assignmentError.message);
