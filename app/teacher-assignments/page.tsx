@@ -39,26 +39,48 @@ type Assignment = {
   class_id: string;
   subject_id: string;
   term_id: string;
-  teacher?: Teacher | null;
-  class?: ClassRecord | null;
-  subject?: Subject | null;
-  term?: Term | null;
+
+  /*
+   * Supabase may return relationship records as either
+   * an object or an array depending on the generated type.
+   */
+  teacher?: Teacher | Teacher[] | null;
+  class?: ClassRecord | ClassRecord[] | null;
+  subject?: Subject | Subject[] | null;
+  term?: Term | Term[] | null;
 };
+
+function firstRelation<T>(
+  relation: T | T[] | null | undefined
+): T | null {
+  if (!relation) return null;
+
+  if (Array.isArray(relation)) {
+    return relation[0] || null;
+  }
+
+  return relation;
+}
 
 export default function TeacherAssignmentsPage() {
   const supabase = createClient();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [academicYears, setAcademicYears] = useState<
+    AcademicYear[]
+  >([]);
   const [terms, setTerms] = useState<Term[]>([]);
   const [classes, setClasses] = useState<ClassRecord[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>(
+    []
+  );
 
   const [selectedTeacher, setSelectedTeacher] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
@@ -68,10 +90,6 @@ export default function TeacherAssignmentsPage() {
 
   const [search, setSearch] = useState('');
 
-  /*
-   * Load the administrator's school first.
-   * All teacher/class/academic data is restricted to this school.
-   */
   async function getSchoolId() {
     const {
       data: { user },
@@ -81,22 +99,27 @@ export default function TeacherAssignmentsPage() {
       throw new Error('You are not logged in.');
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .select('id, school_id, role, is_active')
-      .eq('id', user.id)
-      .single();
+    const { data: profile, error: profileError } =
+      await supabase
+        .from('users')
+        .select('id, school_id, role, is_active')
+        .eq('id', user.id)
+        .single();
 
     if (profileError) {
       throw new Error(profileError.message);
     }
 
     if (profile?.role !== 'admin') {
-      throw new Error('Only administrators can manage teacher assignments.');
+      throw new Error(
+        'Only administrators can manage teacher assignments.'
+      );
     }
 
     if (!profile.school_id) {
-      throw new Error('Your account is not linked to a school.');
+      throw new Error(
+        'Your account is not linked to a school.'
+      );
     }
 
     if (profile.is_active === false) {
@@ -185,59 +208,74 @@ export default function TeacherAssignmentsPage() {
         );
       }
 
-      setTeachers((teachersResult.data || []) as Teacher[]);
-      setAcademicYears((yearsResult.data || []) as AcademicYear[]);
+      setTeachers(
+        (teachersResult.data || []) as Teacher[]
+      );
+
+      setAcademicYears(
+        (yearsResult.data || []) as AcademicYear[]
+      );
+
       setTerms((termsResult.data || []) as Term[]);
-      setClasses((classesResult.data || []) as ClassRecord[]);
-      setSubjects((subjectsResult.data || []) as Subject[]);
+
+      setClasses(
+        (classesResult.data || []) as ClassRecord[]
+      );
+
+      setSubjects(
+        (subjectsResult.data || []) as Subject[]
+      );
 
       await loadAssignments(schoolId);
     } catch (err: any) {
-      setError(err?.message || 'Unable to load teacher assignments.');
+      setError(
+        err?.message ||
+          'Unable to load teacher assignments.'
+      );
     } finally {
       setLoading(false);
     }
   }
 
   async function loadAssignments(schoolId: string) {
-    const { data, error: assignmentError } = await supabase
-      .from('teacher_assignments')
-      .select(`
-        id,
-        teacher_id,
-        class_id,
-        subject_id,
-        term_id,
-        teacher:users!teacher_assignments_teacher_id_fkey (
+    const { data, error: assignmentError } =
+      await supabase
+        .from('teacher_assignments')
+        .select(`
           id,
-          full_name,
-          email
-        ),
-        class:classes (
-          id,
-          name,
-          level,
-          academic_year_id,
-          programme_id
-        ),
-        subject:subjects (
-          id,
-          name,
-          code
-        ),
-        term:terms (
-          id,
-          name
-        )
-      `)
-      .eq('school_id', schoolId)
-      .order('id', { ascending: false });
+          teacher_id,
+          class_id,
+          subject_id,
+          term_id,
+          teacher:users!teacher_assignments_teacher_id_fkey (
+            id,
+            full_name,
+            email
+          ),
+          class:classes (
+            id,
+            name,
+            level,
+            academic_year_id,
+            programme_id
+          ),
+          subject:subjects (
+            id,
+            name,
+            code
+          ),
+          term:terms (
+            id,
+            name
+          )
+        `)
+        .eq('school_id', schoolId)
+        .order('id', { ascending: false });
 
     if (assignmentError) {
       /*
-       * Some existing databases may not have school_id directly
-       * on teacher_assignments. If that is the case, fall back to
-       * loading the assignments without the school filter.
+       * Fallback for databases where teacher_assignments
+       * does not contain school_id directly.
        */
       const fallback = await supabase
         .from('teacher_assignments')
@@ -277,11 +315,23 @@ export default function TeacherAssignmentsPage() {
         );
       }
 
-      setAssignments((fallback.data || []) as Assignment[]);
+      /*
+       * unknown is intentional here.
+       *
+       * Supabase returns nested relationships as arrays
+       * in the generated response type, while our UI
+       * accepts either a single object or an array.
+       */
+      setAssignments(
+        (fallback.data || []) as unknown as Assignment[]
+      );
+
       return;
     }
 
-    setAssignments((data || []) as Assignment[]);
+    setAssignments(
+      (data || []) as unknown as Assignment[]
+    );
   }
 
   useEffect(() => {
@@ -289,8 +339,8 @@ export default function TeacherAssignmentsPage() {
   }, []);
 
   /*
-   * When the academic year changes, automatically clear the class
-   * if that class does not belong to the selected academic year.
+   * When the academic year changes, make sure the
+   * selected class belongs to that academic year.
    */
   useEffect(() => {
     if (!selectedYear) return;
@@ -304,7 +354,7 @@ export default function TeacherAssignmentsPage() {
     if (selectedClass && !classStillValid) {
       setSelectedClass('');
     }
-  }, [selectedYear, classes]);
+  }, [selectedYear, classes, selectedClass]);
 
   const filteredClasses = useMemo(() => {
     if (!selectedYear) return [];
@@ -320,23 +370,43 @@ export default function TeacherAssignmentsPage() {
     if (!query) return assignments;
 
     return assignments.filter((assignment) => {
+      const teacher = firstRelation(
+        assignment.teacher
+      );
+
+      const classRecord = firstRelation(
+        assignment.class
+      );
+
+      const subject = firstRelation(
+        assignment.subject
+      );
+
+      const term = firstRelation(
+        assignment.term
+      );
+
       const teacherName =
-        assignment.teacher?.full_name?.toLowerCase() || '';
+        teacher?.full_name?.toLowerCase() || '';
+
+      const teacherEmail =
+        teacher?.email?.toLowerCase() || '';
 
       const className =
-        assignment.class?.name?.toLowerCase() || '';
+        classRecord?.name?.toLowerCase() || '';
 
       const subjectName =
-        assignment.subject?.name?.toLowerCase() || '';
+        subject?.name?.toLowerCase() || '';
 
       const subjectCode =
-        assignment.subject?.code?.toLowerCase() || '';
+        subject?.code?.toLowerCase() || '';
 
       const termName =
-        assignment.term?.name?.toLowerCase() || '';
+        term?.name?.toLowerCase() || '';
 
       return (
         teacherName.includes(query) ||
+        teacherEmail.includes(query) ||
         className.includes(query) ||
         subjectName.includes(query) ||
         subjectCode.includes(query) ||
@@ -345,7 +415,9 @@ export default function TeacherAssignmentsPage() {
     });
   }, [assignments, search]);
 
-  async function handleAssign(e: React.FormEvent) {
+  async function handleAssign(
+    e: React.FormEvent
+  ) {
     e.preventDefault();
 
     setMessage('');
@@ -382,11 +454,12 @@ export default function TeacherAssignmentsPage() {
 
     try {
       /*
-       * Check for an existing identical assignment first.
-       * This prevents the same teacher/class/subject/semester
-       * combination from being created twice.
+       * Prevent duplicate assignments.
        */
-      const { data: existing, error: existingError } = await supabase
+      const {
+        data: existing,
+        error: existingError,
+      } = await supabase
         .from('teacher_assignments')
         .select('id')
         .eq('teacher_id', selectedTeacher)
@@ -405,40 +478,43 @@ export default function TeacherAssignmentsPage() {
         );
       }
 
-      /*
-       * Use the existing teacher_assignments structure.
-       * The academic year is represented by the selected class.
-       */
-      const { error: insertError } = await supabase
-        .from('teacher_assignments')
-        .insert({
-          teacher_id: selectedTeacher,
-          class_id: selectedClass,
-          subject_id: selectedSubject,
-          term_id: selectedTerm,
-        });
+      const { error: insertError } =
+        await supabase
+          .from('teacher_assignments')
+          .insert({
+            teacher_id: selectedTeacher,
+            class_id: selectedClass,
+            subject_id: selectedSubject,
+            term_id: selectedTerm,
+          });
 
       if (insertError) {
         throw new Error(insertError.message);
       }
 
-      setMessage('Teacher assignment saved successfully.');
+      setMessage(
+        'Teacher assignment saved successfully.'
+      );
 
       setSelectedClass('');
       setSelectedSubject('');
 
       const schoolId = await getSchoolId();
+
       await loadAssignments(schoolId);
     } catch (err: any) {
       setError(
-        err?.message || 'Unable to save teacher assignment.'
+        err?.message ||
+          'Unable to save teacher assignment.'
       );
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleRemove(assignmentId: string) {
+  async function handleRemove(
+    assignmentId: string
+  ) {
     const confirmed = window.confirm(
       'Remove this teacher assignment?'
     );
@@ -449,22 +525,27 @@ export default function TeacherAssignmentsPage() {
     setError('');
 
     try {
-      const { error: deleteError } = await supabase
-        .from('teacher_assignments')
-        .delete()
-        .eq('id', assignmentId);
+      const { error: deleteError } =
+        await supabase
+          .from('teacher_assignments')
+          .delete()
+          .eq('id', assignmentId);
 
       if (deleteError) {
         throw new Error(deleteError.message);
       }
 
-      setMessage('Teacher assignment removed.');
+      setMessage(
+        'Teacher assignment removed.'
+      );
 
       const schoolId = await getSchoolId();
+
       await loadAssignments(schoolId);
     } catch (err: any) {
       setError(
-        err?.message || 'Unable to remove teacher assignment.'
+        err?.message ||
+          'Unable to remove teacher assignment.'
       );
     }
   }
@@ -473,8 +554,10 @@ export default function TeacherAssignmentsPage() {
     return (
       <main className="min-h-screen bg-gray-50 p-4 md:p-6">
         <div className="mx-auto max-w-7xl">
-          <div className="rounded-xl bg-white p-8 text-center shadow-sm">
-            <p className="text-gray-600">
+          <div className="rounded-2xl bg-white p-10 text-center shadow-sm">
+            <i className="fa-solid fa-spinner fa-spin mb-3 text-2xl text-blue-600" />
+
+            <p className="text-sm font-medium text-gray-600">
               Loading teacher assignments...
             </p>
           </div>
@@ -486,50 +569,91 @@ export default function TeacherAssignmentsPage() {
   return (
     <main className="min-h-screen bg-gray-50 p-4 md:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Teacher Assignments
-          </h1>
 
-          <p className="mt-1 text-sm text-gray-600">
-            Assign teachers to classes and subjects for each
-            semester.
-          </p>
+        {/* PAGE HEADER */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                <i className="fa-solid fa-user-check text-lg" />
+              </div>
+
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  Teacher Assignments
+                </h1>
+
+                <p className="mt-1 text-sm text-gray-600">
+                  Assign teachers to classes and subjects for each semester.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Messages */}
+        {/* ERROR */}
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
+          <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <i className="fa-solid fa-circle-exclamation mt-0.5" />
+
+            <div>
+              <p className="font-semibold">
+                Something went wrong
+              </p>
+
+              <p className="mt-1">
+                {error}
+              </p>
+            </div>
           </div>
         )}
 
+        {/* SUCCESS */}
         {message && (
-          <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-            {message}
+          <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+            <i className="fa-solid fa-circle-check mt-0.5 animate-pulse" />
+
+            <div>
+              <p className="font-semibold">
+                Success
+              </p>
+
+              <p className="mt-1">
+                {message}
+              </p>
+            </div>
           </div>
         )}
 
-        {/* Assignment form */}
-        <section className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-5">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Assign Teacher
-            </h2>
+        {/* ASSIGNMENT FORM */}
+        <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="border-b border-gray-100 px-5 py-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <i className="fa-solid fa-user-plus" />
+              </div>
 
-            <p className="mt-1 text-sm text-gray-500">
-              Select who teaches which subject in which class.
-            </p>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Assign Teacher
+                </h2>
+
+                <p className="mt-1 text-sm text-gray-500">
+                  Select the teacher, academic year, semester, class and subject.
+                </p>
+              </div>
+            </div>
           </div>
 
           <form
             onSubmit={handleAssign}
-            className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+            className="grid grid-cols-1 gap-5 p-5 md:grid-cols-2 lg:grid-cols-3"
           >
-            {/* Teacher */}
+
+            {/* TEACHER */}
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-semibold text-gray-700">
+                <i className="fa-solid fa-user mr-2 text-blue-500" />
                 Teacher
               </label>
 
@@ -538,21 +662,29 @@ export default function TeacherAssignmentsPage() {
                 onChange={(e) =>
                   setSelectedTeacher(e.target.value)
                 }
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
-                <option value="">Select teacher</option>
+                <option value="">
+                  Select teacher
+                </option>
 
                 {teachers.map((teacher) => (
-                  <option key={teacher.id} value={teacher.id}>
-                    {teacher.full_name || teacher.email || 'Teacher'}
+                  <option
+                    key={teacher.id}
+                    value={teacher.id}
+                  >
+                    {teacher.full_name ||
+                      teacher.email ||
+                      'Teacher'}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Academic Year */}
+            {/* ACADEMIC YEAR */}
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-semibold text-gray-700">
+                <i className="fa-solid fa-calendar-days mr-2 text-blue-500" />
                 Academic Year
               </label>
 
@@ -561,21 +693,27 @@ export default function TeacherAssignmentsPage() {
                 onChange={(e) =>
                   setSelectedYear(e.target.value)
                 }
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
-                <option value="">Select academic year</option>
+                <option value="">
+                  Select academic year
+                </option>
 
                 {academicYears.map((year) => (
-                  <option key={year.id} value={year.id}>
+                  <option
+                    key={year.id}
+                    value={year.id}
+                  >
                     {year.name}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Semester */}
+            {/* SEMESTER */}
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-semibold text-gray-700">
+                <i className="fa-solid fa-layer-group mr-2 text-blue-500" />
                 Semester
               </label>
 
@@ -584,21 +722,27 @@ export default function TeacherAssignmentsPage() {
                 onChange={(e) =>
                   setSelectedTerm(e.target.value)
                 }
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
-                <option value="">Select semester</option>
+                <option value="">
+                  Select semester
+                </option>
 
                 {terms.map((term) => (
-                  <option key={term.id} value={term.id}>
+                  <option
+                    key={term.id}
+                    value={term.id}
+                  >
                     {term.name}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Class */}
+            {/* CLASS */}
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-semibold text-gray-700">
+                <i className="fa-solid fa-school mr-2 text-blue-500" />
                 Class
               </label>
 
@@ -608,7 +752,7 @@ export default function TeacherAssignmentsPage() {
                   setSelectedClass(e.target.value)
                 }
                 disabled={!selectedYear}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none disabled:bg-gray-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
               >
                 <option value="">
                   {selectedYear
@@ -617,17 +761,23 @@ export default function TeacherAssignmentsPage() {
                 </option>
 
                 {filteredClasses.map((item) => (
-                  <option key={item.id} value={item.id}>
+                  <option
+                    key={item.id}
+                    value={item.id}
+                  >
                     {item.name}
-                    {item.level ? ` — ${item.level}` : ''}
+                    {item.level
+                      ? ` — ${item.level}`
+                      : ''}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Subject */}
+            {/* SUBJECT */}
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-semibold text-gray-700">
+                <i className="fa-solid fa-book-open mr-2 text-blue-500" />
                 Subject
               </label>
 
@@ -636,91 +786,150 @@ export default function TeacherAssignmentsPage() {
                 onChange={(e) =>
                   setSelectedSubject(e.target.value)
                 }
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
-                <option value="">Select subject</option>
+                <option value="">
+                  Select subject
+                </option>
 
                 {subjects.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
+                  <option
+                    key={subject.id}
+                    value={subject.id}
+                  >
                     {subject.name}
-                    {subject.code ? ` (${subject.code})` : ''}
+                    {subject.code
+                      ? ` (${subject.code})`
+                      : ''}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Button */}
+            {/* ASSIGN BUTTON */}
             <div className="flex items-end">
               <button
                 type="submit"
                 disabled={saving}
-                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="group flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {saving ? 'Assigning...' : 'Assign Teacher'}
+                <i
+                  className={`fa-solid ${
+                    saving
+                      ? 'fa-spinner fa-spin'
+                      : 'fa-user-check group-hover:animate-pulse'
+                  }`}
+                />
+
+                {saving
+                  ? 'Assigning...'
+                  : 'Assign Teacher'}
               </button>
             </div>
           </form>
         </section>
 
-        {/* Instructions */}
-        <section className="rounded-xl border border-blue-100 bg-blue-50 p-5">
-          <h2 className="font-semibold text-blue-900">
-            How teacher assignment works
-          </h2>
-
-          <div className="mt-2 space-y-1 text-sm text-blue-800">
-            <p>
-              1. Select the teacher.
-            </p>
-            <p>
-              2. Select the academic year.
-            </p>
-            <p>
-              3. Select the semester.
-            </p>
-            <p>
-              4. Select the class.
-            </p>
-            <p>
-              5. Select the subject.
-            </p>
-            <p>
-              6. Tap <strong>Assign Teacher</strong>.
-            </p>
-          </div>
-
-          <p className="mt-3 text-sm font-medium text-blue-900">
-            The teacher will then see the assigned class under
-            Teacher Portal → Classes.
-          </p>
-        </section>
-
-        {/* Current assignments */}
-        <section className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">
-                Current Teacher Assignments
-              </h2>
-
-              <p className="text-sm text-gray-500">
-                {assignments.length} assignment
-                {assignments.length === 1 ? '' : 's'}
-              </p>
+        {/* HOW IT WORKS */}
+        <section className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+              <i className="fa-solid fa-circle-info" />
             </div>
 
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search teacher, class or subject..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 md:w-80"
-            />
+            <div>
+              <h2 className="font-semibold text-blue-900">
+                How teacher assignment works
+              </h2>
+
+              <div className="mt-3 grid gap-2 text-sm text-blue-800 md:grid-cols-2">
+                <p>
+                  <i className="fa-solid fa-1 mr-2" />
+                  Select the teacher.
+                </p>
+
+                <p>
+                  <i className="fa-solid fa-2 mr-2" />
+                  Select the academic year.
+                </p>
+
+                <p>
+                  <i className="fa-solid fa-3 mr-2" />
+                  Select the semester.
+                </p>
+
+                <p>
+                  <i className="fa-solid fa-4 mr-2" />
+                  Select the class.
+                </p>
+
+                <p>
+                  <i className="fa-solid fa-5 mr-2" />
+                  Select the subject.
+                </p>
+
+                <p>
+                  <i className="fa-solid fa-6 mr-2" />
+                  Tap Assign Teacher.
+                </p>
+              </div>
+
+              <div className="mt-4 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-sm font-medium text-blue-900">
+                <i className="fa-solid fa-arrow-right animate-pulse" />
+
+                <span>
+                  The teacher will see the assigned class under
+                  Teacher Portal → Classes.
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* CURRENT ASSIGNMENTS */}
+        <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="flex flex-col gap-4 border-b border-gray-100 px-5 py-5 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-50 text-green-600">
+                <i className="fa-solid fa-list-check" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Current Teacher Assignments
+                </h2>
+
+                <p className="text-sm text-gray-500">
+                  {assignments.length}{' '}
+                  assignment
+                  {assignments.length === 1
+                    ? ''
+                    : 's'}
+                </p>
+              </div>
+            </div>
+
+            <div className="relative w-full md:w-80">
+              <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+
+              <input
+                type="search"
+                value={search}
+                onChange={(e) =>
+                  setSearch(e.target.value)
+                }
+                placeholder="Search teacher, class or subject..."
+                className="w-full rounded-xl border border-gray-300 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
           </div>
 
           {filteredAssignments.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center">
-              <p className="font-medium text-gray-700">
+            <div className="p-10 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+                <i className="fa-solid fa-user-slash text-xl" />
+              </div>
+
+              <p className="mt-4 font-semibold text-gray-700">
                 No teacher assignments found.
               </p>
 
@@ -757,67 +966,126 @@ export default function TeacherAssignmentsPage() {
                 </thead>
 
                 <tbody>
-                  {filteredAssignments.map((assignment) => (
-                    <tr
-                      key={assignment.id}
-                      className="border-b last:border-0 hover:bg-gray-50"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">
-                          {assignment.teacher?.full_name ||
-                            assignment.teacher?.email ||
-                            'Unknown teacher'}
-                        </div>
+                  {filteredAssignments.map(
+                    (assignment) => {
+                      const teacher =
+                        firstRelation(
+                          assignment.teacher
+                        );
 
-                        {assignment.teacher?.email && (
-                          <div className="text-xs text-gray-500">
-                            {assignment.teacher.email}
-                          </div>
-                        )}
-                      </td>
+                      const classRecord =
+                        firstRelation(
+                          assignment.class
+                        );
 
-                      <td className="px-4 py-3 text-gray-700">
-                        <div className="font-medium">
-                          {assignment.class?.name || 'Unknown class'}
-                        </div>
+                      const subject =
+                        firstRelation(
+                          assignment.subject
+                        );
 
-                        {assignment.class?.level && (
-                          <div className="text-xs text-gray-500">
-                            {assignment.class.level}
-                          </div>
-                        )}
-                      </td>
+                      const term =
+                        firstRelation(
+                          assignment.term
+                        );
 
-                      <td className="px-4 py-3 text-gray-700">
-                        <div className="font-medium">
-                          {assignment.subject?.name ||
-                            'Unknown subject'}
-                        </div>
-
-                        {assignment.subject?.code && (
-                          <div className="text-xs text-gray-500">
-                            {assignment.subject.code}
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-3 text-gray-700">
-                        {assignment.term?.name || 'Unknown semester'}
-                      </td>
-
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleRemove(assignment.id)
-                          }
-                          className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
+                      return (
+                        <tr
+                          key={assignment.id}
+                          className="border-b last:border-0 hover:bg-gray-50"
                         >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {/* TEACHER */}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                                <i className="fa-solid fa-user" />
+                              </div>
+
+                              <div>
+                                <div className="font-medium text-gray-900">
+                                  {teacher?.full_name ||
+                                    teacher?.email ||
+                                    'Unknown teacher'}
+                                </div>
+
+                                {teacher?.email && (
+                                  <div className="text-xs text-gray-500">
+                                    {teacher.email}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* CLASS */}
+                          <td className="px-4 py-3 text-gray-700">
+                            <div className="flex items-center gap-2">
+                              <i className="fa-solid fa-school text-gray-400" />
+
+                              <div>
+                                <div className="font-medium">
+                                  {classRecord?.name ||
+                                    'Unknown class'}
+                                </div>
+
+                                {classRecord?.level && (
+                                  <div className="text-xs text-gray-500">
+                                    {classRecord.level}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* SUBJECT */}
+                          <td className="px-4 py-3 text-gray-700">
+                            <div className="flex items-center gap-2">
+                              <i className="fa-solid fa-book-open text-gray-400" />
+
+                              <div>
+                                <div className="font-medium">
+                                  {subject?.name ||
+                                    'Unknown subject'}
+                                </div>
+
+                                {subject?.code && (
+                                  <div className="text-xs text-gray-500">
+                                    {subject.code}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* SEMESTER */}
+                          <td className="px-4 py-3 text-gray-700">
+                            <span className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium">
+                              <i className="fa-solid fa-layer-group" />
+
+                              {term?.name ||
+                                'Unknown semester'}
+                            </span>
+                          </td>
+
+                          {/* REMOVE */}
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleRemove(
+                                  assignment.id
+                                )
+                              }
+                              className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                            >
+                              <i className="fa-solid fa-trash-can" />
+
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
                 </tbody>
               </table>
             </div>
