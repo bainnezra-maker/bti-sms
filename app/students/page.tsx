@@ -192,11 +192,6 @@ export default function StudentsPage() {
     );
   }, [academicYears]);
 
-  /*
-   * Determine each student's current active academic information.
-   * The newest academic year is preferred if more than one active
-   * enrollment exists.
-   */
   const currentAcademicInfo = useMemo(() => {
     const infoMap = new Map<string, StudentAcademicInfo>();
 
@@ -244,10 +239,6 @@ export default function StudentsPage() {
     programmeMap,
   ]);
 
-  /*
-   * When a programme is selected, only classes belonging
-   * to that programme appear in the Class dropdown.
-   */
   const availableClasses = useMemo(() => {
     if (programmeFilter === 'all') {
       return classes;
@@ -382,12 +373,21 @@ export default function StudentsPage() {
             </p>
           </div>
 
-          <Link
-            href="/students/add"
-            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-blue-700"
-          >
-            + Add Student
-          </Link>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link
+              href="/students/student-account"
+              className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100"
+            >
+              🔐 Create Student Login
+            </Link>
+
+            <Link
+              href="/students/add"
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            >
+              + Add Student
+            </Link>
+          </div>
         </div>
 
         {/* Statistics */}
@@ -430,7 +430,6 @@ export default function StudentsPage() {
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
 
-            {/* Search */}
             <div className="lg:col-span-2">
               <label className="mb-1 block text-xs font-semibold text-slate-500">
                 Search Student
@@ -447,7 +446,6 @@ export default function StudentsPage() {
               />
             </div>
 
-            {/* Programme */}
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-500">
                 Programme
@@ -478,7 +476,6 @@ export default function StudentsPage() {
               </select>
             </div>
 
-            {/* Class */}
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-500">
                 Class
@@ -506,7 +503,6 @@ export default function StudentsPage() {
               </select>
             </div>
 
-            {/* Status */}
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-500">
                 Status
@@ -545,7 +541,6 @@ export default function StudentsPage() {
               </select>
             </div>
 
-            {/* Clear */}
             <div className="flex items-end">
               <button
                 type="button"
@@ -558,7 +553,6 @@ export default function StudentsPage() {
 
           </div>
 
-          {/* Filter Summary */}
           <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
 
             <span>
@@ -763,14 +757,27 @@ export default function StudentsPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4">
 
-                    <Link
-                      href={`/students/${student.id}`}
-                      className="rounded-xl bg-blue-600 px-5 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                    >
-                      View Profile
-                    </Link>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+                      <Link
+                        href={`/students/${student.id}`}
+                        className="rounded-xl bg-blue-600 px-5 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                      >
+                        View Profile
+                      </Link>
+
+                      {student.status === 'active' && (
+                        <Link
+                          href="/students/student-account"
+                          className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 text-center text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100"
+                        >
+                          🔐 Create Login
+                        </Link>
+                      )}
+
+                    </div>
 
                     <button
                       type="button"
@@ -780,7 +787,7 @@ export default function StudentsPage() {
                           student.full_name
                         )
                       }
-                      className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                      className="self-start rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
                     >
                       Delete
                     </button>
