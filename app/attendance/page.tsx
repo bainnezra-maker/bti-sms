@@ -94,33 +94,26 @@ export default function AttendancePage() {
     Programme[]
   >([]);
 
-  const [classes, setClasses] = useState<ClassItem[]>(
-    []
-  );
+  const [classes, setClasses] = useState<ClassItem[]>([]);
 
-  const [students, setStudents] = useState<Student[]>(
-    []
-  );
+  const [students, setStudents] = useState<Student[]>([]);
 
-  const [selectedYear, setSelectedYear] =
-    useState('');
+  const [selectedYear, setSelectedYear] = useState('');
 
   const [selectedProgramme, setSelectedProgramme] =
     useState('');
 
-  const [selectedClass, setSelectedClass] =
-    useState('');
+  const [selectedClass, setSelectedClass] = useState('');
 
   const [selectedDate, setSelectedDate] =
     useState(todayString());
 
   const [search, setSearch] = useState('');
 
-  const [marks, setMarks] = useState<
-    Record<string, Status>
-  >({});
+  const [marks, setMarks] = useState<Record<string, Status>>({});
 
   const [loading, setLoading] = useState(true);
+
   const [loadingStudents, setLoadingStudents] =
     useState(false);
 
@@ -130,6 +123,7 @@ export default function AttendancePage() {
   const [saving, setSaving] = useState(false);
 
   const [message, setMessage] = useState('');
+
   const [messageType, setMessageType] =
     useState<'info' | 'success' | 'error'>('info');
 
@@ -159,9 +153,7 @@ export default function AttendancePage() {
         error: profileError,
       } = await supabase
         .from('users')
-        .select(
-          'id, school_id, role, is_active'
-        )
+        .select('id, school_id, role, is_active')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -178,16 +170,10 @@ export default function AttendancePage() {
         return;
       }
 
-      const typedProfile =
-        profile as UserProfile;
+      const typedProfile = profile as UserProfile;
 
-      setSchoolId(
-        typedProfile.school_id
-      );
-
-      setRole(
-        typedProfile.role
-      );
+      setSchoolId(typedProfile.school_id);
+      setRole(typedProfile.role);
 
       const [
         academicYearsResult,
@@ -196,26 +182,16 @@ export default function AttendancePage() {
       ] = await Promise.all([
         supabase
           .from('academic_years')
-          .select(
-            'id, name, is_current'
-          )
-          .eq(
-            'school_id',
-            typedProfile.school_id
-          )
+          .select('id, name, is_current')
+          .eq('school_id', typedProfile.school_id)
           .order('name', {
             ascending: false,
           }),
 
         supabase
           .from('programmes')
-          .select(
-            'id, name, code'
-          )
-          .eq(
-            'school_id',
-            typedProfile.school_id
-          )
+          .select('id, name, code')
+          .eq('school_id', typedProfile.school_id)
           .order('name'),
 
         supabase
@@ -223,12 +199,14 @@ export default function AttendancePage() {
           .select(
             'id, name, level, programme_id, academic_year_id'
           )
-          .eq(
-            'school_id',
-            typedProfile.school_id
-          )
+          .eq('school_id', typedProfile.school_id)
           .order('name'),
       ]);
+
+      // ----------------------------------------------------------
+      // ACADEMIC YEARS
+      // ----------------------------------------------------------
+      let loadedAcademicYears: AcademicYear[] = [];
 
       if (academicYearsResult.error) {
         setMessageType('error');
@@ -236,13 +214,15 @@ export default function AttendancePage() {
           academicYearsResult.error.message
         );
       } else {
-        const years =
+        loadedAcademicYears =
           academicYearsResult.data || [];
 
-        setAcademicYears(years);
+        setAcademicYears(
+          loadedAcademicYears
+        );
 
         const currentYear =
-          years.find(
+          loadedAcademicYears.find(
             (year) => year.is_current
           );
 
@@ -250,13 +230,18 @@ export default function AttendancePage() {
           setSelectedYear(
             currentYear.id
           );
-        } else if (years.length) {
+        } else if (
+          loadedAcademicYears.length
+        ) {
           setSelectedYear(
-            years[0].id
+            loadedAcademicYears[0].id
           );
         }
       }
 
+      // ----------------------------------------------------------
+      // PROGRAMMES
+      // ----------------------------------------------------------
       if (programmesResult.error) {
         setMessageType('error');
         setMessage(
@@ -268,6 +253,9 @@ export default function AttendancePage() {
         );
       }
 
+      // ----------------------------------------------------------
+      // CLASSES
+      // ----------------------------------------------------------
       if (classesResult.error) {
         setMessageType('error');
         setMessage(
@@ -278,13 +266,18 @@ export default function AttendancePage() {
           classesResult.data || [];
 
         /*
-         * Teachers only see classes assigned to them.
-         * Administrators retain school-wide access.
+         * ADMINISTRATORS:
+         * Keep school-wide access to all classes.
          */
         if (
           typedProfile.role.toLowerCase() ===
           'teacher'
         ) {
+          /*
+           * TEACHERS:
+           * Only load classes assigned to this teacher
+           * through the existing teacher_assignments table.
+           */
           const {
             data: assignments,
             error: assignmentError,
@@ -298,6 +291,7 @@ export default function AttendancePage() {
 
           if (assignmentError) {
             setMessageType('error');
+
             setMessage(
               `Could not load your teaching assignments: ${assignmentError.message}`
             );
@@ -312,6 +306,9 @@ export default function AttendancePage() {
                 )
               );
 
+            /*
+             * Keep ONLY classes assigned to this teacher.
+             */
             loadedClasses =
               loadedClasses.filter(
                 (classItem) =>
@@ -319,6 +316,73 @@ export default function AttendancePage() {
                     classItem.id
                   )
               );
+
+            /*
+             * IMPORTANT:
+             *
+             * If the teacher has exactly ONE assigned class,
+             * automatically select that class and its academic year.
+             */
+            if (
+              loadedClasses.length === 1
+            ) {
+              const onlyClass =
+                loadedClasses[0];
+
+              if (
+                onlyClass.academic_year_id
+              ) {
+                setSelectedYear(
+                  onlyClass.academic_year_id
+                );
+              }
+
+              setSelectedClass(
+                onlyClass.id
+              );
+            }
+
+            /*
+             * If the teacher has MULTIPLE assigned classes,
+             * automatically select the current academic year
+             * if one of their classes belongs to it.
+             *
+             * Otherwise select the first academic year
+             * containing one of their assigned classes.
+             */
+            if (
+              loadedClasses.length > 1
+            ) {
+              const currentAcademicYear =
+                loadedAcademicYears.find(
+                  (year) =>
+                    year.is_current &&
+                    loadedClasses.some(
+                      (classItem) =>
+                        classItem.academic_year_id ===
+                        year.id
+                    )
+                );
+
+              const matchingAcademicYear =
+                currentAcademicYear ||
+                loadedAcademicYears.find(
+                  (year) =>
+                    loadedClasses.some(
+                      (classItem) =>
+                        classItem.academic_year_id ===
+                        year.id
+                    )
+                );
+
+              if (
+                matchingAcademicYear
+              ) {
+                setSelectedYear(
+                  matchingAcademicYear.id
+                );
+              }
+            }
           }
         }
 
@@ -381,6 +445,24 @@ export default function AttendancePage() {
   ]);
 
   // ------------------------------------------------------------
+  // AUTO-SELECT CLASS WHEN ONLY ONE CLASS IS AVAILABLE
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (
+      filteredClasses.length === 1 &&
+      selectedClass !==
+        filteredClasses[0].id
+    ) {
+      setSelectedClass(
+        filteredClasses[0].id
+      );
+    }
+  }, [
+    filteredClasses,
+    selectedClass,
+  ]);
+
+  // ------------------------------------------------------------
   // SELECTED CLASS
   // ------------------------------------------------------------
   const selectedClassItem =
@@ -434,6 +516,7 @@ export default function AttendancePage() {
 
       if (enrollmentError) {
         setMessageType('error');
+
         setMessage(
           `Could not load class enrollment: ${enrollmentError.message}`
         );
@@ -480,6 +563,7 @@ export default function AttendancePage() {
 
       if (studentError) {
         setMessageType('error');
+
         setMessage(
           `Could not load students: ${studentError.message}`
         );
@@ -564,6 +648,7 @@ export default function AttendancePage() {
 
       if (error) {
         setMessageType('error');
+
         setMessage(
           `Could not load attendance: ${error.message}`
         );
@@ -697,10 +782,6 @@ export default function AttendancePage() {
     const total =
       students.length;
 
-    /*
-     * Present + Late count as attended.
-     * Excused remains separate.
-     */
     const attended =
       present + late;
 
