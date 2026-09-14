@@ -50,6 +50,13 @@ type AssessmentRecord = {
   term: string | null;
 };
 
+type UserProfile = {
+  id: string;
+  school_id: string;
+  role: string;
+  is_active: boolean | null;
+};
+
 const supabase = createClient();
 
 const CA_TYPES = [
@@ -87,6 +94,7 @@ function getStatus(percentage: number) {
 
 export default function AssessmentPage() {
   const [schoolId, setSchoolId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState('');
 
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
@@ -129,7 +137,7 @@ export default function AssessmentPage() {
 
       const { data, error: profileError } = await supabase
         .from('users')
-        .select('school_id')
+        .select('id, school_id, role, is_active')
         .eq('id', user.id)
         .single();
 
@@ -138,7 +146,10 @@ export default function AssessmentPage() {
         return;
       }
 
-      setSchoolId(data?.school_id ?? null);
+      const profile = data as UserProfile;
+
+      setSchoolId(profile.school_id);
+      setUserRole(profile.role);
     }
 
     loadProfile();
@@ -147,6 +158,17 @@ export default function AssessmentPage() {
   /*
    * ---------------------------------------------------------
    * LOAD ACADEMIC YEARS, PROGRAMMES, SUBJECTS AND CLASSES
+   * ---------------------------------------------------------
+   *
+   * ADMIN:
+   *   Can see all classes in the school.
+   *
+   * TEACHER:
+   *   Can only see classes assigned through
+   *   teacher_assignments.
+   *
+   * If a teacher has only one assigned class,
+   * that class is automatically selected.
    * ---------------------------------------------------------
    */
   useEffect(() => {
@@ -191,33 +213,135 @@ export default function AssessmentPage() {
 
       if (academicYearsResult.error) {
         setError(academicYearsResult.error.message);
-      } else {
-        setAcademicYears(academicYearsResult.data ?? []);
+        setLoading(false);
+        return;
       }
 
       if (programmesResult.error) {
         setError(programmesResult.error.message);
-      } else {
-        setProgrammes(programmesResult.data ?? []);
+        setLoading(false);
+        return;
       }
 
       if (subjectsResult.error) {
         setError(subjectsResult.error.message);
-      } else {
-        setSubjects(subjectsResult.data ?? []);
+        setLoading(false);
+        return;
       }
 
       if (classesResult.error) {
         setError(classesResult.error.message);
-      } else {
-        setClasses(classesResult.data ?? []);
+        setLoading(false);
+        return;
+      }
+
+      const loadedAcademicYears =
+        academicYearsResult.data ?? [];
+
+      const loadedProgrammes =
+        programmesResult.data ?? [];
+
+      const loadedSubjects =
+        subjectsResult.data ?? [];
+
+      let loadedClasses =
+        classesResult.data ?? [];
+
+      /*
+       * -------------------------------------------------------
+       * TEACHER CLASS RESTRICTION
+       * -------------------------------------------------------
+       */
+      if (userRole === 'teacher') {
+        const { data: assignments, error: assignmentError } =
+          await supabase
+            .from('teacher_assignments')
+            .select('class_id')
+            .eq('teacher_id', data?.id ?? '');
+
+        if (assignmentError) {
+          setError(assignmentError.message);
+          setLoading(false);
+          return;
+        }
+
+        const assignedClassIds = new Set(
+          (assignments ?? []).map(
+            (assignment) => assignment.class_id
+          )
+        );
+
+        loadedClasses = loadedClasses.filter((classItem) =>
+          assignedClassIds.has(classItem.id)
+        );
+
+        /*
+         * If teacher has exactly one assigned class,
+         * automatically select that class and its
+         * academic year.
+         */
+        if (loadedClasses.length === 1) {
+          const onlyClass = loadedClasses[0];
+
+          setSelectedClass(onlyClass.id);
+
+          if (onlyClass.academic_year_id) {
+            setSelectedAcademicYear(
+              onlyClass.academic_year_id
+            );
+          }
+        } else if (loadedClasses.length > 1) {
+          /*
+           * For multiple assigned classes, use the current/
+           * first academic year so the class dropdown is
+           * immediately usable.
+           */
+          const matchingYear =
+            loadedAcademicYears.find((year) =>
+              loadedClasses.some(
+                (classItem) =>
+                  classItem.academic_year_id === year.id
+              )
+            );
+
+          if (matchingYear) {
+            setSelectedAcademicYear(
+              matchingYear.id
+            );
+          }
+        }
+      }
+
+      /*
+       * -------------------------------------------------------
+       * SAVE LOADED DATA
+       * -------------------------------------------------------
+       */
+      setAcademicYears(loadedAcademicYears);
+      setProgrammes(loadedProgrammes);
+      setSubjects(loadedSubjects);
+      setClasses(loadedClasses);
+
+      /*
+       * If there is no selected academic year yet,
+       * keep the existing admin behaviour and use the
+       * first available academic year.
+       */
+      if (
+        !selectedAcademicYear &&
+        userRole !== 'teacher' &&
+        loadedAcademicYears.length > 0
+      ) {
+        setSelectedAcademicYear(
+          loadedAcademicYears[0].id
+        );
       }
 
       setLoading(false);
     }
 
     loadAcademicData();
-  }, [schoolId]);
+  }, [schoolId, userRole]);
 
   /*
    * ---------------------------------------------------------
@@ -234,12 +358,16 @@ export default function AssessmentPage() {
     async function loadSemesters() {
       setError('');
 
-      const { data, error: semestersError } = await supabase
-        .from('terms')
-        .select('id, name, academic_year_id')
-        .eq('academic_year_id', selectedAcademicYear)
-        .in('name', ['Semester 1', 'Semester 2'])
-        .order('start_date');
+      const { data, error: semestersError } =
+        await supabase
+          .from('terms')
+          .select('id, name, academic_year_id')
+          .eq(
+            'academic_year_id',
+            selectedAcademicYear
+          )
+          .in('name', ['Semester 1', 'Semester 2'])
+          .order('start_date');
 
       if (semestersError) {
         setError(semestersError.message);
@@ -269,7 +397,10 @@ export default function AssessmentPage() {
         !item.academic_year_id ||
         item.academic_year_id === selectedAcademicYear;
 
-      return matchesProgramme && matchesAcademicYear;
+      return (
+        matchesProgramme &&
+        matchesAcademicYear
+      );
     });
   }, [
     classes,
@@ -285,9 +416,32 @@ export default function AssessmentPage() {
   useEffect(() => {
     if (
       selectedClass &&
-      !filteredClasses.some((item) => item.id === selectedClass)
+      !filteredClasses.some(
+        (item) => item.id === selectedClass
+      )
     ) {
       setSelectedClass('');
+    }
+  }, [filteredClasses, selectedClass]);
+
+  /*
+   * ---------------------------------------------------------
+   * AUTO-SELECT SINGLE AVAILABLE CLASS
+   * ---------------------------------------------------------
+   *
+   * This works for teachers with exactly one assigned
+   * class and also safely handles filters that leave
+   * only one class available.
+   * ---------------------------------------------------------
+   */
+  useEffect(() => {
+    if (
+      filteredClasses.length === 1 &&
+      selectedClass !== filteredClasses[0].id
+    ) {
+      setSelectedClass(
+        filteredClasses[0].id
+      );
     }
   }, [filteredClasses, selectedClass]);
 
@@ -297,7 +451,10 @@ export default function AssessmentPage() {
    * ---------------------------------------------------------
    */
   useEffect(() => {
-    if (!selectedClass || !selectedAcademicYear) {
+    if (
+      !selectedClass ||
+      !selectedAcademicYear
+    ) {
       setStudents([]);
       setScores({});
       setExistingAssessments([]);
@@ -308,13 +465,18 @@ export default function AssessmentPage() {
       setLoadingStudents(true);
       setError('');
 
-      const { data: enrollmentData, error: enrollmentError } =
-        await supabase
-          .from('enrollments')
-          .select('student_id')
-          .eq('class_id', selectedClass)
-          .eq('academic_year_id', selectedAcademicYear)
-          .eq('status', 'active');
+      const {
+        data: enrollmentData,
+        error: enrollmentError,
+      } = await supabase
+        .from('enrollments')
+        .select('student_id')
+        .eq('class_id', selectedClass)
+        .eq(
+          'academic_year_id',
+          selectedAcademicYear
+        )
+        .eq('status', 'active');
 
       if (enrollmentError) {
         setError(enrollmentError.message);
@@ -323,7 +485,9 @@ export default function AssessmentPage() {
       }
 
       const studentIds =
-        enrollmentData?.map((item) => item.student_id) ?? [];
+        enrollmentData?.map(
+          (item) => item.student_id
+        ) ?? [];
 
       if (studentIds.length === 0) {
         setStudents([]);
@@ -333,14 +497,18 @@ export default function AssessmentPage() {
         return;
       }
 
-      const { data: studentData, error: studentError } =
-        await supabase
-          .from('students')
-          .select('id, full_name, admission_number')
-          .in('id', studentIds)
-          .eq('school_id', schoolId)
-          .eq('status', 'active')
-          .order('full_name');
+      const {
+        data: studentData,
+        error: studentError,
+      } = await supabase
+        .from('students')
+        .select(
+          'id, full_name, admission_number'
+        )
+        .in('id', studentIds)
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .order('full_name');
 
       if (studentError) {
         setError(studentError.message);
@@ -382,42 +550,50 @@ export default function AssessmentPage() {
     async function loadExistingScores() {
       setError('');
 
-      const { data, error: assessmentError } =
-        await supabase
-          .from('assessments')
-          .select(
-            `
-              id,
-              student_id,
-              subject,
-              assessment_type,
-              score,
-              max_score,
-              term
-            `
+      const {
+        data,
+        error: assessmentError,
+      } = await supabase
+        .from('assessments')
+        .select(
+          `
+            id,
+            student_id,
+            subject,
+            assessment_type,
+            score,
+            max_score,
+            term
+          `
+        )
+        .eq('school_id', schoolId)
+        .eq('subject', selectedSubject)
+        .eq(
+          'assessment_type',
+          selectedAssessmentType
+        )
+        .eq('term', selectedSemester)
+        .in(
+          'student_id',
+          students.map(
+            (student) => student.id
           )
-          .eq('school_id', schoolId)
-          .eq('subject', selectedSubject)
-          .eq(
-            'assessment_type',
-            selectedAssessmentType
-          )
-          .eq('term', selectedSemester)
-          .in(
-            'student_id',
-            students.map((student) => student.id)
-          );
+        );
 
       if (assessmentError) {
         setError(assessmentError.message);
         return;
       }
 
-      const records = (data ?? []) as AssessmentRecord[];
+      const records =
+        (data ?? []) as AssessmentRecord[];
 
       setExistingAssessments(records);
 
-      const scoreMap: Record<string, string> = {};
+      const scoreMap: Record<
+        string,
+        string
+      > = {};
 
       records.forEach((record) => {
         scoreMap[record.student_id] =
@@ -444,19 +620,24 @@ export default function AssessmentPage() {
    * ---------------------------------------------------------
    */
   const currentAssessment = useMemo(() => {
-    if (selectedAssessmentType === EXAM_TYPE.value) {
+    if (
+      selectedAssessmentType ===
+      EXAM_TYPE.value
+    ) {
       return EXAM_TYPE;
     }
 
     return (
       CA_TYPES.find(
         (item) =>
-          item.value === selectedAssessmentType
+          item.value ===
+          selectedAssessmentType
       ) ?? null
     );
   }, [selectedAssessmentType]);
 
-  const maxScore = currentAssessment?.max ?? 0;
+  const maxScore =
+    currentAssessment?.max ?? 0;
 
   /*
    * ---------------------------------------------------------
@@ -508,7 +689,9 @@ export default function AssessmentPage() {
    */
   async function saveScores() {
     if (!schoolId) {
-      setError('School information could not be found.');
+      setError(
+        'School information could not be found.'
+      );
       return;
     }
 
@@ -526,12 +709,16 @@ export default function AssessmentPage() {
     }
 
     if (!currentAssessment) {
-      setError('Please select an assessment type.');
+      setError(
+        'Please select an assessment type.'
+      );
       return;
     }
 
     if (students.length === 0) {
-      setError('There are no students in this class.');
+      setError(
+        'There are no students in this class.'
+      );
       return;
     }
 
@@ -541,7 +728,8 @@ export default function AssessmentPage() {
 
     try {
       for (const student of students) {
-        const rawValue = scores[student.id];
+        const rawValue =
+          scores[student.id];
 
         if (
           rawValue === undefined ||
@@ -550,52 +738,62 @@ export default function AssessmentPage() {
           continue;
         }
 
-        const numericScore = Number(rawValue);
+        const numericScore =
+          Number(rawValue);
 
         if (
           Number.isNaN(numericScore) ||
           numericScore < 0 ||
-          numericScore > currentAssessment.max
+          numericScore >
+            currentAssessment.max
         ) {
           throw new Error(
             `Invalid score for ${student.full_name}.`
           );
         }
 
-        const existing = existingAssessments.find(
-          (record) =>
-            record.student_id === student.id
-        );
+        const existing =
+          existingAssessments.find(
+            (record) =>
+              record.student_id ===
+              student.id
+          );
 
         if (existing) {
-          const { error: updateError } =
-            await supabase
-              .from('assessments')
-              .update({
-                score: numericScore,
-                max_score: currentAssessment.max,
-              })
-              .eq('id', existing.id)
-              .eq('school_id', schoolId);
+          const {
+            error: updateError,
+          } = await supabase
+            .from('assessments')
+            .update({
+              score: numericScore,
+              max_score:
+                currentAssessment.max,
+            })
+            .eq('id', existing.id)
+            .eq(
+              'school_id',
+              schoolId
+            );
 
           if (updateError) {
             throw updateError;
           }
         } else {
-          const { error: insertError } =
-            await supabase
-              .from('assessments')
-              .insert({
-                school_id: schoolId,
-                student_id: student.id,
-                subject: selectedSubject,
-                assessment_type:
-                  selectedAssessmentType,
-                score: numericScore,
-                max_score:
-                  currentAssessment.max,
-                term: selectedSemester,
-              });
+          const {
+            error: insertError,
+          } = await supabase
+            .from('assessments')
+            .insert({
+              school_id: schoolId,
+              student_id: student.id,
+              subject: selectedSubject,
+              assessment_type:
+                selectedAssessmentType,
+              score: numericScore,
+              max_score:
+                currentAssessment.max,
+              term: selectedSemester,
+            });
 
           if (insertError) {
             throw insertError;
@@ -607,39 +805,40 @@ export default function AssessmentPage() {
         'All entered scores have been saved successfully.'
       );
 
-      /*
-       * Reload existing records so that the screen
-       * immediately reflects saved data.
-       */
-      const { data, error: reloadError } =
-        await supabase
-          .from('assessments')
-          .select(
-            `
-              id,
-              student_id,
-              subject,
-              assessment_type,
-              score,
-              max_score,
-              term
-            `
+      const {
+        data,
+        error: reloadError,
+      } = await supabase
+        .from('assessments')
+        .select(
+          `
+            id,
+            student_id,
+            subject,
+            assessment_type,
+            score,
+            max_score,
+            term
+          `
+        )
+        .eq('school_id', schoolId)
+        .eq('subject', selectedSubject)
+        .eq(
+          'assessment_type',
+          selectedAssessmentType
+        )
+        .eq('term', selectedSemester)
+        .in(
+          'student_id',
+          students.map(
+            (student) => student.id
           )
-          .eq('school_id', schoolId)
-          .eq('subject', selectedSubject)
-          .eq(
-            'assessment_type',
-            selectedAssessmentType
-          )
-          .eq('term', selectedSemester)
-          .in(
-            'student_id',
-            students.map((student) => student.id)
-          );
+        );
 
       if (!reloadError) {
         setExistingAssessments(
-          (data ?? []) as AssessmentRecord[]
+          (data ??
+            []) as AssessmentRecord[]
         );
       }
     } catch (saveError: any) {
@@ -658,14 +857,22 @@ export default function AssessmentPage() {
    * ---------------------------------------------------------
    */
   function quickFill(value: number) {
-    if (!maxScore || students.length === 0) return;
+    if (
+      !maxScore ||
+      students.length === 0
+    ) {
+      return;
+    }
 
     const adjustedValue = Math.min(
       value,
       maxScore
     );
 
-    const newScores: Record<string, string> = {};
+    const newScores: Record<
+      string,
+      string
+    > = {};
 
     students.forEach((student) => {
       newScores[student.id] =
@@ -705,7 +912,8 @@ export default function AssessmentPage() {
 
     const enteredScores = students
       .map((student) => {
-        const value = scores[student.id];
+        const value =
+          scores[student.id];
 
         if (
           value === undefined ||
@@ -714,18 +922,23 @@ export default function AssessmentPage() {
           return null;
         }
 
-        const numeric = Number(value);
+        const numeric =
+          Number(value);
 
         return Number.isNaN(numeric)
           ? null
           : numeric;
       })
       .filter(
-        (value): value is number =>
+        (
+          value
+        ): value is number =>
           value !== null
       );
 
-    if (enteredScores.length === 0) {
+    if (
+      enteredScores.length === 0
+    ) {
       return {
         entered: 0,
         average: 0,
@@ -735,14 +948,19 @@ export default function AssessmentPage() {
       };
     }
 
-    const percentages = enteredScores.map(
-      (score) =>
-        getPercentage(score, maxScore)
-    );
+    const percentages =
+      enteredScores.map(
+        (score) =>
+          getPercentage(
+            score,
+            maxScore
+          )
+      );
 
     const average =
       percentages.reduce(
-        (sum, value) => sum + value,
+        (sum, value) =>
+          sum + value,
         0
       ) / percentages.length;
 
@@ -754,28 +972,34 @@ export default function AssessmentPage() {
       ...percentages
     );
 
-    const passed = percentages.filter(
-      (percentage) => percentage >= 50
-    ).length;
+    const passed =
+      percentages.filter(
+        (percentage) =>
+          percentage >= 50
+      ).length;
 
     const passRate =
-      (passed / percentages.length) * 100;
+      (passed /
+        percentages.length) *
+      100;
 
     return {
-      entered: enteredScores.length,
+      entered:
+        enteredScores.length,
       average,
       highest,
       lowest,
       passRate,
     };
-  }, [students, scores, maxScore]);
+  }, [
+    students,
+    scores,
+    maxScore,
+  ]);
 
   /*
    * ---------------------------------------------------------
    * CA SUMMARY
-   *
-   * This section calculates the student's current
-   * seven-component CA total.
    * ---------------------------------------------------------
    */
   const caSummary = useMemo(() => {
@@ -783,7 +1007,8 @@ export default function AssessmentPage() {
       const studentAssessments =
         existingAssessments.filter(
           (record) =>
-            record.student_id === student.id
+            record.student_id ===
+            student.id
         );
 
       let rawTotal = 0;
@@ -797,7 +1022,9 @@ export default function AssessmentPage() {
           );
 
         if (record) {
-          rawTotal += Number(record.score);
+          rawTotal += Number(
+            record.score
+          );
         }
       });
 
@@ -831,7 +1058,10 @@ export default function AssessmentPage() {
         finalScore,
       };
     });
-  }, [students, existingAssessments]);
+  }, [
+    students,
+    existingAssessments,
+  ]);
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
@@ -857,11 +1087,13 @@ export default function AssessmentPage() {
 
           <div className="mt-2 grid gap-2 text-sm text-blue-800 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              Exercises: <strong>4 × 10 = 40</strong>
+              Exercises:{' '}
+              <strong>4 × 10 = 40</strong>
             </div>
 
             <div>
-              Class Tests: <strong>3 × 20 = 60</strong>
+              Class Tests:{' '}
+              <strong>3 × 20 = 60</strong>
             </div>
 
             <div>
@@ -869,7 +1101,8 @@ export default function AssessmentPage() {
             </div>
 
             <div>
-              Examination: <strong>100 → 70%</strong>
+              Examination:{' '}
+              <strong>100 → 70%</strong>
             </div>
           </div>
         </div>
@@ -903,7 +1136,9 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={selectedAcademicYear}
+                value={
+                  selectedAcademicYear
+                }
                 onChange={(event) => {
                   setSelectedAcademicYear(
                     event.target.value
@@ -917,14 +1152,16 @@ export default function AssessmentPage() {
                   Select Academic Year
                 </option>
 
-                {academicYears.map((year) => (
-                  <option
-                    key={year.id}
-                    value={year.id}
-                  >
-                    {year.name}
-                  </option>
-                ))}
+                {academicYears.map(
+                  (year) => (
+                    <option
+                      key={year.id}
+                      value={year.id}
+                    >
+                      {year.name}
+                    </option>
+                  )
+                )}
               </select>
             </div>
 
@@ -935,27 +1172,33 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={selectedSemester}
+                value={
+                  selectedSemester
+                }
                 onChange={(event) =>
                   setSelectedSemester(
                     event.target.value
                   )
                 }
-                disabled={!selectedAcademicYear}
+                disabled={
+                  !selectedAcademicYear
+                }
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none disabled:bg-slate-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   Select Semester
                 </option>
 
-                {semesters.map((semester) => (
-                  <option
-                    key={semester.id}
-                    value={semester.name}
-                  >
-                    {semester.name}
-                  </option>
-                ))}
+                {semesters.map(
+                  (semester) => (
+                    <option
+                      key={semester.id}
+                      value={semester.name}
+                    >
+                      {semester.name}
+                    </option>
+                  )
+                )}
               </select>
             </div>
 
@@ -966,7 +1209,9 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={selectedProgramme}
+                value={
+                  selectedProgramme
+                }
                 onChange={(event) => {
                   setSelectedProgramme(
                     event.target.value
@@ -979,17 +1224,19 @@ export default function AssessmentPage() {
                   Select Programme
                 </option>
 
-                {programmes.map((programme) => (
-                  <option
-                    key={programme.id}
-                    value={programme.id}
-                  >
-                    {programme.name}
-                    {programme.code
-                      ? ` (${programme.code})`
-                      : ''}
-                  </option>
-                ))}
+                {programmes.map(
+                  (programme) => (
+                    <option
+                      key={programme.id}
+                      value={programme.id}
+                    >
+                      {programme.name}
+                      {programme.code
+                        ? ` (${programme.code})`
+                        : ''}
+                    </option>
+                  )
+                )}
               </select>
             </div>
 
@@ -1006,22 +1253,36 @@ export default function AssessmentPage() {
                     event.target.value
                   )
                 }
-                disabled={!selectedAcademicYear}
+                disabled={
+                  !selectedAcademicYear
+                }
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none disabled:bg-slate-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   Select Class
                 </option>
 
-                {filteredClasses.map((item) => (
-                  <option
-                    key={item.id}
-                    value={item.id}
-                  >
-                    {item.name}
-                  </option>
-                ))}
+                {filteredClasses.map(
+                  (item) => (
+                    <option
+                      key={item.id}
+                      value={item.id}
+                    >
+                      {item.name}
+                    </option>
+                  )
+                )}
               </select>
+
+              {userRole ===
+                'teacher' &&
+                filteredClasses.length ===
+                  1 && (
+                  <p className="mt-1 text-xs text-blue-600">
+                    Your assigned class has been
+                    selected automatically.
+                  </p>
+                )}
             </div>
 
             {/* SUBJECT */}
@@ -1031,7 +1292,9 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={selectedSubject}
+                value={
+                  selectedSubject
+                }
                 onChange={(event) =>
                   setSelectedSubject(
                     event.target.value
@@ -1043,17 +1306,19 @@ export default function AssessmentPage() {
                   Select Subject
                 </option>
 
-                {subjects.map((subject) => (
-                  <option
-                    key={subject.id}
-                    value={subject.name}
-                  >
-                    {subject.name}
-                    {subject.code
-                      ? ` (${subject.code})`
-                      : ''}
-                  </option>
-                ))}
+                {subjects.map(
+                  (subject) => (
+                    <option
+                      key={subject.id}
+                      value={subject.name}
+                    >
+                      {subject.name}
+                      {subject.code
+                        ? ` (${subject.code})`
+                        : ''}
+                    </option>
+                  )
+                )}
               </select>
             </div>
 
@@ -1064,7 +1329,9 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={selectedAssessmentType}
+                value={
+                  selectedAssessmentType
+                }
                 onChange={(event) =>
                   setSelectedAssessmentType(
                     event.target.value
@@ -1077,19 +1344,24 @@ export default function AssessmentPage() {
                 </option>
 
                 <optgroup label="Continuous Assessment">
-                  {CA_TYPES.map((type) => (
-                    <option
-                      key={type.value}
-                      value={type.value}
-                    >
-                      {type.label} — /{type.max}
-                    </option>
-                  ))}
+                  {CA_TYPES.map(
+                    (type) => (
+                      <option
+                        key={type.value}
+                        value={type.value}
+                      >
+                        {type.label} — /
+                        {type.max}
+                      </option>
+                    )
+                  )}
                 </optgroup>
 
                 <optgroup label="Examination">
                   <option
-                    value={EXAM_TYPE.value}
+                    value={
+                      EXAM_TYPE.value
+                    }
                   >
                     {EXAM_TYPE.label} — /100
                   </option>
@@ -1127,7 +1399,10 @@ export default function AssessmentPage() {
                   Average
                 </p>
                 <p className="mt-1 text-2xl font-bold text-slate-900">
-                  {statistics.average.toFixed(1)}%
+                  {statistics.average.toFixed(
+                    1
+                  )}
+                  %
                 </p>
               </div>
 
@@ -1136,7 +1411,10 @@ export default function AssessmentPage() {
                   Highest
                 </p>
                 <p className="mt-1 text-2xl font-bold text-slate-900">
-                  {statistics.highest.toFixed(1)}%
+                  {statistics.highest.toFixed(
+                    1
+                  )}
+                  %
                 </p>
               </div>
 
@@ -1145,7 +1423,10 @@ export default function AssessmentPage() {
                   Pass Rate
                 </p>
                 <p className="mt-1 text-2xl font-bold text-slate-900">
-                  {statistics.passRate.toFixed(1)}%
+                  {statistics.passRate.toFixed(
+                    1
+                  )}
+                  %
                 </p>
               </div>
             </div>
@@ -1169,81 +1450,28 @@ export default function AssessmentPage() {
 
                     <p className="mt-1 text-sm text-slate-600">
                       {selectedSubject} •{' '}
-                      {selectedAssessmentType} •{' '}
-                      Maximum: {maxScore}
+                      {
+                        selectedAssessmentType
+                      }{' '}
+                      • Maximum: {maxScore}
                     </p>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        quickFill(0)
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Fill 0
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        quickFill(5)
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Fill 5
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        quickFill(10)
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Fill 10
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        quickFill(15)
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Fill 15
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        quickFill(20)
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Fill 20
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        quickFill(25)
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Fill 25
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        quickFill(30)
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Fill 30
-                    </button>
+                    {[0, 5, 10, 15, 20, 25, 30].map(
+                      (value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            quickFill(value)
+                          }
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Fill {value}
+                        </button>
+                      )
+                    )}
 
                     <button
                       type="button"
@@ -1260,7 +1488,8 @@ export default function AssessmentPage() {
                 <div className="p-8 text-center text-sm text-slate-500">
                   Loading class students...
                 </div>
-              ) : students.length === 0 ? (
+              ) : students.length ===
+                0 ? (
                 <div className="p-8 text-center text-sm text-slate-500">
                   No active students are enrolled
                   in this class for the selected
@@ -1303,20 +1532,26 @@ export default function AssessmentPage() {
 
                     <tbody className="divide-y divide-slate-100">
                       {students.map(
-                        (student, index) => {
+                        (
+                          student,
+                          index
+                        ) => {
                           const rawScore =
-                            scores[student.id] ??
-                            '';
+                            scores[
+                              student.id
+                            ] ?? '';
 
                           const numericScore =
-                            rawScore === ''
+                            rawScore ===
+                            ''
                               ? 0
                               : Number(
                                   rawScore
                                 );
 
                           const percentage =
-                            rawScore === ''
+                            rawScore ===
+                            ''
                               ? 0
                               : getPercentage(
                                   numericScore,
@@ -1324,14 +1559,16 @@ export default function AssessmentPage() {
                                 );
 
                           const grade =
-                            rawScore === ''
+                            rawScore ===
+                            ''
                               ? '-'
                               : getGrade(
                                   percentage
                                 );
 
                           const status =
-                            rawScore === ''
+                            rawScore ===
+                            ''
                               ? '-'
                               : getStatus(
                                   percentage
@@ -1339,39 +1576,56 @@ export default function AssessmentPage() {
 
                           const existing =
                             existingAssessments.find(
-                              (record) =>
+                              (
+                                record
+                              ) =>
                                 record.student_id ===
                                 student.id
                             );
 
                           return (
                             <tr
-                              key={student.id}
+                              key={
+                                student.id
+                              }
                               className="hover:bg-slate-50"
                             >
                               <td className="whitespace-nowrap px-4 py-3 text-slate-500">
-                                {index + 1}
+                                {index +
+                                  1}
                               </td>
 
                               <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
-                                {student.full_name}
+                                {
+                                  student.full_name
+                                }
                               </td>
 
                               <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                                {student.admission_number}
+                                {
+                                  student.admission_number
+                                }
                               </td>
 
                               <td className="px-4 py-3 text-center">
                                 <input
                                   type="number"
                                   min="0"
-                                  max={maxScore}
+                                  max={
+                                    maxScore
+                                  }
                                   step="0.01"
-                                  value={rawScore}
-                                  onChange={(event) =>
+                                  value={
+                                    rawScore
+                                  }
+                                  onChange={(
+                                    event
+                                  ) =>
                                     handleScoreChange(
                                       student.id,
-                                      event.target.value
+                                      event
+                                        .target
+                                        .value
                                     )
                                   }
                                   className="w-24 rounded-lg border border-slate-300 px-2 py-2 text-center outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
@@ -1379,7 +1633,8 @@ export default function AssessmentPage() {
                               </td>
 
                               <td className="whitespace-nowrap px-4 py-3 text-center font-medium text-slate-700">
-                                {rawScore === ''
+                                {rawScore ===
+                                ''
                                   ? '-'
                                   : `${percentage.toFixed(
                                       1
@@ -1393,7 +1648,8 @@ export default function AssessmentPage() {
                               </td>
 
                               <td className="px-4 py-3 text-center">
-                                {status === '-' ? (
+                                {status ===
+                                '-' ? (
                                   <span className="text-slate-400">
                                     -
                                   </span>
@@ -1406,7 +1662,9 @@ export default function AssessmentPage() {
                                         : 'bg-red-100 text-red-700'
                                     }`}
                                   >
-                                    {status}
+                                    {
+                                      status
+                                    }
                                   </span>
                                 )}
 
@@ -1498,62 +1756,75 @@ export default function AssessmentPage() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {caSummary.map((item) => {
-                    const student =
-                      students.find(
-                        (studentItem) =>
-                          studentItem.id ===
-                          item.studentId
+                  {caSummary.map(
+                    (item) => {
+                      const student =
+                        students.find(
+                          (
+                            studentItem
+                          ) =>
+                            studentItem.id ===
+                            item.studentId
+                        );
+
+                      const grade =
+                        item.finalScore >
+                        0
+                          ? getGrade(
+                              item.finalScore
+                            )
+                          : '-';
+
+                      return (
+                        <tr
+                          key={
+                            item.studentId
+                          }
+                          className="hover:bg-slate-50"
+                        >
+                          <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+                            {
+                              student?.full_name
+                            }
+                          </td>
+
+                          <td className="px-4 py-3 text-center">
+                            {item.rawTotal.toFixed(
+                              1
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 text-center">
+                            {item.caContribution.toFixed(
+                              1
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 text-center">
+                            {item.examRaw.toFixed(
+                              1
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 text-center">
+                            {item.examContribution.toFixed(
+                              1
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 text-center font-bold text-slate-900">
+                            {item.finalScore.toFixed(
+                              1
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 text-center font-bold">
+                            {grade}
+                          </td>
+                        </tr>
                       );
-
-                    const grade =
-                      item.finalScore > 0
-                        ? getGrade(
-                            item.finalScore
-                          )
-                        : '-';
-
-                    return (
-                      <tr
-                        key={item.studentId}
-                        className="hover:bg-slate-50"
-                      >
-                        <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
-                          {student?.full_name}
-                        </td>
-
-                        <td className="px-4 py-3 text-center">
-                          {item.rawTotal.toFixed(1)}
-                        </td>
-
-                        <td className="px-4 py-3 text-center">
-                          {item.caContribution.toFixed(
-                            1
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3 text-center">
-                          {item.examRaw.toFixed(1)}
-                        </td>
-
-                        <td className="px-4 py-3 text-center">
-                          {item.examContribution.toFixed(
-                            1
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3 text-center font-bold text-slate-900">
-                          {item.finalScore.toFixed(
-                            1
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3 text-center font-bold">
-                          {grade}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                    }
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1568,25 +1839,27 @@ export default function AssessmentPage() {
 
           <div className="mt-4 space-y-3 text-sm text-slate-700">
             <p>
-              <strong>CA Raw:</strong> Exercise 1 +
-              Exercise 2 + Exercise 3 + Exercise 4 +
-              Class Test 1 + Class Test 2 + Class Test
-              3 = /100
+              <strong>CA Raw:</strong>{' '}
+              Exercise 1 + Exercise 2 +
+              Exercise 3 + Exercise 4 +
+              Class Test 1 + Class Test 2 +
+              Class Test 3 = /100
             </p>
 
             <p>
-              <strong>CA Contribution:</strong> (CA
-              Raw ÷ 100) × 30 = /30
+              <strong>CA Contribution:</strong>{' '}
+              (CA Raw ÷ 100) × 30 = /30
             </p>
 
             <p>
-              <strong>Exam Contribution:</strong> (Exam
-              Raw ÷ 100) × 70 = /70
+              <strong>Exam Contribution:</strong>{' '}
+              (Exam Raw ÷ 100) × 70 = /70
             </p>
 
             <p>
               <strong>Final Score:</strong> CA
-              Contribution + Exam Contribution = /100
+              Contribution + Exam Contribution =
+              /100
             </p>
           </div>
         </div>
