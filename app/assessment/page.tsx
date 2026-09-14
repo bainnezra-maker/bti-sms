@@ -94,6 +94,7 @@ function getStatus(percentage: number) {
 
 export default function AssessmentPage() {
   const [schoolId, setSchoolId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState('');
 
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
@@ -133,7 +134,10 @@ export default function AssessmentPage() {
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (!user) return;
+      if (!user) {
+        setError('You are not logged in.');
+        return;
+      }
 
       const { data, error: profileError } = await supabase
         .from('users')
@@ -148,6 +152,13 @@ export default function AssessmentPage() {
 
       const profile = data as UserProfile;
 
+      /*
+       * IMPORTANT:
+       * Store the authenticated user's ID in state.
+       * This allows loadAcademicData() to safely use
+       * the teacher's ID when checking teacher_assignments.
+       */
+      setUserId(profile.id);
       setSchoolId(profile.school_id);
       setUserRole(profile.role);
     }
@@ -172,7 +183,7 @@ export default function AssessmentPage() {
    * ---------------------------------------------------------
    */
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId || !userId) return;
 
     async function loadAcademicData() {
       setLoading(true);
@@ -251,13 +262,21 @@ export default function AssessmentPage() {
        * -------------------------------------------------------
        * TEACHER CLASS RESTRICTION
        * -------------------------------------------------------
+       *
+       * IMPORTANT:
+       * We use userId here instead of "profile.id".
+       * "profile" only exists inside loadProfile(),
+       * while userId is stored in component state and is
+       * therefore available here.
        */
       if (userRole === 'teacher') {
-        const { data: assignments, error: assignmentError } =
-          await supabase
-            .from('teacher_assignments')
-            .select('class_id')
-            .eq('teacher_id', profile.id);
+        const {
+          data: assignments,
+          error: assignmentError,
+        } = await supabase
+          .from('teacher_assignments')
+          .select('class_id')
+          .eq('teacher_id', userId);
 
         if (assignmentError) {
           setError(assignmentError.message);
@@ -271,14 +290,22 @@ export default function AssessmentPage() {
           )
         );
 
-        loadedClasses = loadedClasses.filter((classItem) =>
-          assignedClassIds.has(classItem.id)
+        /*
+         * Only classes assigned to this teacher
+         * are allowed to appear.
+         */
+        loadedClasses = loadedClasses.filter(
+          (classItem) =>
+            assignedClassIds.has(classItem.id)
         );
 
         /*
-         * If teacher has exactly one assigned class,
-         * automatically select that class and its
-         * academic year.
+         * -----------------------------------------------------
+         * ONE ASSIGNED CLASS
+         * -----------------------------------------------------
+         *
+         * Automatically select the teacher's only class
+         * and its academic year.
          */
         if (loadedClasses.length === 1) {
           const onlyClass = loadedClasses[0];
@@ -290,17 +317,23 @@ export default function AssessmentPage() {
               onlyClass.academic_year_id
             );
           }
-        } else if (loadedClasses.length > 1) {
-          /*
-           * For multiple assigned classes, use the current/
-           * first academic year so the class dropdown is
-           * immediately usable.
-           */
+        }
+
+        /*
+         * -----------------------------------------------------
+         * MULTIPLE ASSIGNED CLASSES
+         * -----------------------------------------------------
+         *
+         * Select the first academic year represented by
+         * the teacher's assigned classes.
+         */
+        else if (loadedClasses.length > 1) {
           const matchingYear =
             loadedAcademicYears.find((year) =>
               loadedClasses.some(
                 (classItem) =>
-                  classItem.academic_year_id === year.id
+                  classItem.academic_year_id ===
+                  year.id
               )
             );
 
@@ -323,9 +356,9 @@ export default function AssessmentPage() {
       setClasses(loadedClasses);
 
       /*
+       * ADMIN:
        * If there is no selected academic year yet,
-       * keep the existing admin behaviour and use the
-       * first available academic year.
+       * use the first available academic year.
        */
       if (
         !selectedAcademicYear &&
@@ -341,7 +374,7 @@ export default function AssessmentPage() {
     }
 
     loadAcademicData();
-  }, [schoolId, userRole]);
+  }, [schoolId, userId, userRole]);
 
   /*
    * ---------------------------------------------------------
@@ -358,16 +391,18 @@ export default function AssessmentPage() {
     async function loadSemesters() {
       setError('');
 
-      const { data, error: semestersError } =
-        await supabase
-          .from('terms')
-          .select('id, name, academic_year_id')
-          .eq(
-            'academic_year_id',
-            selectedAcademicYear
-          )
-          .in('name', ['Semester 1', 'Semester 2'])
-          .order('start_date');
+      const {
+        data,
+        error: semestersError,
+      } = await supabase
+        .from('terms')
+        .select('id, name, academic_year_id')
+        .eq(
+          'academic_year_id',
+          selectedAcademicYear
+        )
+        .in('name', ['Semester 1', 'Semester 2'])
+        .order('start_date');
 
       if (semestersError) {
         setError(semestersError.message);
@@ -429,10 +464,9 @@ export default function AssessmentPage() {
    * AUTO-SELECT SINGLE AVAILABLE CLASS
    * ---------------------------------------------------------
    *
-   * This works for teachers with exactly one assigned
-   * class and also safely handles filters that leave
-   * only one class available.
-   * ---------------------------------------------------------
+   * This handles:
+   * 1. Teacher with one assigned class.
+   * 2. A filter that leaves only one available class.
    */
   useEffect(() => {
     if (
@@ -1136,9 +1170,7 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={
-                  selectedAcademicYear
-                }
+                value={selectedAcademicYear}
                 onChange={(event) => {
                   setSelectedAcademicYear(
                     event.target.value
@@ -1172,9 +1204,7 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={
-                  selectedSemester
-                }
+                value={selectedSemester}
                 onChange={(event) =>
                   setSelectedSemester(
                     event.target.value
@@ -1209,9 +1239,7 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={
-                  selectedProgramme
-                }
+                value={selectedProgramme}
                 onChange={(event) => {
                   setSelectedProgramme(
                     event.target.value
@@ -1274,8 +1302,7 @@ export default function AssessmentPage() {
                 )}
               </select>
 
-              {userRole ===
-                'teacher' &&
+              {userRole === 'teacher' &&
                 filteredClasses.length ===
                   1 && (
                   <p className="mt-1 text-xs text-blue-600">
@@ -1292,9 +1319,7 @@ export default function AssessmentPage() {
               </label>
 
               <select
-                value={
-                  selectedSubject
-                }
+                value={selectedSubject}
                 onChange={(event) =>
                   setSelectedSubject(
                     event.target.value
@@ -1350,8 +1375,7 @@ export default function AssessmentPage() {
                         key={type.value}
                         value={type.value}
                       >
-                        {type.label} — /
-                        {type.max}
+                        {type.label} — /{type.max}
                       </option>
                     )
                   )}
@@ -1359,9 +1383,7 @@ export default function AssessmentPage() {
 
                 <optgroup label="Examination">
                   <option
-                    value={
-                      EXAM_TYPE.value
-                    }
+                    value={EXAM_TYPE.value}
                   >
                     {EXAM_TYPE.label} — /100
                   </option>
@@ -1399,10 +1421,7 @@ export default function AssessmentPage() {
                   Average
                 </p>
                 <p className="mt-1 text-2xl font-bold text-slate-900">
-                  {statistics.average.toFixed(
-                    1
-                  )}
-                  %
+                  {statistics.average.toFixed(1)}%
                 </p>
               </div>
 
@@ -1411,10 +1430,7 @@ export default function AssessmentPage() {
                   Highest
                 </p>
                 <p className="mt-1 text-2xl font-bold text-slate-900">
-                  {statistics.highest.toFixed(
-                    1
-                  )}
-                  %
+                  {statistics.highest.toFixed(1)}%
                 </p>
               </div>
 
@@ -1423,10 +1439,7 @@ export default function AssessmentPage() {
                   Pass Rate
                 </p>
                 <p className="mt-1 text-2xl font-bold text-slate-900">
-                  {statistics.passRate.toFixed(
-                    1
-                  )}
-                  %
+                  {statistics.passRate.toFixed(1)}%
                 </p>
               </div>
             </div>
@@ -1450,10 +1463,8 @@ export default function AssessmentPage() {
 
                     <p className="mt-1 text-sm text-slate-600">
                       {selectedSubject} •{' '}
-                      {
-                        selectedAssessmentType
-                      }{' '}
-                      • Maximum: {maxScore}
+                      {selectedAssessmentType} •
+                      Maximum: {maxScore}
                     </p>
                   </div>
 
@@ -1488,8 +1499,7 @@ export default function AssessmentPage() {
                 <div className="p-8 text-center text-sm text-slate-500">
                   Loading class students...
                 </div>
-              ) : students.length ===
-                0 ? (
+              ) : students.length === 0 ? (
                 <div className="p-8 text-center text-sm text-slate-500">
                   No active students are enrolled
                   in this class for the selected
@@ -1542,16 +1552,14 @@ export default function AssessmentPage() {
                             ] ?? '';
 
                           const numericScore =
-                            rawScore ===
-                            ''
+                            rawScore === ''
                               ? 0
                               : Number(
                                   rawScore
                                 );
 
                           const percentage =
-                            rawScore ===
-                            ''
+                            rawScore === ''
                               ? 0
                               : getPercentage(
                                   numericScore,
@@ -1559,16 +1567,14 @@ export default function AssessmentPage() {
                                 );
 
                           const grade =
-                            rawScore ===
-                            ''
+                            rawScore === ''
                               ? '-'
                               : getGrade(
                                   percentage
                                 );
 
                           const status =
-                            rawScore ===
-                            ''
+                            rawScore === ''
                               ? '-'
                               : getStatus(
                                   percentage
@@ -1591,8 +1597,7 @@ export default function AssessmentPage() {
                               className="hover:bg-slate-50"
                             >
                               <td className="whitespace-nowrap px-4 py-3 text-slate-500">
-                                {index +
-                                  1}
+                                {index + 1}
                               </td>
 
                               <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
@@ -1611,9 +1616,7 @@ export default function AssessmentPage() {
                                 <input
                                   type="number"
                                   min="0"
-                                  max={
-                                    maxScore
-                                  }
+                                  max={maxScore}
                                   step="0.01"
                                   value={
                                     rawScore
@@ -1633,8 +1636,7 @@ export default function AssessmentPage() {
                               </td>
 
                               <td className="whitespace-nowrap px-4 py-3 text-center font-medium text-slate-700">
-                                {rawScore ===
-                                ''
+                                {rawScore === ''
                                   ? '-'
                                   : `${percentage.toFixed(
                                       1
@@ -1648,23 +1650,19 @@ export default function AssessmentPage() {
                               </td>
 
                               <td className="px-4 py-3 text-center">
-                                {status ===
-                                '-' ? (
+                                {status === '-' ? (
                                   <span className="text-slate-400">
                                     -
                                   </span>
                                 ) : (
                                   <span
                                     className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                      status ===
-                                      'Pass'
+                                      status === 'Pass'
                                         ? 'bg-green-100 text-green-700'
                                         : 'bg-red-100 text-red-700'
                                     }`}
                                   >
-                                    {
-                                      status
-                                    }
+                                    {status}
                                   </span>
                                 )}
 
@@ -1768,8 +1766,7 @@ export default function AssessmentPage() {
                         );
 
                       const grade =
-                        item.finalScore >
-                        0
+                        item.finalScore > 0
                           ? getGrade(
                               item.finalScore
                             )
