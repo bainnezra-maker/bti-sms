@@ -154,6 +154,11 @@ const teacherMenuSections: MenuSection[] = [
         icon: 'fa-solid fa-chalkboard-user',
       },
       {
+        name: 'Classes',
+        href: '/teacher/classes',
+        icon: 'fa-solid fa-school',
+      },
+      {
         name: 'Attendance',
         href: '/attendance',
         icon: 'fa-solid fa-calendar-check',
