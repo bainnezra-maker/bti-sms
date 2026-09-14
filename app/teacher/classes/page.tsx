@@ -63,12 +63,11 @@ type Assignment = {
   } | null;
 };
 
-type RawEnrollment = {
+type Enrollment = {
   id: string;
   student_id: string;
   class_id: string;
   academic_year_id: string;
-  student: Student[] | Student | null;
 };
 
 type ClassWorkspace = {
@@ -237,7 +236,6 @@ export default function TeacherClassesPage() {
       if (assignmentError) throw assignmentError;
 
       const years = (yearData ?? []) as AcademicYear[];
-
       const semestersData = (semesterData ?? []) as Semester[];
 
       const assignmentRows = normalizeAssignments(
@@ -316,20 +314,6 @@ export default function TeacherClassesPage() {
     }));
   }
 
-  function normalizeStudent(
-    student: Student[] | Student | null | undefined
-  ): Student | null {
-    if (!student) {
-      return null;
-    }
-
-    if (Array.isArray(student)) {
-      return student[0] ?? null;
-    }
-
-    return student;
-  }
-
   const availableSemesters = useMemo(() => {
     if (!selectedYearId) {
       return [];
@@ -404,6 +388,48 @@ export default function TeacherClassesPage() {
     assignments,
   ]);
 
+  async function loadStudentsForEnrollments(
+    enrollments: Enrollment[]
+  ): Promise<Map<string, Student>> {
+    const studentIds = Array.from(
+      new Set(
+        enrollments
+          .map((enrollment) => enrollment.student_id)
+          .filter(Boolean)
+      )
+    );
+
+    if (studentIds.length === 0) {
+      return new Map();
+    }
+
+    const {
+      data: studentRows,
+      error: studentError,
+    } = await supabase
+      .from('students')
+      .select(
+        `
+          id,
+          full_name,
+          admission_number,
+          gender,
+          status
+        `
+      )
+      .in('id', studentIds);
+
+    if (studentError) {
+      throw studentError;
+    }
+
+    return new Map(
+      ((studentRows ?? []) as Student[]).map(
+        (student) => [student.id, student]
+      )
+    );
+  }
+
   async function loadClassesForSelection() {
     if (
       !profile ||
@@ -463,6 +489,7 @@ export default function TeacherClassesPage() {
               name,
               level,
               programme_id,
+              academic_year_id,
               programmes (
                 id,
                 name
@@ -477,6 +504,13 @@ export default function TeacherClassesPage() {
         throw classError;
       }
 
+      /*
+       * IMPORTANT:
+       * We deliberately fetch enrollments separately from students.
+       *
+       * This avoids depending on the nested
+       * student:students relationship returned by Supabase.
+       */
       const {
         data: enrollmentRows,
         error: enrollmentError,
@@ -487,14 +521,7 @@ export default function TeacherClassesPage() {
             id,
             student_id,
             class_id,
-            academic_year_id,
-            student:students (
-              id,
-              full_name,
-              admission_number,
-              gender,
-              status
-            )
+            academic_year_id
           `
         )
         .in('class_id', classIds)
@@ -504,27 +531,11 @@ export default function TeacherClassesPage() {
         throw enrollmentError;
       }
 
-      /*
-       * Supabase returns the nested student relationship
-       * as an array in the generated response shape.
-       *
-       * We normalize it here into a single Student object.
-       */
-      const rawEnrollments =
-        (enrollmentRows ?? []) as RawEnrollment[];
+      const enrollments =
+        (enrollmentRows ?? []) as Enrollment[];
 
-      const enrollments = rawEnrollments
-        .map((enrollment) => ({
-          ...enrollment,
-          student: normalizeStudent(enrollment.student),
-        }))
-        .filter(
-          (
-            enrollment
-          ): enrollment is RawEnrollment & {
-            student: Student;
-          } => Boolean(enrollment.student)
-        );
+      const studentsById =
+        await loadStudentsForEnrollments(enrollments);
 
       const classMap = new Map<string, ClassWorkspace>();
 
@@ -562,7 +573,16 @@ export default function TeacherClassesPage() {
             (enrollment) =>
               enrollment.class_id === row.id
           )
-          .map((enrollment) => enrollment.student);
+          .map((enrollment) =>
+            studentsById.get(enrollment.student_id)
+          )
+          .filter(
+            (student): student is Student =>
+              Boolean(student)
+          );
+
+        const academicYearId =
+          row.academic_year_id || selectedYearId;
 
         classMap.set(row.id, {
           classId: row.id,
@@ -571,11 +591,11 @@ export default function TeacherClassesPage() {
           programmeId: row.programme_id ?? null,
           programmeName: programme?.name ?? null,
 
-          academicYearId: selectedYearId,
+          academicYearId,
 
           academicYearName:
             academicYears.find(
-              (year) => year.id === selectedYearId
+              (year) => year.id === academicYearId
             )?.name ?? 'Academic Year',
 
           semesterId: selectedSemesterId,
@@ -629,7 +649,12 @@ export default function TeacherClassesPage() {
   async function openClass(item: ClassWorkspace) {
     try {
       setLoadingStudents(true);
+      setError('');
 
+      /*
+       * Fetch enrollment records first.
+       * Do not rely on the nested students relationship.
+       */
       const {
         data: enrollmentRows,
         error: enrollmentError,
@@ -640,14 +665,7 @@ export default function TeacherClassesPage() {
             id,
             student_id,
             class_id,
-            academic_year_id,
-            student:students (
-              id,
-              full_name,
-              admission_number,
-              gender,
-              status
-            )
+            academic_year_id
           `
         )
         .eq('class_id', item.classId)
@@ -657,20 +675,18 @@ export default function TeacherClassesPage() {
         });
 
       if (enrollmentError) {
-        console.warn(
-          'Unable to refresh class roster:',
-          enrollmentError
-        );
-
-        setSelectedClass(item);
-        return;
+        throw enrollmentError;
       }
 
-      const freshStudents = (
-        (enrollmentRows ?? []) as RawEnrollment[]
-      )
-        .map((row) =>
-          normalizeStudent(row.student)
+      const enrollments =
+        (enrollmentRows ?? []) as Enrollment[];
+
+      const studentsById =
+        await loadStudentsForEnrollments(enrollments);
+
+      const freshStudents = enrollments
+        .map((enrollment) =>
+          studentsById.get(enrollment.student_id)
         )
         .filter(
           (student): student is Student =>
@@ -682,10 +698,19 @@ export default function TeacherClassesPage() {
         students: freshStudents,
         studentCount: freshStudents.length,
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Open class error:', err);
 
+      /*
+       * Keep the class visible even if the refresh fails.
+       * The existing roster remains available.
+       */
       setSelectedClass(item);
+
+      setError(
+        err?.message ||
+          'Unable to refresh the student roster.'
+      );
     } finally {
       setLoadingStudents(false);
     }
