@@ -395,6 +395,7 @@ export default function StudentsPage() {
     + Add Student
   </Link>
 </div>
+</div>         
 
         {/* Statistics */}
         <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
