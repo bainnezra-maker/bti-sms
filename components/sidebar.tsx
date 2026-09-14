@@ -110,6 +110,11 @@ const adminMenuSections: MenuSection[] = [
     title: 'ADMINISTRATION',
     items: [
       {
+        name: 'Teacher Assignments',
+        href: '/teacher-assignments',
+        icon: 'fa-solid fa-chalkboard-user',
+      },
+      {
         name: 'Announcements',
         href: '/announcements',
         icon: 'fa-solid fa-bullhorn',
