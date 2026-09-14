@@ -374,21 +374,27 @@ export default function StudentsPage() {
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/students/student-account"
-              className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100"
-            >
-              🔐 Create Student Login
-            </Link>
+  <Link
+    href="/students/student-account"
+    className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100"
+  >
+    🔐 Create Student Login
+  </Link>
 
-            <Link
-              href="/students/add"
-              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-blue-700"
-            >
-              + Add Student
-            </Link>
-          </div>
-        </div>
+  <Link
+    href="/students/import"
+    className="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+  >
+    📥 Bulk Import
+  </Link>
+
+  <Link
+    href="/students/add"
+    className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-blue-700"
+  >
+    + Add Student
+  </Link>
+</div>
 
         {/* Statistics */}
         <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
