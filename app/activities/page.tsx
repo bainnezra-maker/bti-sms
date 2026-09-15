@@ -35,7 +35,7 @@ type AcademicYear = {
 type ResponsibleStaff = {
   id: string;
   staff_id: string;
-  staff?: Staff | null;
+  staff: Staff | null;
 };
 
 type Attachment = {
@@ -385,7 +385,27 @@ export default function ActivitiesPage() {
       throw error;
     }
 
-    setActivities((data ?? []) as Activity[]);
+    /*
+     * Supabase returns the nested staff relationship as an array.
+     * Our application uses one Staff object for each responsible-staff row.
+     * Normalize the relationship here before storing it in state.
+     */
+    const normalizedActivities: Activity[] = (data ?? []).map(
+      (activity) => ({
+        ...activity,
+        responsible_staff: (activity.responsible_staff ?? []).map(
+          (person) => ({
+            ...person,
+            staff: Array.isArray(person.staff)
+              ? person.staff[0] ?? null
+              : person.staff ?? null,
+          })
+        ),
+        attachments: activity.attachments ?? [],
+      })
+    );
+
+    setActivities(normalizedActivities);
   }
 
   async function loadStaff(currentSchoolId: string) {
@@ -611,10 +631,14 @@ export default function ActivitiesPage() {
 
         if (error) throw error;
 
-        await supabase
+        const { error: responsibleDeleteError } = await supabase
           .from('school_activity_responsible_staff')
           .delete()
           .eq('activity_id', editingActivity.id);
+
+        if (responsibleDeleteError) {
+          throw responsibleDeleteError;
+        }
 
         activityId = editingActivity.id;
       } else {
@@ -689,9 +713,16 @@ export default function ActivitiesPage() {
 
     try {
       for (const attachment of activity.attachments) {
-        await supabase.storage
+        const { error: storageError } = await supabase.storage
           .from('school-activity-attachments')
           .remove([attachment.file_path]);
+
+        if (storageError) {
+          console.warn(
+            'Unable to remove attachment from storage:',
+            storageError
+          );
+        }
       }
 
       const { error } = await supabase
@@ -873,7 +904,6 @@ export default function ActivitiesPage() {
 
       <main className="min-h-screen bg-slate-50 px-4 py-6 md:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl space-y-6">
-          {/* HEADER */}
           <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-xl md:p-8">
             <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-white/5" />
             <div className="absolute -bottom-24 -left-16 h-56 w-56 rounded-full bg-white/5" />
@@ -913,7 +943,6 @@ export default function ActivitiesPage() {
             </div>
           </section>
 
-          {/* NOTICE */}
           {notice && (
             <div
               className={`flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-sm ${
@@ -944,7 +973,6 @@ export default function ActivitiesPage() {
             </div>
           )}
 
-          {/* STATS */}
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
               {
@@ -980,7 +1008,9 @@ export default function ActivitiesPage() {
                   <span
                     className={`flex h-11 w-11 items-center justify-center rounded-xl ${stat.iconClass}`}
                   >
-                    <i className={`${stat.icon} transition-transform duration-200 group-hover:scale-110`} />
+                    <i
+                      className={`${stat.icon} transition-transform duration-200 group-hover:scale-110`}
+                    />
                   </span>
 
                   <span className="text-3xl font-black text-slate-900">
@@ -995,7 +1025,6 @@ export default function ActivitiesPage() {
             ))}
           </section>
 
-          {/* UPCOMING */}
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
             <div className="mb-5 flex items-center justify-between gap-4">
               <div>
@@ -1059,7 +1088,6 @@ export default function ActivitiesPage() {
             )}
           </section>
 
-          {/* FILTERS + LIST */}
           <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 p-5 md:p-6">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -1167,7 +1195,6 @@ export default function ActivitiesPage() {
                       className="group p-5 transition-colors duration-200 hover:bg-slate-50 md:p-6"
                     >
                       <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
-                        {/* DATE */}
                         <div className="flex shrink-0 items-center gap-3 lg:w-32 lg:flex-col lg:items-start">
                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-md">
                             <i className="fa-solid fa-calendar-day" />
@@ -1196,7 +1223,6 @@ export default function ActivitiesPage() {
                           </div>
                         </div>
 
-                        {/* CONTENT */}
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span
@@ -1252,7 +1278,6 @@ export default function ActivitiesPage() {
                           </div>
                         </div>
 
-                        {/* ACTIONS */}
                         <div className="flex shrink-0 items-center gap-2">
                           <button
                             type="button"
@@ -1302,10 +1327,6 @@ export default function ActivitiesPage() {
         </div>
       </main>
 
-      {/* ===================================================== */}
-      {/* ADD / EDIT MODAL */}
-      {/* ===================================================== */}
-
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
           <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
@@ -1332,7 +1353,6 @@ export default function ActivitiesPage() {
             </div>
 
             <form onSubmit={saveActivity} className="space-y-6 p-5 md:p-6">
-              {/* TITLE */}
               <div>
                 <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                   Activity Title
@@ -1351,7 +1371,6 @@ export default function ActivitiesPage() {
                 />
               </div>
 
-              {/* TYPE + YEAR */}
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1404,7 +1423,6 @@ export default function ActivitiesPage() {
                 </div>
               </div>
 
-              {/* DATES */}
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1447,7 +1465,6 @@ export default function ActivitiesPage() {
                 </div>
               </div>
 
-              {/* DESCRIPTION */}
               <div>
                 <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                   Description
@@ -1467,7 +1484,6 @@ export default function ActivitiesPage() {
                 />
               </div>
 
-              {/* ALL STAFF */}
               <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <input
                   type="checkbox"
@@ -1493,7 +1509,6 @@ export default function ActivitiesPage() {
                 </span>
               </label>
 
-              {/* RESPONSIBLE STAFF */}
               <div>
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
@@ -1585,7 +1600,6 @@ export default function ActivitiesPage() {
                 </div>
               </div>
 
-              {/* ATTACHMENTS */}
               <div>
                 <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                   Attachments
@@ -1636,7 +1650,6 @@ export default function ActivitiesPage() {
                 </div>
               </div>
 
-              {/* BUTTONS */}
               <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
                 <button
                   type="button"
@@ -1672,10 +1685,6 @@ export default function ActivitiesPage() {
         </div>
       )}
 
-      {/* ===================================================== */}
-      {/* ACTIVITY DETAILS MODAL */}
-      {/* ===================================================== */}
-
       {selectedActivity && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
@@ -1696,6 +1705,7 @@ export default function ActivitiesPage() {
                         ).icon
                       }
                     />
+
                     {getActivityType(
                       selectedActivity.activity_type
                     ).label}
@@ -1764,7 +1774,6 @@ export default function ActivitiesPage() {
                 </div>
               </div>
 
-              {/* RESPONSIBLE STAFF */}
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
                   Responsible Staff
@@ -1805,7 +1814,6 @@ export default function ActivitiesPage() {
                 )}
               </div>
 
-              {/* ATTACHMENTS */}
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
                   Attachments
@@ -1881,7 +1889,6 @@ export default function ActivitiesPage() {
         </div>
       )}
 
-      {/* ANIMATION */}
       <style jsx global>{`
         @keyframes fadeInUp {
           from {
