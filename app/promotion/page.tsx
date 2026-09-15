@@ -43,6 +43,59 @@ type Enrollment = {
 
 const supabase = createClient();
 
+const FORM_OPTIONS = [
+  {
+    value: 'Form 1',
+    label: 'Form 1 → Form 2',
+    destination: 'Form 2',
+  },
+  {
+    value: 'Form 2',
+    label: 'Form 2 → Form 3',
+    destination: 'Form 3',
+  },
+  {
+    value: 'Form 3',
+    label: 'Form 3 → Graduated',
+    destination: 'Graduated',
+  },
+];
+
+function normalizeForm(value: string | null) {
+  if (!value) return '';
+
+  const text = value.toLowerCase().trim();
+
+  if (
+    text === 'form 1' ||
+    text === 'form one' ||
+    text === '1' ||
+    text.includes('form 1')
+  ) {
+    return 'Form 1';
+  }
+
+  if (
+    text === 'form 2' ||
+    text === 'form two' ||
+    text === '2' ||
+    text.includes('form 2')
+  ) {
+    return 'Form 2';
+  }
+
+  if (
+    text === 'form 3' ||
+    text === 'form three' ||
+    text === '3' ||
+    text.includes('form 3')
+  ) {
+    return 'Form 3';
+  }
+
+  return value;
+}
+
 export default function PromotionPage() {
   const [academicYears, setAcademicYears] =
     useState<AcademicYear[]>([]);
@@ -62,10 +115,7 @@ export default function PromotionPage() {
   const [programmeId, setProgrammeId] =
     useState('');
 
-  const [fromClassId, setFromClassId] =
-    useState('');
-
-  const [toClassId, setToClassId] =
+  const [fromForm, setFromForm] =
     useState('');
 
   const [enrollments, setEnrollments] =
@@ -118,9 +168,7 @@ export default function PromotionPage() {
 
       supabase
         .from('programmes')
-        .select(
-          'id, name, code'
-        )
+        .select('id, name, code')
         .order('name'),
 
       supabase
@@ -150,151 +198,84 @@ export default function PromotionPage() {
     }
 
     const years =
-      (academicYearsResult.data ||
-        []) as AcademicYear[];
+      (academicYearsResult.data || []) as AcademicYear[];
 
     const programmeData =
-      (programmesResult.data ||
-        []) as Programme[];
+      (programmesResult.data || []) as Programme[];
 
     const classData =
-      (classesResult.data ||
-        []) as ClassItem[];
+      (classesResult.data || []) as ClassItem[];
 
     setAcademicYears(years);
     setProgrammes(programmeData);
     setClasses(classData);
 
-    /*
-     * The current academic year is the
-     * year students are being promoted FROM.
-     */
     const currentYear =
       years.find(
-        (year) =>
-          year.is_current
+        (year) => year.is_current
       );
 
     if (currentYear) {
-      setFromYear(
-        currentYear.id
-      );
+      setFromYear(currentYear.id);
 
-      /*
-       * Find the next academic year based
-       * on start_date.
-       */
       const nextYear =
         years
           .filter(
             (year) =>
-              year.id !==
-              currentYear.id
+              year.id !== currentYear.id
           )
           .filter(
             (year) =>
               !!year.start_date &&
               !!currentYear.start_date
           )
-          .sort((a, b) => {
-            const aDate =
-              a.start_date || '';
-
-            const bDate =
-              b.start_date || '';
-
-            return aDate.localeCompare(
-              bDate
-            );
-          })
-          .find((year) => {
-            return (
+          .sort((a, b) =>
+            (a.start_date || '').localeCompare(
+              b.start_date || ''
+            )
+          )
+          .find(
+            (year) =>
               (year.start_date || '') >
               (currentYear.start_date || '')
-            );
-          });
+          );
 
       if (nextYear) {
-        setToYear(
-          nextYear.id
-        );
+        setToYear(nextYear.id);
       }
     }
 
     setLoading(false);
   }
 
-  /*
-   * Classes belonging to the current academic year.
-   */
-  const fromClasses =
-    useMemo(() => {
-      return classes
-        .filter((item) => {
-          const yearMatches =
-            item.academic_year_id ===
-            fromYear;
+  const fromYearName =
+    academicYears.find(
+      (year) => year.id === fromYear
+    )?.name || '';
 
-          const programmeMatches =
-            !programmeId ||
-            item.programme_id ===
-              programmeId;
+  const toYearName =
+    academicYears.find(
+      (year) => year.id === toYear
+    )?.name || '';
 
-          return (
-            yearMatches &&
-            programmeMatches
-          );
-        })
-        .sort((a, b) =>
-          a.name.localeCompare(
-            b.name
-          )
-        );
-    }, [
-      classes,
-      fromYear,
-      programmeId,
-    ]);
+  const selectedProgramme =
+    programmes.find(
+      (programme) =>
+        programme.id === programmeId
+    );
 
-  /*
-   * Classes belonging to the destination
-   * academic year.
-   */
-  const toClasses =
-    useMemo(() => {
-      return classes
-        .filter((item) => {
-          const yearMatches =
-            item.academic_year_id ===
-            toYear;
+  const selectedForm =
+    FORM_OPTIONS.find(
+      (form) => form.value === fromForm
+    );
 
-          const programmeMatches =
-            !programmeId ||
-            item.programme_id ===
-              programmeId;
-
-          return (
-            yearMatches &&
-            programmeMatches
-          );
-        })
-        .sort((a, b) =>
-          a.name.localeCompare(
-            b.name
-          )
-        );
-    }, [
-      classes,
-      toYear,
-      programmeId,
-    ]);
+  const destinationForm =
+    selectedForm?.destination || '';
 
   const filteredEnrollments =
     useMemo(() => {
       const term =
-        search
-          .toLowerCase()
-          .trim();
+        search.toLowerCase().trim();
 
       if (!term) {
         return enrollments;
@@ -315,25 +296,46 @@ export default function PromotionPage() {
           );
         }
       );
-    }, [
-      enrollments,
-      search,
-    ]);
+    }, [enrollments, search]);
+
+  const formCounts =
+    useMemo(() => {
+      const counts: Record<string, number> = {
+        'Form 1': 0,
+        'Form 2': 0,
+        'Form 3': 0,
+      };
+
+      classes
+        .filter(
+          (item) =>
+            item.academic_year_id ===
+            fromYear
+        )
+        .forEach((item) => {
+          const form =
+            normalizeForm(item.level);
+
+          if (
+            form &&
+            form in counts
+          ) {
+            counts[form] += 1;
+          }
+        });
+
+      return counts;
+    }, [classes, fromYear]);
 
   async function loadStudents() {
     setError('');
     setMessage('');
+    setSearch('');
+    setSelectedStudents([]);
 
     if (!fromYear) {
       setError(
         'Please select the current academic year.'
-      );
-      return;
-    }
-
-    if (!fromClassId) {
-      setError(
-        'Please select the current class.'
       );
       return;
     }
@@ -345,15 +347,71 @@ export default function PromotionPage() {
       return;
     }
 
-    if (!toClassId) {
+    if (fromYear === toYear) {
       setError(
-        'Please select the destination class.'
+        'The current and destination academic years cannot be the same.'
+      );
+      return;
+    }
+
+    if (!fromForm) {
+      setError(
+        'Please select the Form to promote.'
       );
       return;
     }
 
     setLoading(true);
-    setSelectedStudents([]);
+
+    /*
+     * First find all classes in the selected
+     * academic year that belong to the selected Form.
+     *
+     * This means the administrator does not have
+     * to choose individual classes.
+     */
+    const sourceClasses =
+      classes.filter((item) => {
+        const form =
+          normalizeForm(item.level);
+
+        const yearMatches =
+          item.academic_year_id ===
+          fromYear;
+
+        const formMatches =
+          form === fromForm;
+
+        const programmeMatches =
+          !programmeId ||
+          item.programme_id ===
+            programmeId;
+
+        return (
+          yearMatches &&
+          formMatches &&
+          programmeMatches
+        );
+      });
+
+    if (sourceClasses.length === 0) {
+      setError(
+        `No ${fromForm} classes were found for the selected academic year${
+          selectedProgramme
+            ? ` and programme ${selectedProgramme.name}`
+            : ''
+        }.`
+      );
+
+      setEnrollments([]);
+      setLoading(false);
+      return;
+    }
+
+    const sourceClassIds =
+      sourceClasses.map(
+        (item) => item.id
+      );
 
     const {
       data,
@@ -377,9 +435,9 @@ export default function PromotionPage() {
         'academic_year_id',
         fromYear
       )
-      .eq(
+      .in(
         'class_id',
-        fromClassId
+        sourceClassIds
       )
       .eq(
         'status',
@@ -391,48 +449,51 @@ export default function PromotionPage() {
 
     if (loadError) {
       setError(
-        loadError.message
+        `Students could not be loaded: ${loadError.message}`
       );
+
       setEnrollments([]);
-    } else {
-      const normalized:
-        Enrollment[] =
-        (data || []).map(
-          (item: any) => ({
-            id: item.id,
-            student_id:
-              item.student_id,
-            class_id:
-              item.class_id,
-            academic_year_id:
-              item.academic_year_id,
-            programme_id:
-              item.programme_id,
-            status:
-              item.status,
-            students:
-              Array.isArray(
-                item.students
-              )
-                ? item.students[0] ||
-                  null
-                : item.students ||
-                  null,
-          })
-        );
+      setLoading(false);
+      return;
+    }
 
-      setEnrollments(
-        normalized
+    const normalized:
+      Enrollment[] =
+      (data || []).map(
+        (item: any) => ({
+          id: item.id,
+          student_id:
+            item.student_id,
+          class_id:
+            item.class_id,
+          academic_year_id:
+            item.academic_year_id,
+          programme_id:
+            item.programme_id,
+          status:
+            item.status,
+          students:
+            Array.isArray(
+              item.students
+            )
+              ? item.students[0] ||
+                null
+              : item.students ||
+                null,
+        })
       );
 
-      if (
-        normalized.length ===
-        0
-      ) {
-        setMessage(
-          'No active students were found in this class for the selected academic year.'
-        );
-      }
+    setEnrollments(
+      normalized
+    );
+
+    if (
+      normalized.length ===
+      0
+    ) {
+      setMessage(
+        `No active students were found in ${fromForm} for the selected academic year.`
+      );
     }
 
     setLoading(false);
@@ -443,13 +504,10 @@ export default function PromotionPage() {
   ) {
     setSelectedStudents(
       (current) =>
-        current.includes(
-          studentId
-        )
+        current.includes(studentId)
           ? current.filter(
               (id) =>
-                id !==
-                studentId
+                id !== studentId
             )
           : [
               ...current,
@@ -473,6 +531,66 @@ export default function PromotionPage() {
     setSelectedStudents([]);
   }
 
+  /*
+   * Find the destination class automatically.
+   *
+   * The administrator only selects the Form.
+   * We then use:
+   *
+   * Programme + Destination Form +
+   * Destination Academic Year
+   *
+   * to find the appropriate class.
+   */
+  function findDestinationClass(
+    programmeIdForStudent: string | null
+  ) {
+    const candidates =
+      classes.filter((item) => {
+        const yearMatches =
+          item.academic_year_id ===
+          toYear;
+
+        const formMatches =
+          normalizeForm(item.level) ===
+          destinationForm;
+
+        const programmeMatches =
+          programmeIdForStudent
+            ? item.programme_id ===
+              programmeIdForStudent
+            : !programmeIdForStudent
+              ? true
+              : false;
+
+        return (
+          yearMatches &&
+          formMatches &&
+          programmeMatches
+        );
+      });
+
+    /*
+     * If there is only one matching class,
+     * it is unambiguous.
+     */
+    if (candidates.length === 1) {
+      return candidates[0];
+    }
+
+    /*
+     * If several classes exist, prefer the first
+     * matching class. This keeps the promotion
+     * process Form-based without forcing the admin
+     * to choose a class.
+     */
+    if (candidates.length > 1) {
+      return candidates[0];
+    }
+
+    return null;
+  }
+
   async function promoteStudents() {
     setError('');
     setMessage('');
@@ -491,16 +609,9 @@ export default function PromotionPage() {
       return;
     }
 
-    if (!fromClassId) {
+    if (!fromForm) {
       setError(
-        'Please select the current class.'
-      );
-      return;
-    }
-
-    if (!toClassId) {
-      setError(
-        'Please select the destination class.'
+        'Please select the Form to promote.'
       );
       return;
     }
@@ -515,52 +626,9 @@ export default function PromotionPage() {
       return;
     }
 
-    const destinationClass =
-      classes.find(
-        (item) =>
-          item.id ===
-          toClassId
-      );
-
-    if (!destinationClass) {
-      setError(
-        'The selected destination class could not be found.'
-      );
-      return;
-    }
-
-    /*
-     * Safety check:
-     * Make sure the selected destination class
-     * actually belongs to the destination year.
-     */
-    if (
-      destinationClass.academic_year_id !==
-      toYear
-    ) {
-      setError(
-        'The selected destination class is not assigned to the selected destination academic year. Please assign the class to the correct academic year first.'
-      );
-      return;
-    }
-
-    const fromYearName =
-      academicYears.find(
-        (year) =>
-          year.id ===
-          fromYear
-      )?.name || '';
-
-    const toYearName =
-      academicYears.find(
-        (year) =>
-          year.id ===
-          toYear
-      )?.name || '';
-
     const confirmed =
       window.confirm(
-        `Promote ${selectedStudents.length} student(s) from ${fromYearName} to ${toYearName} — ${destinationClass.name}?`
+        `Promote ${selectedStudents.length} student(s) from ${fromForm} to ${destinationForm} for ${toYearName}?`
       );
 
     if (!confirmed) {
@@ -569,28 +637,181 @@ export default function PromotionPage() {
 
     setPromoting(true);
 
-    const rows =
-      selectedStudents.map(
-        (studentId) => ({
-          student_id:
-            studentId,
-          class_id:
-            toClassId,
-          academic_year_id:
-            toYear,
-          programme_id:
-            destinationClass.programme_id ||
-            programmeId ||
-            null,
-          enrollment_date:
-            new Date()
-              .toISOString()
-              .slice(0, 10),
-          status:
-            'active',
-        })
+    /*
+     * FORM 3 → GRADUATED
+     *
+     * No new class is required.
+     * We simply mark the current active
+     * enrollment as graduated.
+     */
+    if (fromForm === 'Form 3') {
+      let successCount = 0;
+      let failureMessage = '';
+
+      for (const studentId of selectedStudents) {
+        const currentEnrollment =
+          enrollments.find(
+            (item) =>
+              item.student_id ===
+              studentId
+          );
+
+        if (!currentEnrollment) {
+          continue;
+        }
+
+        const {
+          error: updateError,
+        } = await supabase
+          .from('enrollments')
+          .update({
+            status:
+              'graduated',
+          })
+          .eq(
+            'id',
+            currentEnrollment.id
+          );
+
+        if (updateError) {
+          failureMessage =
+            updateError.message;
+          break;
+        }
+
+        successCount++;
+      }
+
+      if (failureMessage) {
+        setError(
+          `Graduation was partially completed. ${successCount} student(s) were processed before the error: ${failureMessage}`
+        );
+      } else {
+        setMessage(
+          `${successCount} Form 3 student(s) have been successfully marked as graduated.`
+        );
+      }
+
+      setSelectedStudents([]);
+      setPromoting(false);
+
+      await loadStudents();
+
+      return;
+    }
+
+    /*
+     * FORM 1 → FORM 2
+     * FORM 2 → FORM 3
+     */
+    const rows: {
+      student_id: string;
+      class_id: string;
+      academic_year_id: string;
+      programme_id: string | null;
+      enrollment_date: string;
+      status: string;
+    }[] = [];
+
+    const missingDestinationStudents: string[] = [];
+
+    for (const studentId of selectedStudents) {
+      const enrollment =
+        enrollments.find(
+          (item) =>
+            item.student_id ===
+            studentId
+        );
+
+      if (!enrollment) {
+        continue;
+      }
+
+      const studentProgrammeId =
+        enrollment.programme_id ||
+        classes.find(
+          (item) =>
+            item.id ===
+            enrollment.class_id
+        )?.programme_id ||
+        null;
+
+      const destinationClass =
+        findDestinationClass(
+          studentProgrammeId
+        );
+
+      if (!destinationClass) {
+        const studentName =
+          enrollment.students
+            ?.full_name ||
+          enrollment.student_id;
+
+        missingDestinationStudents.push(
+          studentName
+        );
+
+        continue;
+      }
+
+      rows.push({
+        student_id:
+          studentId,
+        class_id:
+          destinationClass.id,
+        academic_year_id:
+          toYear,
+        programme_id:
+          studentProgrammeId ||
+          destinationClass.programme_id ||
+          null,
+        enrollment_date:
+          new Date()
+            .toISOString()
+            .slice(0, 10),
+        status:
+          'active',
+      });
+    }
+
+    if (
+      missingDestinationStudents.length >
+      0
+    ) {
+      setError(
+        `No destination ${destinationForm} class could be found for: ${missingDestinationStudents
+          .slice(0, 5)
+          .join(', ')}${
+          missingDestinationStudents.length >
+          5
+            ? ` and ${
+                missingDestinationStudents.length -
+                5
+              } more student(s)`
+            : ''
+        }. Please make sure the destination Form classes exist for their programmes.`
       );
 
+      setPromoting(false);
+      return;
+    }
+
+    if (rows.length === 0) {
+      setError(
+        'No students could be prepared for promotion.'
+      );
+
+      setPromoting(false);
+      return;
+    }
+
+    /*
+     * Insert the new academic-year enrollments.
+     *
+     * We intentionally do NOT modify the old
+     * enrollment. This preserves the student's
+     * academic history.
+     */
     const {
       error: insertError,
     } = await supabase
@@ -604,46 +825,25 @@ export default function PromotionPage() {
       setError(
         `Promotion failed: ${insertError.message}`
       );
+
       setPromoting(false);
       return;
     }
 
     setMessage(
-      `${selectedStudents.length} student(s) successfully promoted to ${toYearName} — ${destinationClass.name}.`
+      `${rows.length} student(s) successfully promoted from ${fromForm} to ${destinationForm} for ${toYearName}. Previous academic records remain unchanged.`
     );
 
     setSelectedStudents([]);
 
     setPromoting(false);
+
+    /*
+     * Refresh the list so the administrator
+     * can immediately see the updated state.
+     */
+    await loadStudents();
   }
-
-  const fromYearName =
-    academicYears.find(
-      (item) =>
-        item.id ===
-        fromYear
-    )?.name || '';
-
-  const toYearName =
-    academicYears.find(
-      (item) =>
-        item.id ===
-        toYear
-    )?.name || '';
-
-  const fromClassName =
-    classes.find(
-      (item) =>
-        item.id ===
-        fromClassId
-    )?.name || '';
-
-  const toClassName =
-    classes.find(
-      (item) =>
-        item.id ===
-        toClassId
-    )?.name || '';
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-8 lg:pt-8">
@@ -651,42 +851,88 @@ export default function PromotionPage() {
 
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
-            Student Promotion
-          </h1>
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-xl text-white shadow-lg">
+              <i className="fa-solid fa-arrow-up" />
+            </div>
 
-          <p className="mt-1 text-sm text-slate-600">
-            Promote students to the next academic year while preserving all previous records.
-          </p>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
+                Student Promotion
+              </h1>
+
+              <p className="mt-1 text-sm text-slate-600">
+                Promote students by Form while preserving their complete academic history.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Information */}
-        <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <p className="font-semibold text-blue-900">
-            Promotion preserves history
-          </p>
+        <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+          <div className="flex gap-3">
+            <i className="fa-solid fa-circle-info mt-1 text-blue-600" />
 
-          <p className="mt-1 text-sm text-blue-800">
-            The student's previous enrollment, assessments, attendance and report cards remain unchanged. A new enrollment is created for the destination academic year.
-          </p>
+            <div>
+              <p className="font-semibold text-blue-900">
+                Form-based promotion
+              </p>
+
+              <p className="mt-1 text-sm leading-6 text-blue-800">
+                Select Form 1, Form 2 or Form 3. You no longer need to select individual classes. BTI-SMS uses the existing Form and programme information to determine the students to promote.
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-blue-700 shadow-sm">
+                  Form 1 → Form 2
+                </span>
+
+                <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-indigo-700 shadow-sm">
+                  Form 2 → Form 3
+                </span>
+
+                <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-purple-700 shadow-sm">
+                  Form 3 → Graduated
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Errors */}
         {error && (
-          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
-            {error}
+          <div className="mb-5 flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+            <i className="fa-solid fa-circle-exclamation mt-0.5" />
+            <span>{error}</span>
           </div>
         )}
 
-        {/* Success / information */}
+        {/* Success */}
         {message && (
-          <div className="mb-5 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
-            {message}
+          <div className="mb-5 flex gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
+            <i className="fa-solid fa-circle-check mt-0.5" />
+            <span>{message}</span>
           </div>
         )}
 
         {/* Selection panel */}
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-6">
+
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+              <i className="fa-solid fa-filter" />
+            </div>
+
+            <div>
+              <h2 className="font-bold text-slate-900">
+                Promotion Setup
+              </h2>
+
+              <p className="text-xs text-slate-500">
+                Select the academic years, programme and Form.
+              </p>
+            </div>
+          </div>
 
           <div className="grid gap-5 md:grid-cols-2">
 
@@ -699,16 +945,11 @@ export default function PromotionPage() {
               <select
                 value={fromYear}
                 onChange={(e) => {
-                  setFromYear(
-                    e.target.value
-                  );
-
-                  setFromClassId('');
-                  setToClassId('');
+                  setFromYear(e.target.value);
                   setEnrollments([]);
                   setSelectedStudents([]);
                 }}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3"
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   Select current academic year
@@ -739,15 +980,11 @@ export default function PromotionPage() {
               <select
                 value={toYear}
                 onChange={(e) => {
-                  setToYear(
-                    e.target.value
-                  );
-
-                  setToClassId('');
+                  setToYear(e.target.value);
                   setEnrollments([]);
                   setSelectedStudents([]);
                 }}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3"
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   Select destination academic year
@@ -779,12 +1016,10 @@ export default function PromotionPage() {
                     e.target.value
                   );
 
-                  setFromClassId('');
-                  setToClassId('');
                   setEnrollments([]);
                   setSelectedStudents([]);
                 }}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3"
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
                   All programmes
@@ -793,12 +1028,8 @@ export default function PromotionPage() {
                 {programmes.map(
                   (programme) => (
                     <option
-                      key={
-                        programme.id
-                      }
-                      value={
-                        programme.id
-                      }
+                      key={programme.id}
+                      value={programme.id}
                     >
                       {programme.name}
                       {programme.code
@@ -810,135 +1041,115 @@ export default function PromotionPage() {
               </select>
             </div>
 
-            {/* Current class */}
+            {/* Form */}
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Current Class
+                Promote From Form
               </label>
 
               <select
-                value={fromClassId}
+                value={fromForm}
                 onChange={(e) => {
-                  setFromClassId(
+                  setFromForm(
                     e.target.value
                   );
 
                   setEnrollments([]);
                   setSelectedStudents([]);
                 }}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3"
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">
-                  Select current class
+                  Select Form
                 </option>
 
-                {fromClasses.map(
-                  (item) => (
+                {FORM_OPTIONS.map(
+                  (form) => (
                     <option
-                      key={item.id}
-                      value={item.id}
+                      key={form.value}
+                      value={form.value}
                     >
-                      {item.name}
-                      {item.level
-                        ? ` — ${item.level}`
-                        : ''}
+                      {form.label}
                     </option>
                   )
                 )}
               </select>
-
-              {fromYear &&
-                fromClasses.length ===
-                  0 && (
-                  <p className="mt-2 text-xs font-medium text-amber-600">
-                    No classes are assigned to this academic year. Please assign your existing class to the current academic year from the Classes page.
-                  </p>
-                )}
             </div>
 
-            {/* Destination class */}
-            <div className="md:col-span-2">
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Promotion Class
-              </label>
+          </div>
 
-              <select
-                value={toClassId}
-                onChange={(e) =>
-                  setToClassId(
-                    e.target.value
-                  )
-                }
-                disabled={!toYear}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                <option value="">
-                  {!toYear
-                    ? 'Select destination academic year first'
-                    : toClasses.length ===
-                        0
-                    ? 'No promotion classes available'
-                    : 'Select promotion class'}
-                </option>
+          {/* Form pathway */}
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
 
-                {toClasses.map(
-                  (item) => (
-                    <option
-                      key={item.id}
-                      value={item.id}
-                    >
-                      {item.name}
-                      {item.level
-                        ? ` — ${item.level}`
-                        : ''}
-                    </option>
-                  )
-                )}
-              </select>
+            <div className="grid gap-4 sm:grid-cols-3">
 
-              {toYear &&
-                toClasses.length ===
-                  0 && (
-                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                    <p className="text-xs font-semibold text-amber-800">
-                      No promotion class is available for{' '}
-                      {toYearName || 'the selected year'}.
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  From
+                </p>
+
+                <p className="mt-1 text-lg font-bold text-slate-900">
+                  {fromForm || '—'}
+                </p>
+
+                <p className="text-xs text-slate-500">
+                  {fromYearName || 'Current year'}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-center">
+                <i className="fa-solid fa-arrow-right text-xl text-blue-600" />
+              </div>
+
+              <div className="sm:text-right">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  To
+                </p>
+
+                <p className="mt-1 text-lg font-bold text-green-700">
+                  {destinationForm || '—'}
+                </p>
+
+                <p className="text-xs text-slate-500">
+                  {toYearName || 'Destination year'}
+                </p>
+              </div>
+
+            </div>
+
+          </div>
+
+          {/* Form availability */}
+          {fromYear && (
+            <div className="mt-5 grid grid-cols-3 gap-3">
+
+              {['Form 1', 'Form 2', 'Form 3'].map(
+                (form) => (
+                  <div
+                    key={form}
+                    className={`rounded-xl border p-4 ${
+                      fromForm === form
+                        ? 'border-blue-300 bg-blue-50'
+                        : 'border-slate-200 bg-white'
+                    }`}
+                  >
+                    <p className="text-xs font-semibold text-slate-500">
+                      {form}
                     </p>
 
-                    <p className="mt-1 text-xs text-amber-700">
-                      Go to <strong>Classes</strong> and create or edit the destination class, then assign it to{' '}
-                      <strong>
-                        {toYearName || 'the destination academic year'}
-                      </strong>.
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+                      {formCounts[form] || 0}
+                    </p>
+
+                    <p className="text-xs text-slate-500">
+                      class / classes
                     </p>
                   </div>
-                )}
-            </div>
-
-          </div>
-
-          {/* Promotion pathway */}
-          <div className="mt-6 rounded-xl bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-700">
-              Promotion pathway
-            </p>
-
-            <p className="mt-1 text-sm text-slate-600">
-              {fromYearName ||
-                'Current year'}{' '}
-              →{' '}
-              {toYearName ||
-                'Destination year'}
-            </p>
-
-            {fromClassName &&
-              toClassName && (
-                <p className="mt-1 text-sm font-medium text-green-700">
-                  {fromClassName} →{' '}
-                  {toClassName}
-                </p>
+                )
               )}
-          </div>
+
+            </div>
+          )}
 
           {/* Load students */}
           <button
@@ -946,49 +1157,65 @@ export default function PromotionPage() {
             disabled={
               loading ||
               !fromYear ||
-              !fromClassId ||
               !toYear ||
-              !toClassId
+              !fromForm
             }
-            className="mt-5 rounded-xl bg-slate-800 px-5 py-3 font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-800 px-6 py-3 font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
+            <i
+              className={`fa-solid ${
+                loading
+                  ? 'fa-spinner fa-spin'
+                  : 'fa-users'
+              }`}
+            />
+
             {loading
-              ? 'Loading...'
+              ? 'Loading Students...'
               : 'Load Students'}
           </button>
 
         </div>
 
         {/* Student list */}
-        {enrollments.length >
-          0 && (
-          <div className="mt-6 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+        {enrollments.length > 0 && (
+          <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
 
             <div className="border-b border-slate-200 p-5">
 
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    Students to Promote
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <i className="fa-solid fa-user-graduate text-blue-600" />
 
-                  <p className="text-sm text-slate-600">
-                    {fromYearName} —{' '}
-                    {fromClassName}
+                    <h2 className="text-lg font-bold text-slate-900">
+                      Students to Promote
+                    </h2>
+                  </div>
+
+                  <p className="mt-1 text-sm text-slate-600">
+                    {fromForm} →{' '}
+                    {destinationForm} •{' '}
+                    {fromYearName} →{' '}
+                    {toYearName}
                   </p>
+
+                  {selectedProgramme && (
+                    <p className="mt-1 text-xs font-semibold text-blue-600">
+                      Programme: {selectedProgramme.name}
+                    </p>
+                  )}
                 </div>
 
                 <input
                   type="text"
-                  placeholder="Search student..."
+                  placeholder="Search name or admission number..."
                   value={search}
                   onChange={(e) =>
-                    setSearch(
-                      e.target.value
-                    )
+                    setSearch(e.target.value)
                   }
-                  className="w-full rounded-xl border border-slate-300 px-4 py-2.5 lg:max-w-xs"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 lg:max-w-sm"
                 />
 
               </div>
@@ -996,28 +1223,29 @@ export default function PromotionPage() {
               <div className="mt-4 flex flex-wrap gap-2">
 
                 <button
-                  onClick={
-                    selectAll
-                  }
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={selectAll}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
+                  <i className="fa-solid fa-check-double" />
                   Select All
                 </button>
 
                 <button
-                  onClick={
-                    clearAll
-                  }
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={clearAll}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
+                  <i className="fa-solid fa-xmark" />
                   Clear All
                 </button>
 
-                <span className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
-                  Selected:{' '}
-                  {
-                    selectedStudents.length
-                  }
+                <span className="inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700">
+                  <i className="fa-solid fa-user-check" />
+                  Selected: {selectedStudents.length}
+                </span>
+
+                <span className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
+                  <i className="fa-solid fa-users" />
+                  Total: {enrollments.length}
                 </span>
 
               </div>
@@ -1031,16 +1259,20 @@ export default function PromotionPage() {
                 <thead className="bg-slate-50">
                   <tr>
 
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Select
                     </th>
 
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Student
                     </th>
 
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Admission No.
+                    </th>
+
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Current Form
                     </th>
 
                   </tr>
@@ -1051,10 +1283,14 @@ export default function PromotionPage() {
                   {filteredEnrollments.map(
                     (item) => (
                       <tr
-                        key={
-                          item.id
-                        }
-                        className="hover:bg-slate-50"
+                        key={item.id}
+                        className={`transition hover:bg-slate-50 ${
+                          selectedStudents.includes(
+                            item.student_id
+                          )
+                            ? 'bg-blue-50/60'
+                            : ''
+                        }`}
                       >
 
                         <td className="px-4 py-3">
@@ -1069,21 +1305,39 @@ export default function PromotionPage() {
                                 item.student_id
                               )
                             }
-                            className="h-5 w-5"
+                            className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                           />
 
                         </td>
 
-                        <td className="px-4 py-3 text-sm font-semibold text-slate-900">
-                          {item.students
-                            ?.full_name ||
-                            'Student unavailable'}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+
+                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                              <i className="fa-solid fa-user" />
+                            </div>
+
+                            <span className="text-sm font-semibold text-slate-900">
+                              {item.students
+                                ?.full_name ||
+                                'Student unavailable'}
+                            </span>
+
+                          </div>
                         </td>
 
-                        <td className="px-4 py-3 text-sm text-slate-700">
+                        <td className="px-4 py-3 text-sm font-medium text-slate-700">
                           {item.students
                             ?.admission_number ||
                             '—'}
+                        </td>
+
+                        <td className="px-4 py-3">
+
+                          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                            {fromForm}
+                          </span>
+
                         </td>
 
                       </tr>
@@ -1094,31 +1348,83 @@ export default function PromotionPage() {
 
               </table>
 
+              {filteredEnrollments.length ===
+                0 && (
+                <div className="p-10 text-center">
+                  <i className="fa-solid fa-user-slash text-3xl text-slate-300" />
+
+                  <p className="mt-3 font-semibold text-slate-700">
+                    No students match your search.
+                  </p>
+                </div>
+              )}
+
             </div>
 
-            <div className="border-t border-slate-200 p-5">
+            {/* Action */}
+            <div className="border-t border-slate-200 bg-slate-50 p-5">
+
+              <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4">
+
+                <div className="flex gap-3">
+                  <i className="fa-solid fa-arrow-right-arrow-left mt-1 text-green-600" />
+
+                  <div>
+                    <p className="text-sm font-bold text-green-900">
+                      Promotion action
+                    </p>
+
+                    <p className="mt-1 text-sm text-green-800">
+                      {fromForm} students will move to{' '}
+                      <strong>
+                        {destinationForm}
+                      </strong>{' '}
+                      for the{' '}
+                      <strong>
+                        {toYearName}
+                      </strong>{' '}
+                      academic year.
+                    </p>
+
+                    <p className="mt-1 text-xs text-green-700">
+                      Previous academic records will remain unchanged.
+                    </p>
+                  </div>
+                </div>
+
+              </div>
 
               <button
-                onClick={
-                  promoteStudents
-                }
+                onClick={promoteStudents}
                 disabled={
                   promoting ||
-                  selectedStudents.length ===
-                    0 ||
-                  !toYear ||
-                  !toClassId
+                  selectedStudents.length === 0
                 }
-                className="w-full rounded-xl bg-green-600 px-6 py-3 font-bold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-6 py-3 font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
+                <i
+                  className={`fa-solid ${
+                    promoting
+                      ? 'fa-spinner fa-spin'
+                      : fromForm === 'Form 3'
+                        ? 'fa-graduation-cap'
+                        : 'fa-arrow-up'
+                  }`}
+                />
+
                 {promoting
-                  ? 'Promoting...'
-                  : `Promote ${selectedStudents.length} Student${
-                      selectedStudents.length ===
-                      1
-                        ? ''
-                        : 's'
-                    }`}
+                  ? 'Processing...'
+                  : fromForm === 'Form 3'
+                    ? `Graduate ${selectedStudents.length} Student${
+                        selectedStudents.length === 1
+                          ? ''
+                          : 's'
+                      }`
+                    : `Promote ${selectedStudents.length} Student${
+                        selectedStudents.length === 1
+                          ? ''
+                          : 's'
+                      }`}
               </button>
 
             </div>
