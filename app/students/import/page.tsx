@@ -89,11 +89,6 @@ function excelDateToString(value: unknown): string {
 
   if (!text) return '';
 
-  /*
-   * Handle common DD/MM/YYYY and DD-MM-YYYY
-   * Ghana-style date entries before using
-   * JavaScript Date parsing.
-   */
   const slashMatch = text.match(
     /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/
   );
@@ -137,9 +132,7 @@ function mapRow(row: Record<string, unknown>): ImportRow {
     admission_date: excelDateToString(
       get('ADMISSION DATE')
     ),
-    jhs_aggregate: clean(
-      get('JHS AGGREGATE')
-    ),
+    jhs_aggregate: clean(get('JHS AGGREGATE')),
   };
 }
 
@@ -177,18 +170,11 @@ export default function StudentImportPage() {
    * =========================================================
    * LOAD SCHOOL DATA
    * =========================================================
-   *
-   * IMPORTANT:
-   * The school is obtained from the existing BTI-SMS
-   * users table, NOT from user_metadata.
    */
   async function loadData() {
     setLoadingData(true);
     setMessage('');
 
-    /*
-     * Get logged-in user.
-     */
     const {
       data: { user },
       error: userError,
@@ -202,9 +188,6 @@ export default function StudentImportPage() {
       return;
     }
 
-    /*
-     * Get the user's existing school.
-     */
     const {
       data: profile,
       error: profileError,
@@ -234,9 +217,6 @@ export default function StudentImportPage() {
 
     setSchoolId(currentSchoolId);
 
-    /*
-     * Load only data belonging to this school.
-     */
     const [
       { data: programmeData, error: programmeError },
       { data: yearData, error: yearError },
@@ -250,9 +230,7 @@ export default function StudentImportPage() {
 
       supabase
         .from('academic_years')
-        .select(
-          'id, name, start_date'
-        )
+        .select('id, name, start_date')
         .eq('school_id', currentSchoolId)
         .order('start_date', {
           ascending: false,
@@ -297,23 +275,17 @@ export default function StudentImportPage() {
     setClasses(loadedClasses);
 
     /*
-     * Prefer the academic year marked current.
+     * Prefer an academic year marked current.
      */
     const currentYear = loadedYears.find(
       (year) =>
-        normalize(year.name).includes(
-          'current'
-        )
+        normalize(year.name).includes('current')
     );
 
     if (currentYear) {
-      setAcademicYearId(
-        currentYear.id
-      );
+      setAcademicYearId(currentYear.id);
     } else if (loadedYears[0]) {
-      setAcademicYearId(
-        loadedYears[0].id
-      );
+      setAcademicYearId(loadedYears[0].id);
     }
 
     setLoadingData(false);
@@ -330,7 +302,7 @@ export default function StudentImportPage() {
         'FULL NAME': 'John Mensah',
         FORM: 'Form 1',
         PROGRAMME: 'Electrical Engineering',
-        CLASS: 'Form 1 Electrical',
+        CLASS: 'A Class',
         GENDER: 'Male',
         'DATE OF BIRTH': '2010-05-12',
         'GUARDIAN NAME': 'Kwame Mensah',
@@ -460,9 +432,7 @@ export default function StudentImportPage() {
     return (
       programmes.find(
         (programme) =>
-          normalize(
-            programme.name
-          ) ===
+          normalize(programme.name) ===
           normalize(name)
       ) || null
     );
@@ -470,269 +440,89 @@ export default function StudentImportPage() {
 
   /*
    * =========================================================
-   * FIND EXISTING CLASS
+   * EXACT CLASS KEY
    * =========================================================
    *
-   * Matching order:
+   * THIS IS THE IMPORTANT FIX.
    *
-   * 1. Academic year
-   * 2. CLASS name
-   * 3. FORM / level
-   * 4. PROGRAMME where possible
+   * A class is identified by:
    *
-   * We deliberately do NOT treat a class with a null
-   * programme_id as automatically belonging to the
-   * Excel programme.
+   * Academic Year
+   * + FORM
+   * + CLASS
+   * + PROGRAMME
+   *
+   * Example:
+   *
+   * 2026/2027 + Form 2 + A Class + Wood Construction
+   *
+   * is different from:
+   *
+   * 2026/2027 + Form 2 + B Class + Wood Construction
    */
-  function findExistingClass(
+  function classKey(
+    academicYearIdValue: string,
+    form: string,
+    className: string,
+    programmeId: string | null
+  ) {
+    return [
+      academicYearIdValue,
+      normalize(form),
+      normalize(className),
+      programmeId || 'no-programme',
+    ].join('|');
+  }
+
+  /*
+   * =========================================================
+   * FIND EXACT CLASS
+   * =========================================================
+   *
+   * IMPORTANT:
+   *
+   * There is NO fallback to another class.
+   *
+   * If Excel says B CLASS, we find B CLASS.
+   *
+   * If B CLASS does not exist, we create B CLASS.
+   *
+   * We NEVER return A CLASS simply because it has
+   * the same FORM and PROGRAMME.
+   */
+  function findExactClass(
     row: ImportRow,
+    programmeId: string | null,
     currentClasses: SchoolClass[]
   ) {
-    const programme =
-      findProgramme(row.programme);
+    if (!row.class_name) {
+      return null;
+    }
 
-    let yearClasses =
+    const matchingClasses =
       currentClasses.filter(
         (schoolClass) =>
           schoolClass.academic_year_id ===
-          academicYearId
-      );
-
-    /*
-     * =====================================================
-     * STEP 1 — EXACT CLASS NAME
-     * =====================================================
-     */
-    if (row.class_name) {
-      let matches =
-        yearClasses.filter(
-          (schoolClass) =>
-            normalize(
-              schoolClass.name
-            ) ===
+            academicYearId &&
+          normalize(
+            schoolClass.name
+          ) ===
             normalize(
               row.class_name
-            )
-        );
-
-      /*
-       * Narrow by FORM.
-       */
-      if (row.form) {
-        const formMatches =
-          matches.filter(
-            (schoolClass) =>
-              normalize(
-                schoolClass.level
-              ) ===
-              normalize(row.form)
-          );
-
-        if (formMatches.length > 0) {
-          matches = formMatches;
-        }
-      }
-
-      /*
-       * Prefer an exact programme match.
-       */
-      if (programme) {
-        const programmeMatches =
-          matches.filter(
-            (schoolClass) =>
-              schoolClass.programme_id ===
-              programme.id
-          );
-
-        if (
-          programmeMatches.length === 1
-        ) {
-          return programmeMatches[0];
-        }
-
-        if (
-          programmeMatches.length > 1
-        ) {
-          return programmeMatches[0];
-        }
-      }
-
-      /*
-       * If exactly one class remains,
-       * it is safe to use it.
-       *
-       * But if it has a different programme,
-       * we do not force the student into it.
-       */
-      if (matches.length === 1) {
-        const onlyClass =
-          matches[0];
-
-        if (
-          programme &&
-          onlyClass.programme_id &&
-          onlyClass.programme_id !==
-            programme.id
-        ) {
-          return null;
-        }
-
-        return onlyClass;
-      }
-    }
-
-    /*
-     * =====================================================
-     * STEP 2 — FORM + PROGRAMME
-     * =====================================================
-     */
-    let formClasses =
-      yearClasses.filter(
-        (schoolClass) =>
-          !row.form ||
+            ) &&
           normalize(
             schoolClass.level
           ) ===
             normalize(row.form)
       );
 
-    if (programme) {
-      const programmeClasses =
-        formClasses.filter(
-          (schoolClass) =>
-            schoolClass.programme_id ===
-            programme.id
-        );
-
-      if (
-        programmeClasses.length === 1
-      ) {
-        return programmeClasses[0];
-      }
-
-      if (
-        programmeClasses.length > 1
-      ) {
-        return programmeClasses[0];
-      }
-    }
-
     /*
-     * If only one class exists for this FORM,
-     * use it only when it does not conflict with
-     * the requested programme.
-     */
-    if (formClasses.length === 1) {
-      const onlyClass =
-        formClasses[0];
-
-      if (
-        programme &&
-        onlyClass.programme_id &&
-        onlyClass.programme_id !==
-          programme.id
-      ) {
-        return null;
-      }
-
-      return onlyClass;
-    }
-
-    return null;
-  }
-
-  /*
-   * =========================================================
-   * CREATE MISSING CLASS
-   * =========================================================
-   *
-   * This is the major fix.
-   *
-   * Example:
-   *
-   * Excel:
-   * FORM       = Form 2
-   * PROGRAMME  = Wood Construction Technology
-   * CLASS      = A Class
-   *
-   * If that exact combination does not exist,
-   * BTI-SMS creates the class automatically.
-   */
-  async function createMissingClass(
-    row: ImportRow,
-    programmeId: string | null
-  ): Promise<SchoolClass | null> {
-    if (!schoolId) {
-      return null;
-    }
-
-    if (!row.class_name) {
-      return null;
-    }
-
-    /*
-     * A class needs a name.
-     */
-    const className =
-      row.class_name;
-
-    const level =
-      row.form || null;
-
-    /*
-     * First check again directly against the
-     * database in case another row already created
-     * the class during this same import.
-     */
-    let query =
-      supabase
-        .from('classes')
-        .select(
-          'id, name, level, programme_id, academic_year_id'
-        )
-        .eq(
-          'school_id',
-          schoolId
-        )
-        .eq(
-          'academic_year_id',
-          academicYearId
-        )
-        .ilike(
-          'name',
-          className
-        );
-
-    const {
-      data: matchingClasses,
-      error: checkError,
-    } = await query;
-
-    if (checkError) {
-      throw new Error(
-        `Could not check existing class "${className}": ${checkError.message}`
-      );
-    }
-
-    const exactMatches =
-      (matchingClasses || []).filter(
-        (schoolClass) =>
-          normalize(
-            schoolClass.name
-          ) ===
-            normalize(className) &&
-          normalize(
-            schoolClass.level
-          ) === normalize(level)
-      );
-
-    /*
-     * If there is already an exact programme
-     * match, use it.
+     * First choice:
+     * exact programme match.
      */
     if (programmeId) {
       const programmeMatch =
-        exactMatches.find(
+        matchingClasses.find(
           (schoolClass) =>
             schoolClass.programme_id ===
             programmeId
@@ -744,37 +534,306 @@ export default function StudentImportPage() {
     }
 
     /*
-     * If there is an exact class/form with no
-     * programme attached, we do NOT overwrite it.
+     * Second choice:
+     * exact class/form with no programme.
      *
-     * This prevents us from accidentally changing
-     * an existing generic class used elsewhere.
-     *
-     * Instead, when a programme is supplied, we
-     * create a properly programme-linked class.
+     * We can safely use this exact class and later
+     * attach the programme.
      */
-    if (
-      exactMatches.length > 0 &&
-      !programmeId
-    ) {
-      return exactMatches[0];
+    const genericMatch =
+      matchingClasses.find(
+        (schoolClass) =>
+          !schoolClass.programme_id
+      );
+
+    if (genericMatch) {
+      return genericMatch;
     }
 
     /*
-     * If there is no programme, but an exact class
-     * already exists, use it.
+     * If a class with the same name/form exists
+     * but belongs to another programme, DO NOT use it.
      */
-    if (
-      exactMatches.length > 0 &&
-      !programmeId
-    ) {
-      return exactMatches[0];
+    return null;
+  }
+
+  /*
+   * =========================================================
+   * ENSURE EXACT CLASS EXISTS
+   * =========================================================
+   *
+   * This function guarantees that every distinct
+   *
+   * FORM + PROGRAMME + CLASS
+   *
+   * in Excel gets its own class record.
+   */
+  async function ensureExactClass(
+    row: ImportRow,
+    programmeId: string | null,
+    currentClasses: SchoolClass[]
+  ): Promise<{
+    schoolClass: SchoolClass | null;
+    created: boolean;
+    repairedProgramme: boolean;
+  }> {
+    if (!schoolId) {
+      return {
+        schoolClass: null,
+        created: false,
+        repairedProgramme: false,
+      };
+    }
+
+    if (!academicYearId) {
+      return {
+        schoolClass: null,
+        created: false,
+        repairedProgramme: false,
+      };
+    }
+
+    if (!row.class_name) {
+      return {
+        schoolClass: null,
+        created: false,
+        repairedProgramme: false,
+      };
     }
 
     /*
-     * =====================================================
-     * CREATE CLASS
-     * =====================================================
+     * -------------------------------------------------------
+     * FIRST: SEARCH LOCAL CLASS CACHE
+     * -------------------------------------------------------
+     */
+    const localMatch =
+      findExactClass(
+        row,
+        programmeId,
+        currentClasses
+      );
+
+    if (localMatch) {
+      /*
+       * If the exact class exists but has no programme,
+       * attach the Excel programme to it.
+       */
+      if (
+        programmeId &&
+        !localMatch.programme_id
+      ) {
+        const {
+          data: updatedClass,
+          error: updateClassError,
+        } = await supabase
+          .from('classes')
+          .update({
+            programme_id:
+              programmeId,
+          })
+          .eq(
+            'id',
+            localMatch.id
+          )
+          .select(
+            'id, name, level, programme_id, academic_year_id'
+          )
+          .single();
+
+        if (
+          !updateClassError &&
+          updatedClass
+        ) {
+          const index =
+            currentClasses.findIndex(
+              (item) =>
+                item.id ===
+                localMatch.id
+            );
+
+          if (index >= 0) {
+            currentClasses[index] =
+              updatedClass;
+          }
+
+          return {
+            schoolClass:
+              updatedClass,
+            created: false,
+            repairedProgramme: true,
+          };
+        }
+      }
+
+      return {
+        schoolClass: localMatch,
+        created: false,
+        repairedProgramme: false,
+      };
+    }
+
+    /*
+     * -------------------------------------------------------
+     * SECOND: CHECK DATABASE DIRECTLY
+     * -------------------------------------------------------
+     *
+     * This protects us if a class was created by another
+     * row during the same import.
+     */
+    const {
+      data: databaseClasses,
+      error: databaseClassError,
+    } = await supabase
+      .from('classes')
+      .select(
+        'id, name, level, programme_id, academic_year_id'
+      )
+      .eq(
+        'school_id',
+        schoolId
+      )
+      .eq(
+        'academic_year_id',
+        academicYearId
+      )
+      .ilike(
+        'name',
+        row.class_name
+      );
+
+    if (databaseClassError) {
+      throw new Error(
+        `Could not check class "${row.class_name}": ${databaseClassError.message}`
+      );
+    }
+
+    const exactDatabaseClasses =
+      (databaseClasses || []).filter(
+        (schoolClass) =>
+          normalize(
+            schoolClass.name
+          ) ===
+            normalize(
+              row.class_name
+            ) &&
+          normalize(
+            schoolClass.level
+          ) ===
+            normalize(row.form)
+      );
+
+    /*
+     * Exact programme match.
+     */
+    if (programmeId) {
+      const exactProgrammeClass =
+        exactDatabaseClasses.find(
+          (schoolClass) =>
+            schoolClass.programme_id ===
+            programmeId
+        );
+
+      if (
+        exactProgrammeClass
+      ) {
+        currentClasses.push(
+          exactProgrammeClass
+        );
+
+        return {
+          schoolClass:
+            exactProgrammeClass,
+          created: false,
+          repairedProgramme: false,
+        };
+      }
+    }
+
+    /*
+     * Exact class/form with no programme.
+     *
+     * Attach programme to it instead of creating a
+     * duplicate class.
+     */
+    const genericClass =
+      exactDatabaseClasses.find(
+        (schoolClass) =>
+          !schoolClass.programme_id
+      );
+
+    if (
+      genericClass &&
+      programmeId
+    ) {
+      const {
+        data: updatedClass,
+        error: updateError,
+      } = await supabase
+        .from('classes')
+        .update({
+          programme_id:
+            programmeId,
+        })
+        .eq(
+          'id',
+          genericClass.id
+        )
+        .select(
+          'id, name, level, programme_id, academic_year_id'
+        )
+        .single();
+
+      if (
+        updateError ||
+        !updatedClass
+      ) {
+        throw new Error(
+          updateError?.message ||
+            `Unable to attach programme to class "${row.class_name}".`
+        );
+      }
+
+      currentClasses.push(
+        updatedClass
+      );
+
+      return {
+        schoolClass:
+          updatedClass,
+        created: false,
+        repairedProgramme: true,
+      };
+    }
+
+    /*
+     * If no programme was supplied and an exact generic
+     * class exists, use it.
+     */
+    if (
+      genericClass &&
+      !programmeId
+    ) {
+      currentClasses.push(
+        genericClass
+      );
+
+      return {
+        schoolClass:
+          genericClass,
+        created: false,
+        repairedProgramme: false,
+      };
+    }
+
+    /*
+     * -------------------------------------------------------
+     * IMPORTANT:
+     *
+     * If an A CLASS exists but Excel says B CLASS,
+     * we reach this point and CREATE B CLASS.
+     *
+     * We do NOT return A CLASS.
+     * -------------------------------------------------------
      */
     const {
       data: createdClass,
@@ -785,8 +844,8 @@ export default function StudentImportPage() {
         school_id: schoolId,
         programme_id:
           programmeId || null,
-        name: className,
-        level: level,
+        name: row.class_name,
+        level: row.form || null,
         academic_year_id:
           academicYearId,
       })
@@ -795,26 +854,26 @@ export default function StudentImportPage() {
       )
       .single();
 
-    if (createError || !createdClass) {
+    if (
+      createError ||
+      !createdClass
+    ) {
       throw new Error(
         createError?.message ||
-          `Unable to create class "${className}".`
+          `Unable to create class "${row.class_name}".`
       );
     }
 
-    /*
-     * Add it to local state so subsequent Excel rows
-     * can reuse the same class rather than creating
-     * another duplicate.
-     */
-    setClasses(
-      (previous) => [
-        ...previous,
-        createdClass,
-      ]
+    currentClasses.push(
+      createdClass
     );
 
-    return createdClass;
+    return {
+      schoolClass:
+        createdClass,
+      created: true,
+      repairedProgramme: false,
+    };
   }
 
   /*
@@ -858,13 +917,128 @@ export default function StudentImportPage() {
     const resultErrors: ResultMessage[] = [];
 
     /*
-     * Keep a local copy because newly created classes
-     * must immediately be available to later rows.
+     * Local class cache.
+     *
+     * This is very important because when we create
+     * A, B, C, D, E or F, later rows must find the
+     * correct class instead of another class.
      */
     let workingClasses = [
       ...classes,
     ];
 
+    /*
+     * -------------------------------------------------------
+     * PRE-CREATE ALL DISTINCT CLASSES FROM EXCEL
+     * -------------------------------------------------------
+     *
+     * This guarantees that if Excel contains:
+     *
+     * A Class
+     * B Class
+     * C Class
+     * D Class
+     * E Class
+     * F Class
+     *
+     * all six classes exist before student enrollment
+     * processing begins.
+     */
+    const uniqueClassRequests =
+      new Map<
+        string,
+        {
+          row: ImportRow;
+          programmeId: string | null;
+        }
+      >();
+
+    for (const row of rows) {
+      if (!row.class_name) {
+        continue;
+      }
+
+      const programme =
+        findProgramme(
+          row.programme
+        );
+
+      const key = classKey(
+        academicYearId,
+        row.form,
+        row.class_name,
+        programme?.id || null
+      );
+
+      if (
+        !uniqueClassRequests.has(
+          key
+        )
+      ) {
+        uniqueClassRequests.set(
+          key,
+          {
+            row,
+            programmeId:
+              programme?.id ||
+              null,
+          }
+        );
+      }
+    }
+
+    /*
+     * Create/repair every distinct class.
+     */
+    for (const [
+      ,
+      classRequest,
+    ] of uniqueClassRequests) {
+      try {
+        const result =
+          await ensureExactClass(
+            classRequest.row,
+            classRequest.programmeId,
+            workingClasses
+          );
+
+        if (result.created) {
+          classesCreated++;
+        }
+      } catch (error) {
+        resultErrors.push({
+          row:
+            rows.findIndex(
+              (item) =>
+                classKey(
+                  academicYearId,
+                  item.form,
+                  item.class_name,
+                  findProgramme(
+                    item.programme
+                  )?.id || null
+                ) ===
+                classKey(
+                  academicYearId,
+                  classRequest.row.form,
+                  classRequest.row.class_name,
+                  classRequest.programmeId
+                )
+            ) + 2,
+          type: 'error',
+          message:
+            error instanceof Error
+              ? error.message
+              : `Unable to prepare class "${classRequest.row.class_name}".`,
+        });
+      }
+    }
+
+    /*
+     * -------------------------------------------------------
+     * PROCESS STUDENTS
+     * -------------------------------------------------------
+     */
     for (
       let index = 0;
       index < rows.length;
@@ -877,9 +1051,9 @@ export default function StudentImportPage() {
         index + 2;
 
       /*
-       * =====================================================
-       * VALIDATE FULL NAME
-       * =====================================================
+       * -----------------------------------------------------
+       * VALIDATE NAME
+       * -----------------------------------------------------
        */
       if (!row.full_name) {
         skipped++;
@@ -896,14 +1070,9 @@ export default function StudentImportPage() {
 
       try {
         /*
-         * ===================================================
+         * ---------------------------------------------------
          * FIND EXISTING STUDENT
-         * ===================================================
-         *
-         * Existing students are NOT skipped.
-         *
-         * They are reused so their enrollment can be
-         * repaired.
+         * ---------------------------------------------------
          */
         const {
           data: existingStudent,
@@ -936,24 +1105,26 @@ export default function StudentImportPage() {
         }
 
         let studentId: string;
+
         let isExistingStudent =
           false;
 
         /*
-         * ===================================================
+         * ---------------------------------------------------
          * EXISTING STUDENT
-         * ===================================================
+         * ---------------------------------------------------
          */
         if (existingStudent) {
           studentId =
             existingStudent.id;
 
-          isExistingStudent = true;
+          isExistingStudent =
+            true;
         } else {
           /*
-           * =================================================
+           * -------------------------------------------------
            * NEW STUDENT
-           * =================================================
+           * -------------------------------------------------
            */
           const admissionDate =
             row.admission_date ||
@@ -1044,9 +1215,9 @@ export default function StudentImportPage() {
         }
 
         /*
-         * ===================================================
+         * ---------------------------------------------------
          * FIND PROGRAMME
-         * ===================================================
+         * ---------------------------------------------------
          */
         const programme =
           findProgramme(
@@ -1054,13 +1225,9 @@ export default function StudentImportPage() {
           );
 
         /*
-         * ===================================================
+         * ---------------------------------------------------
          * VALIDATE PROGRAMME
-         * ===================================================
-         *
-         * If Excel gives a programme name but it does not
-         * exist in BTI-SMS, do not silently place the
-         * student incorrectly.
+         * ---------------------------------------------------
          */
         if (
           row.programme &&
@@ -1077,23 +1244,28 @@ export default function StudentImportPage() {
         }
 
         /*
-         * ===================================================
-         * FIND EXISTING CLASS
-         * ===================================================
+         * ---------------------------------------------------
+         * FIND THE EXACT CLASS
+         * ---------------------------------------------------
+         *
+         * Notice:
+         *
+         * There is NO FORM + PROGRAMME fallback.
+         *
+         * The CLASS column is mandatory for placement.
          */
         let schoolClass =
-          findExistingClass(
+          findExactClass(
             row,
+            programme?.id ||
+              null,
             workingClasses
           );
 
         /*
-         * ===================================================
-         * CREATE MISSING CLASS
-         * ===================================================
-         *
-         * This is the important part that fixes the problem
-         * we saw with AHENSAH PATRICK.
+         * ---------------------------------------------------
+         * CREATE EXACT CLASS IF MISSING
+         * ---------------------------------------------------
          */
         if (!schoolClass) {
           if (!row.class_name) {
@@ -1107,61 +1279,44 @@ export default function StudentImportPage() {
             continue;
           }
 
-          schoolClass =
-            await createMissingClass(
+          const result =
+            await ensureExactClass(
               row,
               programme?.id ||
-                null
+                null,
+              workingClasses
             );
 
-          if (schoolClass) {
-            /*
-             * Add the newly created class to our local list.
-             */
-            const alreadyInWorkingList =
-              workingClasses.some(
-                (item) =>
-                  item.id ===
-                  schoolClass?.id
-              );
+          schoolClass =
+            result.schoolClass;
 
-            if (
-              !alreadyInWorkingList
-            ) {
-              workingClasses = [
-                ...workingClasses,
-                schoolClass,
-              ];
-
-              classesCreated++;
-            }
+          /*
+           * Normally classes were already prepared above,
+           * but this handles any edge case.
+           */
+          if (result.created) {
+            classesCreated++;
           }
         }
 
         /*
-         * If class still cannot be found/created,
-         * stop this row rather than claiming success.
+         * If still missing, stop this row.
          */
         if (!schoolClass) {
           resultErrors.push({
             row: excelRowNumber,
             type: 'error',
             message:
-              `Student was saved, but the class "${row.class_name || '(blank)'}" could not be found or created for ${row.form || 'the supplied form'}.`,
+              `Student was saved, but the exact class "${row.class_name}" could not be found or created.`,
           });
 
           continue;
         }
 
         /*
-         * ===================================================
-         * DETERMINE PROGRAMME ID
-         * ===================================================
-         *
-         * Excel programme takes priority.
-         *
-         * If Excel programme is blank, use the programme
-         * already attached to the class.
+         * ---------------------------------------------------
+         * DETERMINE PROGRAMME
+         * ---------------------------------------------------
          */
         const programmeId =
           programme?.id ||
@@ -1169,9 +1324,9 @@ export default function StudentImportPage() {
           null;
 
         /*
-         * ===================================================
+         * ---------------------------------------------------
          * ENROLLMENT DATE
-         * ===================================================
+         * ---------------------------------------------------
          */
         const enrollmentDate =
           row.admission_date ||
@@ -1180,9 +1335,9 @@ export default function StudentImportPage() {
             .slice(0, 10);
 
         /*
-         * ===================================================
+         * ---------------------------------------------------
          * FIND EXISTING ENROLLMENT
-         * ===================================================
+         * ---------------------------------------------------
          */
         const {
           data: existingEnrollment,
@@ -1216,9 +1371,9 @@ export default function StudentImportPage() {
         }
 
         /*
-         * ===================================================
+         * ---------------------------------------------------
          * ENROLLMENT PAYLOAD
-         * ===================================================
+         * ---------------------------------------------------
          */
         const enrollmentPayload = {
           student_id:
@@ -1235,9 +1390,9 @@ export default function StudentImportPage() {
         };
 
         /*
-         * ===================================================
+         * ---------------------------------------------------
          * UPDATE EXISTING ENROLLMENT
-         * ===================================================
+         * ---------------------------------------------------
          */
         if (existingEnrollment) {
           const {
@@ -1272,9 +1427,9 @@ export default function StudentImportPage() {
           }
         } else {
           /*
-           * =================================================
-           * CREATE NEW ENROLLMENT
-           * =================================================
+           * -------------------------------------------------
+           * CREATE ENROLLMENT
+           * -------------------------------------------------
            */
           const {
             error: enrollmentError,
@@ -1318,9 +1473,9 @@ export default function StudentImportPage() {
     }
 
     /*
-     * =========================================================
+     * -------------------------------------------------------
      * FINAL RESULT
-     * =========================================================
+     * -------------------------------------------------------
      */
     setErrors(
       resultErrors
@@ -1330,37 +1485,35 @@ export default function StudentImportPage() {
       `Import complete: ${imported} new student(s), ${repaired} existing student(s) repaired, ${classesCreated} new class(es) created, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) updated, ${skipped} row(s) skipped.`
     );
 
-    setImporting(false);
-
     /*
-     * Refresh classes after import so the UI has the latest
-     * class information.
+     * Refresh classes from database.
      */
-    if (schoolId) {
-      const {
-        data: refreshedClasses,
-      } = await supabase
-        .from('classes')
-        .select(
-          'id, name, level, programme_id, academic_year_id'
-        )
-        .eq(
-          'school_id',
-          schoolId
-        )
-        .order('name');
+    const {
+      data: refreshedClasses,
+    } = await supabase
+      .from('classes')
+      .select(
+        'id, name, level, programme_id, academic_year_id'
+      )
+      .eq(
+        'school_id',
+        schoolId
+      )
+      .order('name');
 
-      if (refreshedClasses) {
-        setClasses(
-          refreshedClasses
-        );
-      }
+    if (refreshedClasses) {
+      setClasses(
+        refreshedClasses
+      );
     }
+
+    setImporting(false);
   }
 
   return (
     <main className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="mx-auto max-w-7xl">
+
         <div className="mb-6">
           <a
             href="/students"
@@ -1380,10 +1533,12 @@ export default function StudentImportPage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
+
           {/* =====================================================
               TEMPLATE
           ====================================================== */}
           <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-1">
+
             <h2 className="text-lg font-semibold text-slate-900">
               1. Download Template
             </h2>
@@ -1404,6 +1559,7 @@ export default function StudentImportPage() {
             </button>
 
             <div className="mt-6">
+
               <h3 className="font-semibold text-slate-900">
                 Excel fields
               </h3>
@@ -1417,6 +1573,7 @@ export default function StudentImportPage() {
                   )
                 )}
               </ul>
+
             </div>
 
             <div className="mt-5 rounded-xl bg-blue-50 p-4 text-sm text-blue-800">
@@ -1426,17 +1583,30 @@ export default function StudentImportPage() {
             </div>
 
             <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
-              <strong>Automatic placement:</strong>{' '}
-              FORM, PROGRAMME and CLASS from your
-              Excel file are used to create the
-              student's academic placement.
+              <strong>
+                Automatic placement:
+              </strong>{' '}
+              FORM + PROGRAMME + CLASS from your
+              Excel file determine the student's
+              exact class.
             </div>
+
+            <div className="mt-4 rounded-xl bg-purple-50 p-4 text-sm text-purple-800">
+              <strong>
+                Multiple classes supported:
+              </strong>{' '}
+              If your Excel contains A, B, C, D,
+              E and F classes, BTI-SMS will create
+              or reuse all six classes separately.
+            </div>
+
           </section>
 
           {/* =====================================================
               UPLOAD
           ====================================================== */}
           <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2">
+
             <h2 className="text-lg font-semibold text-slate-900">
               2. Select Academic Year
             </h2>
@@ -1454,6 +1624,7 @@ export default function StudentImportPage() {
               }
               className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500"
             >
+
               <option value="">
                 {loadingData
                   ? 'Loading academic years...'
@@ -1470,6 +1641,7 @@ export default function StudentImportPage() {
                   </option>
                 )
               )}
+
             </select>
 
             {selectedAcademicYear && (
@@ -1489,6 +1661,7 @@ export default function StudentImportPage() {
             </h2>
 
             <label className="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center transition hover:border-blue-400 hover:bg-blue-50">
+
               <span className="text-4xl">
                 📊
               </span>
@@ -1510,6 +1683,7 @@ export default function StudentImportPage() {
                 disabled={importing}
                 className="hidden"
               />
+
             </label>
 
             {fileName && (
@@ -1532,7 +1706,9 @@ export default function StudentImportPage() {
             ====================================================== */}
             {rows.length > 0 && (
               <div className="mt-8">
+
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+
                   <div>
                     <h2 className="text-lg font-semibold text-slate-900">
                       Preview
@@ -1561,12 +1737,17 @@ export default function StudentImportPage() {
                       ? 'Importing...'
                       : 'Import Students'}
                   </button>
+
                 </div>
 
                 <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+
                   <table className="min-w-[1100px] text-left text-xs">
+
                     <thead className="bg-slate-100">
+
                       <tr>
+
                         {headers.map(
                           (header) => (
                             <th
@@ -1579,10 +1760,13 @@ export default function StudentImportPage() {
                             </th>
                           )
                         )}
+
                       </tr>
+
                     </thead>
 
                     <tbody>
+
                       {rows
                         .slice(0, 50)
                         .map(
@@ -1596,6 +1780,7 @@ export default function StudentImportPage() {
                               }
                               className="border-t border-slate-200"
                             >
+
                               <td className="px-3 py-3">
                                 {
                                   row.full_name
@@ -1661,23 +1846,25 @@ export default function StudentImportPage() {
                                   row.jhs_aggregate
                                 }
                               </td>
+
                             </tr>
                           )
                         )}
+
                     </tbody>
+
                   </table>
+
                 </div>
 
-                {rows.length >
-                  50 && (
+                {rows.length > 50 && (
                   <p className="mt-2 text-xs text-slate-500">
-                    Showing the first 50
-                    rows in the preview.
-                    All {rows.length}{' '}
-                    rows will be
-                    imported/repaired.
+                    Showing the first 50 rows in
+                    the preview. All {rows.length}{' '}
+                    rows will be imported/repaired.
                   </p>
                 )}
+
               </div>
             )}
 
@@ -1686,11 +1873,13 @@ export default function StudentImportPage() {
             ====================================================== */}
             {errors.length > 0 && (
               <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+
                 <h2 className="font-semibold text-amber-900">
                   Import Notes
                 </h2>
 
                 <div className="mt-3 max-h-72 space-y-2 overflow-y-auto text-sm text-amber-800">
+
                   {errors.map(
                     (
                       error,
@@ -1705,8 +1894,7 @@ export default function StudentImportPage() {
                           Excel row{' '}
                           {
                             error.row
-                          }
-                          :
+                          }:
                         </strong>{' '}
                         {
                           error.message
@@ -1714,10 +1902,14 @@ export default function StudentImportPage() {
                       </div>
                     )
                   )}
+
                 </div>
+
               </div>
             )}
+
           </section>
+
         </div>
       </div>
     </main>
