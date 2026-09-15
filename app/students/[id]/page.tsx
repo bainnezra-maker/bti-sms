@@ -109,6 +109,9 @@ const CA_TYPES = [
   'Class Test 3',
 ];
 
+const STUDENT_PHOTO_BUCKET = 'student-photos';
+const MAX_PHOTO_SIZE = 2 * 1024 * 1024;
+
 function getGrade(percentage: number) {
   if (percentage >= 80) return 'A';
   if (percentage >= 70) return 'B';
@@ -202,6 +205,8 @@ export default function StudentProfilePage() {
   const [student, setStudent] =
     useState<Student | null>(null);
 
+  const [schoolId, setSchoolId] = useState('');
+
   const [enrollments, setEnrollments] =
     useState<Enrollment[]>([]);
 
@@ -228,6 +233,15 @@ export default function StudentProfilePage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [photoUploading, setPhotoUploading] =
+    useState(false);
+
+  const [selectedPhoto, setSelectedPhoto] =
+    useState<File | null>(null);
+
+  const [photoPreview, setPhotoPreview] =
+    useState<string | null>(null);
+
   const [disciplineSaving, setDisciplineSaving] =
     useState(false);
 
@@ -272,6 +286,14 @@ export default function StudentProfilePage() {
     loadStudent();
   }, [studentId]);
 
+  useEffect(() => {
+    return () => {
+      if (photoPreview) {
+        URL.revokeObjectURL(photoPreview);
+      }
+    };
+  }, [photoPreview]);
+
   async function loadStudent() {
     setLoading(true);
 
@@ -301,7 +323,9 @@ export default function StudentProfilePage() {
       return;
     }
 
-    const schoolId = userProfile.school_id;
+    const currentSchoolId = userProfile.school_id;
+
+    setSchoolId(currentSchoolId);
 
     const {
       data: studentData,
@@ -328,7 +352,7 @@ export default function StudentProfilePage() {
         next_term_begins
       `)
       .eq('id', studentId)
-      .eq('school_id', schoolId)
+      .eq('school_id', currentSchoolId)
       .single();
 
     if (studentError || !studentData) {
@@ -434,7 +458,7 @@ export default function StudentProfilePage() {
         end_date,
         is_current
       `)
-      .eq('school_id', schoolId)
+      .eq('school_id', currentSchoolId)
       .order('start_date', {
         ascending: false,
       });
@@ -627,6 +651,134 @@ export default function StudentProfilePage() {
     );
   }
 
+  function handlePhotoChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    if (
+      file.type !== 'image/jpeg' &&
+      file.type !== 'image/png'
+    ) {
+      alert(
+        'Please select a JPG or PNG image.'
+      );
+
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > MAX_PHOTO_SIZE) {
+      alert(
+        'The student photo must not be larger than 2 MB.'
+      );
+
+      event.target.value = '';
+      return;
+    }
+
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+    }
+
+    const previewUrl =
+      URL.createObjectURL(file);
+
+    setSelectedPhoto(file);
+    setPhotoPreview(previewUrl);
+  }
+
+  function clearSelectedPhoto() {
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+    }
+
+    setSelectedPhoto(null);
+    setPhotoPreview(null);
+  }
+
+  async function uploadStudentPhoto(): Promise<
+    string | null
+  > {
+    if (!selectedPhoto || !schoolId || !student) {
+      return form.photo_url.trim() || null;
+    }
+
+    setPhotoUploading(true);
+
+    try {
+      const extension =
+        selectedPhoto.type === 'image/png'
+          ? 'png'
+          : 'jpg';
+
+      const safeStudentName =
+        student.full_name
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '') ||
+        'student';
+
+      const uniqueFileName =
+        `${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}-${safeStudentName}.${extension}`;
+
+      const filePath =
+        `${schoolId}/${student.id}/${uniqueFileName}`;
+
+      const {
+        error: uploadError,
+      } = await supabase.storage
+        .from(STUDENT_PHOTO_BUCKET)
+        .upload(
+          filePath,
+          selectedPhoto,
+          {
+            cacheControl: '3600',
+            upsert: false,
+            contentType:
+              selectedPhoto.type,
+          }
+        );
+
+      if (uploadError) {
+        console.error(
+          'Student photo upload error:',
+          uploadError
+        );
+
+        throw new Error(
+          `Photo upload failed: ${uploadError.message}`
+        );
+      }
+
+      const {
+        data: publicUrlData,
+      } = supabase.storage
+        .from(STUDENT_PHOTO_BUCKET)
+        .getPublicUrl(filePath);
+
+      const publicUrl =
+        publicUrlData.publicUrl;
+
+      if (!publicUrl) {
+        throw new Error(
+          'The photo was uploaded, but its public URL could not be generated.'
+        );
+      }
+
+      return publicUrl;
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
   async function saveReportCardInfo() {
     if (!student) return;
 
@@ -642,50 +794,79 @@ export default function StudentProfilePage() {
       return;
     }
 
-    const { error } = await supabase
-      .from('students')
-      .update({
-        photo_url:
-          form.photo_url.trim() || null,
+    try {
+      const uploadedPhotoUrl =
+        await uploadStudentPhoto();
+
+      const finalPhotoUrl =
+        uploadedPhotoUrl ||
+        form.photo_url.trim() ||
+        null;
+
+      const { error } = await supabase
+        .from('students')
+        .update({
+          photo_url: finalPhotoUrl,
+          conduct:
+            form.conduct.trim() || null,
+          promotion_status:
+            form.promotion_status.trim() || null,
+          class_teacher_remark:
+            form.class_teacher_remark.trim() ||
+            null,
+          hod_remark:
+            form.hod_remark.trim() || null,
+          next_term_begins:
+            form.next_term_begins || null,
+        })
+        .eq('id', student.id);
+
+      if (error) {
+        throw new Error(
+          `Unable to save report card information: ${error.message}`
+        );
+      }
+
+      setStudent({
+        ...student,
+        photo_url: finalPhotoUrl,
         conduct:
           form.conduct.trim() || null,
         promotion_status:
           form.promotion_status.trim() || null,
         class_teacher_remark:
-          form.class_teacher_remark.trim() || null,
+          form.class_teacher_remark.trim() ||
+          null,
         hod_remark:
           form.hod_remark.trim() || null,
         next_term_begins:
           form.next_term_begins || null,
-      })
-      .eq('id', student.id);
+      });
 
-    if (error) {
+      setForm({
+        ...form,
+        photo_url: finalPhotoUrl || '',
+      });
+
+      clearSelectedPhoto();
+
       alert(
-        `Unable to save report card information: ${error.message}`
+        'Report card information saved successfully.'
       );
+    } catch (error) {
+      console.error(
+        'Report card save error:',
+        error
+      );
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Unable to save report card information.'
+      );
+    } finally {
       setSaving(false);
-      return;
     }
-
-    setStudent({
-      ...student,
-      photo_url:
-        form.photo_url.trim() || null,
-      conduct:
-        form.conduct.trim() || null,
-      promotion_status:
-        form.promotion_status.trim() || null,
-      class_teacher_remark:
-        form.class_teacher_remark.trim() || null,
-      hod_remark:
-        form.hod_remark.trim() || null,
-      next_term_begins:
-        form.next_term_begins || null,
-    });
-
-    setSaving(false);
-    alert('Report card information saved successfully.');
   }
 
   function openDisciplineModal(
@@ -728,7 +909,9 @@ export default function StudentProfilePage() {
       disciplineModalType === 'bond' &&
       !disciplineForm.bond_details.trim()
     ) {
-      alert('Please enter what the bond entails.');
+      alert(
+        'Please enter what the bond entails.'
+      );
       setDisciplineSaving(false);
       return;
     }
@@ -737,7 +920,9 @@ export default function StudentProfilePage() {
       disciplineModalType === 'suspension' &&
       !disciplineForm.suspension_start_date
     ) {
-      alert('Please enter the suspension start date.');
+      alert(
+        'Please enter the suspension start date.'
+      );
       setDisciplineSaving(false);
       return;
     }
@@ -1257,8 +1442,9 @@ export default function StudentProfilePage() {
                 Report Card
               </Link>
 
+              {/* CORRECT EDIT ROUTE */}
               <Link
-                href={`/students/${student.id}/edit`}
+                href={`/students/edit/${student.id}`}
                 className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20"
               >
                 <i className="fa-solid fa-pen" />
@@ -1767,7 +1953,7 @@ export default function StudentProfilePage() {
           <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[160px_1fr]">
 
             <div className="flex justify-center lg:justify-start">
-              <div className="h-36 w-36 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+              <div className="aspect-[35/45] w-32 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm sm:w-36">
                 {student.photo_url ? (
                   <img
                     src={student.photo_url}
@@ -1775,8 +1961,11 @@ export default function StudentProfilePage() {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center text-slate-400">
+                  <div className="flex h-full w-full flex-col items-center justify-center text-slate-400">
                     <i className="fa-solid fa-user text-4xl" />
+                    <span className="mt-2 text-[10px] font-semibold uppercase tracking-wide">
+                      No Photo
+                    </span>
                   </div>
                 )}
               </div>
@@ -1904,23 +2093,127 @@ export default function StudentProfilePage() {
 
           <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-2">
 
+            {/* REAL STUDENT PHOTO UPLOAD */}
             <div className="lg:col-span-2">
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Photo URL
-              </label>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
 
-              <input
-                value={form.photo_url}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    photo_url:
-                      event.target.value,
-                  })
-                }
-                placeholder="https://..."
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
-              />
+                  <div className="shrink-0">
+                    <p className="mb-2 text-sm font-semibold text-slate-700">
+                      Student Photo
+                    </p>
+
+                    <div className="aspect-[35/45] w-32 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                      {photoPreview ||
+                      student.photo_url ? (
+                        <img
+                          src={
+                            photoPreview ||
+                            student.photo_url ||
+                            ''
+                          }
+                          alt={`${student.full_name} student photo`}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full flex-col items-center justify-center text-slate-400">
+                          <i className="fa-solid fa-user text-3xl" />
+                          <span className="mt-2 text-[10px] font-semibold uppercase tracking-wide">
+                            No Photo
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      Upload Student Photo
+                    </label>
+
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      onChange={
+                        handlePhotoChange
+                      }
+                      className="block w-full cursor-pointer rounded-xl border border-slate-200 bg-white text-sm text-slate-600 file:mr-4 file:border-0 file:bg-slate-900 file:px-4 file:py-3 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+                    />
+
+                    <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
+                      <div className="flex gap-3">
+                        <i className="fa-solid fa-camera mt-0.5 text-blue-600" />
+
+                        <div>
+                          <p className="text-sm font-semibold text-blue-900">
+                            Passport-size photo
+                          </p>
+
+                          <p className="mt-1 text-xs leading-5 text-blue-800">
+                            Recommended size:
+                            {' '}
+                            <strong>
+                              35 × 45 mm
+                            </strong>
+                            {' '}
+                            (approximately
+                            {' '}
+                            <strong>
+                              413 × 531 px
+                            </strong>
+                            {' '}
+                            at 300 DPI).
+                          </p>
+
+                          <p className="mt-1 text-xs leading-5 text-blue-800">
+                            Accepted formats:
+                            {' '}
+                            <strong>
+                              JPG or PNG
+                            </strong>
+                            .
+                            {' '}
+                            Maximum file size:
+                            {' '}
+                            <strong>
+                              2 MB
+                            </strong>
+                            .
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedPhoto && (
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <span className="inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700">
+                          <i className="fa-solid fa-circle-check" />
+                          New photo selected
+                        </span>
+
+                        <span className="text-xs text-slate-500">
+                          {(
+                            selectedPhoto.size /
+                            1024 /
+                            1024
+                          ).toFixed(2)}{' '}
+                          MB
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={
+                            clearSelectedPhoto
+                          }
+                          className="text-xs font-semibold text-red-600 hover:text-red-700"
+                        >
+                          Remove selected photo
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div>
@@ -2032,17 +2325,24 @@ export default function StudentProfilePage() {
                 onClick={
                   saveReportCardInfo
                 }
-                disabled={saving}
+                disabled={
+                  saving ||
+                  photoUploading
+                }
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
               >
                 <i
                   className={`fa-solid ${
-                    saving
+                    saving ||
+                    photoUploading
                       ? 'fa-spinner fa-spin'
                       : 'fa-floppy-disk'
                   }`}
                 />
-                {saving
+
+                {photoUploading
+                  ? 'Uploading Photo...'
+                  : saving
                   ? 'Saving...'
                   : 'Save Report Card Information'}
               </button>
