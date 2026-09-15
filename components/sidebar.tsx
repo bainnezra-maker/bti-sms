@@ -18,6 +18,18 @@ type MenuSection = {
   items: MenuItem[];
 };
 
+/*
+ * =========================================================
+ * ADMIN NAVIGATION
+ * =========================================================
+ *
+ * Administrators monitor and manage the school.
+ *
+ * Attendance and Assessment data entry are handled
+ * through the Teacher Portal.
+ *
+ * The admin sees READ-ONLY reports/statistics.
+ */
 const adminMenuSections: MenuSection[] = [
   {
     title: 'MAIN',
@@ -38,23 +50,13 @@ const adminMenuSections: MenuSection[] = [
         icon: 'fa-solid fa-right-left',
       },
       {
-        name: 'Add Student',
-        href: '/students/new',
-        icon: 'fa-solid fa-user-plus',
-      },
-      {
-        name: 'Attendance',
-        href: '/attendance',
-        icon: 'fa-solid fa-calendar-check',
-      },
-      {
         name: 'Attendance Reports',
         href: '/attendance-reports',
         icon: 'fa-solid fa-chart-column',
       },
       {
-        name: 'Assessment',
-        href: '/assessment',
+        name: 'Assessment Reports',
+        href: '/assessment-reports',
         icon: 'fa-solid fa-clipboard-check',
       },
       {
@@ -92,11 +94,6 @@ const adminMenuSections: MenuSection[] = [
         name: 'Semesters',
         href: '/terms',
         icon: 'fa-solid fa-calendar-week',
-      },
-      {
-        name: 'Enrollment',
-        href: '/enrollment',
-        icon: 'fa-solid fa-user-check',
       },
       {
         name: 'Results',
@@ -149,6 +146,17 @@ const adminMenuSections: MenuSection[] = [
   },
 ];
 
+/*
+ * =========================================================
+ * TEACHER NAVIGATION
+ * =========================================================
+ *
+ * Teachers are responsible for entering:
+ * - Attendance
+ * - Assessment
+ *
+ * They do not need the administrator's report navigation.
+ */
 const teacherMenuSections: MenuSection[] = [
   {
     title: 'TEACHER',
@@ -178,15 +186,15 @@ const teacherMenuSections: MenuSection[] = [
         href: '/results',
         icon: 'fa-solid fa-chart-line',
       },
-      {
-        name: 'Attendance Reports',
-        href: '/attendance-reports',
-        icon: 'fa-solid fa-chart-column',
-      },
     ],
   },
 ];
 
+/*
+ * =========================================================
+ * STUDENT NAVIGATION
+ * =========================================================
+ */
 const studentMenuSections: MenuSection[] = [
   {
     title: 'STUDENT',
@@ -210,6 +218,11 @@ export default function Sidebar() {
   const [role, setRole] = useState<UserRole>(null);
   const [roleLoading, setRoleLoading] = useState(true);
 
+  /*
+   * =========================================================
+   * LOAD USER ROLE
+   * =========================================================
+   */
   useEffect(() => {
     let mounted = true;
 
@@ -262,10 +275,20 @@ export default function Sidebar() {
     };
   }, [pathname]);
 
+  /*
+   * =========================================================
+   * MOBILE MENU
+   * =========================================================
+   */
   function closeMobileMenu() {
     setMobileOpen(false);
   }
 
+  /*
+   * =========================================================
+   * LOGOUT
+   * =========================================================
+   */
   async function handleLogout() {
     closeMobileMenu();
 
@@ -275,6 +298,11 @@ export default function Sidebar() {
     router.refresh();
   }
 
+  /*
+   * =========================================================
+   * GET MENU BASED ON ROLE
+   * =========================================================
+   */
   function getMenuSections(): MenuSection[] {
     if (role === 'teacher') {
       return teacherMenuSections;
@@ -291,6 +319,11 @@ export default function Sidebar() {
     return [];
   }
 
+  /*
+   * =========================================================
+   * ACTIVE MENU ITEM
+   * =========================================================
+   */
   function isItemActive(href: string) {
     if (pathname === href) {
       return true;
@@ -328,8 +361,9 @@ export default function Sidebar() {
           : 'BTI-SMS';
 
   /*
-   * Avoid showing the wrong role's navigation
-   * while the current user's profile is loading.
+   * =========================================================
+   * ROLE LOADING STATE
+   * =========================================================
    */
   if (roleLoading) {
     return (
@@ -339,6 +373,7 @@ export default function Sidebar() {
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
         />
 
+        {/* Mobile Loading Header */}
         <div className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur lg:hidden">
           <div className="h-10 w-10 animate-pulse rounded-xl bg-slate-200" />
 
@@ -347,7 +382,8 @@ export default function Sidebar() {
           <div className="h-10 w-10 animate-pulse rounded-xl bg-slate-200" />
         </div>
 
-        <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 border-r border-slate-200 bg-white lg:block">
+        {/* Desktop Loading Sidebar */}
+        <aside className="fixed bottom-0 left-0 top-0 z-40 hidden w-64 border-r border-slate-200 bg-white lg:block">
           <div className="flex min-h-full flex-col">
             <div className="h-28 animate-pulse bg-slate-900" />
 
@@ -366,8 +402,9 @@ export default function Sidebar() {
   }
 
   /*
-   * If there is no valid application role,
-   * don't expose navigation.
+   * =========================================================
+   * NO VALID ROLE
+   * =========================================================
    */
   if (!role) {
     return null;
@@ -375,15 +412,18 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Font Awesome */}
+      {/* ===================================================== */}
+      {/* FONT AWESOME */}
+      {/* ===================================================== */}
+
       <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
       />
 
-      {/* ========================================================= */}
+      {/* ===================================================== */}
       {/* MOBILE / TABLET TOP BAR */}
-      {/* ========================================================= */}
+      {/* ===================================================== */}
 
       <div className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur lg:hidden">
         {/* Hamburger */}
@@ -459,9 +499,9 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* ========================================================= */}
+      {/* ===================================================== */}
       {/* MOBILE / TABLET OVERLAY */}
-      {/* ========================================================= */}
+      {/* ===================================================== */}
 
       {mobileOpen && (
         <button
@@ -472,9 +512,9 @@ export default function Sidebar() {
         />
       )}
 
-      {/* ========================================================= */}
+      {/* ===================================================== */}
       {/* MOBILE / TABLET SIDEBAR DRAWER */}
-      {/* ========================================================= */}
+      {/* ===================================================== */}
 
       <aside
         className={`fixed bottom-0 left-0 top-0 z-50 w-72 max-w-[88vw] overflow-y-auto border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
@@ -600,9 +640,9 @@ export default function Sidebar() {
         </div>
       </aside>
 
-      {/* ========================================================= */}
+      {/* ===================================================== */}
       {/* DESKTOP SIDEBAR */}
-      {/* ========================================================= */}
+      {/* ===================================================== */}
 
       <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 overflow-y-auto border-r border-slate-200 bg-white shadow-[4px_0_20px_rgba(15,23,42,0.04)] lg:block">
         <div className="flex min-h-full flex-col">
