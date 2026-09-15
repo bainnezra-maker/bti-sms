@@ -23,6 +23,7 @@ import {
   faCircleCheck,
   faFileArrowDown,
   faUserPlus,
+  faUserEdit,
 } from '@fortawesome/free-solid-svg-icons';
 import { createClient } from '@/lib/supabase/client';
 
@@ -36,6 +37,7 @@ type Student = {
   admission_date: string;
   jhs_aggregate: number | null;
   status: string;
+  resident: string | null;
 };
 
 type Programme = {
@@ -108,6 +110,7 @@ export default function StudentsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [openForms, setOpenForms] = useState<string[]>([]);
   const [openProgrammes, setOpenProgrammes] = useState<string[]>([]);
@@ -150,7 +153,7 @@ export default function StudentsPage() {
       supabase
         .from('students')
         .select(
-          'id, admission_number, full_name, gender, guardian_name, guardian_phone, admission_date, jhs_aggregate, status'
+          'id, admission_number, full_name, gender, guardian_name, guardian_phone, admission_date, jhs_aggregate, status, resident'
         )
         .eq('school_id', schoolId)
         .order('full_name'),
@@ -254,10 +257,6 @@ export default function StudentsPage() {
    * Priority:
    * 1. enrollment.programme_id
    * 2. classes.programme_id
-   *
-   * This is important because some classes have programme_id = NULL,
-   * while the student's enrollment already contains the correct
-   * programme.
    */
   const currentAcademicInfo = useMemo(() => {
     const infoMap = new Map<string, StudentAcademicInfo>();
@@ -319,18 +318,6 @@ export default function StudentsPage() {
   /*
    * Build a map of classes connected to each programme through
    * student enrollments.
-   *
-   * This fixes the situation where:
-   *
-   * Programme
-   *   ├── A Class
-   *   ├── B Class
-   *   ├── C Class
-   *   ├── D Class
-   *   ├── E Class
-   *   └── F Class
-   *
-   * but classes.programme_id may be NULL.
    */
   const enrollmentClassProgrammeMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -354,10 +341,6 @@ export default function StudentsPage() {
 
   /*
    * Classes available in the Class filter.
-   *
-   * If a programme is selected, include:
-   * - classes whose own programme_id matches
-   * - classes linked to that programme through enrollments
    */
   const availableClasses = useMemo(() => {
     if (programmeFilter === 'all') {
@@ -510,6 +493,7 @@ export default function StudentsPage() {
     ) => {
       const getNumber = (value: string) => {
         const match = value.match(/\d+/);
+
         return match
           ? Number(match[0])
           : 999;
@@ -628,35 +612,130 @@ export default function StudentsPage() {
     setStatusFilter('all');
   }
 
+  /*
+   * Delete a student and all dependent records.
+   *
+   * Order:
+   * 1. Assessments
+   * 2. Attendance
+   * 3. Fees
+   * 4. Enrollments
+   * 5. Student
+   *
+   * The database policies added in Supabase now allow
+   * administrators to perform these deletions.
+   */
   async function deleteStudent(
     id: string,
     name: string
   ) {
-    const confirmed =
-      window.confirm(
-        `Are you sure you want to delete ${name}? This cannot be undone.`
-      );
-
-    if (!confirmed) return;
-
-    const {
-      error: deleteError,
-    } = await supabase
-      .from('students')
-      .delete()
-      .eq('id', id);
-
-    if (deleteError) {
-      alert(deleteError.message);
+    if (deletingId) {
       return;
     }
 
-    setStudents((current) =>
-      current.filter(
-        (student) =>
-          student.id !== id
-      )
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${name}?\n\nThis will permanently delete the student's attendance, assessment, fee, enrollment and student record.\n\nThis action cannot be undone.`
     );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(id);
+    setError('');
+
+    try {
+      // Delete assessments
+      const { error: assessmentsError } =
+        await supabase
+          .from('assessments')
+          .delete()
+          .eq('student_id', id);
+
+      if (assessmentsError) {
+        throw new Error(
+          `Could not delete student assessments: ${assessmentsError.message}`
+        );
+      }
+
+      // Delete attendance
+      const { error: attendanceError } =
+        await supabase
+          .from('attendance')
+          .delete()
+          .eq('student_id', id);
+
+      if (attendanceError) {
+        throw new Error(
+          `Could not delete student attendance: ${attendanceError.message}`
+        );
+      }
+
+      // Delete fees
+      const { error: feesError } =
+        await supabase
+          .from('fees')
+          .delete()
+          .eq('student_id', id);
+
+      if (feesError) {
+        throw new Error(
+          `Could not delete student fees: ${feesError.message}`
+        );
+      }
+
+      // Delete enrollments
+      const { error: enrollmentsError } =
+        await supabase
+          .from('enrollments')
+          .delete()
+          .eq('student_id', id);
+
+      if (enrollmentsError) {
+        throw new Error(
+          `Could not delete student enrollments: ${enrollmentsError.message}`
+        );
+      }
+
+      // Finally delete the student
+      const { error: studentError } =
+        await supabase
+          .from('students')
+          .delete()
+          .eq('id', id);
+
+      if (studentError) {
+        throw new Error(
+          `Could not delete student: ${studentError.message}`
+        );
+      }
+
+      // Remove from the page immediately
+      setStudents((current) =>
+        current.filter(
+          (student) =>
+            student.id !== id
+        )
+      );
+
+      // Remove any related enrollment records from local state
+      setEnrollments((current) =>
+        current.filter(
+          (enrollment) =>
+            enrollment.student_id !== id
+        )
+      );
+    } catch (deleteError) {
+      const message =
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Unable to delete student.';
+
+      setError(message);
+      alert(message);
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   if (loading) {
@@ -1297,6 +1376,10 @@ export default function StudentsPage() {
                                                                 student.id
                                                               );
 
+                                                            const isDeleting =
+                                                              deletingId ===
+                                                              student.id;
+
                                                             return (
                                                               <div
                                                                 key={
@@ -1369,6 +1452,27 @@ export default function StudentsPage() {
 
                                                                   <div>
                                                                     <p className="text-[11px] text-slate-400">
+                                                                      Resident
+                                                                    </p>
+
+                                                                    <p
+                                                                      className={`mt-1 text-xs font-semibold ${
+                                                                        student.resident ===
+                                                                        'Boarding'
+                                                                          ? 'text-indigo-700'
+                                                                          : student.resident ===
+                                                                            'Day'
+                                                                          ? 'text-emerald-700'
+                                                                          : 'text-slate-500'
+                                                                      }`}
+                                                                    >
+                                                                      {student.resident ||
+                                                                        'Not provided'}
+                                                                    </p>
+                                                                  </div>
+
+                                                                  <div>
+                                                                    <p className="text-[11px] text-slate-400">
                                                                       JHS Aggregate
                                                                     </p>
 
@@ -1417,48 +1521,77 @@ export default function StudentsPage() {
                                                                     >
                                                                       <FontAwesomeIcon
                                                                         icon={
-                                                                          faPenToSquare
+                                                                          faUserGraduate
                                                                         }
                                                                         className="transition-transform duration-300 group-hover:scale-110"
                                                                       />
                                                                       View Profile
                                                                     </Link>
 
-                                                                    {student.status ===
-                                                                      'active' && (
-                                                                      <Link
-                                                                        href="/students/student-account"
-                                                                        className="group inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
-                                                                      >
-                                                                        <FontAwesomeIcon
-                                                                          icon={
-                                                                            faUserPlus
-                                                                          }
-                                                                          className="transition-transform duration-300 group-hover:scale-110"
-                                                                        />
-                                                                        Create Login
-                                                                      </Link>
-                                                                    )}
+                                                                    <Link
+                                                                      href={`/students/edit/${student.id}`}
+                                                                      className="group inline-flex items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
+                                                                    >
+                                                                      <FontAwesomeIcon
+                                                                        icon={
+                                                                          faUserEdit
+                                                                        }
+                                                                        className="transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
+                                                                      />
+                                                                      Edit Student
+                                                                    </Link>
 
                                                                   </div>
 
+                                                                  {student.status ===
+                                                                    'active' && (
+                                                                    <Link
+                                                                      href="/students/student-account"
+                                                                      className="group inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+                                                                    >
+                                                                      <FontAwesomeIcon
+                                                                        icon={
+                                                                          faUserPlus
+                                                                        }
+                                                                        className="transition-transform duration-300 group-hover:scale-110"
+                                                                      />
+                                                                      Create Login
+                                                                    </Link>
+                                                                  )}
+
                                                                   <button
                                                                     type="button"
+                                                                    disabled={
+                                                                      isDeleting ||
+                                                                      deletingId !==
+                                                                        null
+                                                                    }
                                                                     onClick={() =>
                                                                       deleteStudent(
                                                                         student.id,
                                                                         student.full_name
                                                                       )
                                                                     }
-                                                                    className="group self-start rounded-lg px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                                                                    className={`group self-start rounded-lg px-3 py-2 text-xs font-medium transition ${
+                                                                      isDeleting
+                                                                        ? 'cursor-not-allowed bg-red-50 text-red-400'
+                                                                        : 'text-red-600 hover:bg-red-50'
+                                                                    }`}
                                                                   >
                                                                     <FontAwesomeIcon
                                                                       icon={
                                                                         faTrash
                                                                       }
-                                                                      className="mr-2 transition-transform duration-300 group-hover:scale-110"
+                                                                      className={`mr-2 transition-transform duration-300 ${
+                                                                        isDeleting
+                                                                          ? 'animate-pulse'
+                                                                          : 'group-hover:scale-110'
+                                                                      }`}
                                                                     />
-                                                                    Delete
+
+                                                                    {isDeleting
+                                                                      ? 'Deleting...'
+                                                                      : 'Delete'}
                                                                   </button>
 
                                                                 </div>
