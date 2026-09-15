@@ -56,6 +56,35 @@ type Semester = {
   name: string;
 };
 
+type DutyStatus =
+  | 'scheduled'
+  | 'active'
+  | 'completed'
+  | 'cancelled';
+
+type DutyRecord = {
+  id: string;
+  school_id: string;
+  staff_id: string;
+  duty_type: string;
+  start_date: string;
+  end_date: string;
+  notes: string | null;
+  status: DutyStatus;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type DutyForm = {
+  staff_id: string;
+  duty_type: string;
+  start_date: string;
+  end_date: string;
+  notes: string;
+  status: DutyStatus;
+};
+
 const supabase = createClient();
 
 const emptyForm = {
@@ -76,6 +105,15 @@ const emptyForm = {
   photo_url: '',
 };
 
+const emptyDutyForm: DutyForm = {
+  staff_id: '',
+  duty_type: '',
+  start_date: '',
+  end_date: '',
+  notes: '',
+  status: 'scheduled',
+};
+
 const documentLabels: Record<DocumentType, string> = {
   unit_specification: 'Unit Specification Breakdown',
   learning_session_plan: 'Learning Session Plan',
@@ -86,6 +124,20 @@ const documentIcons: Record<DocumentType, string> = {
   unit_specification: 'fa-solid fa-list-check',
   learning_session_plan: 'fa-solid fa-chalkboard-user',
   particulars_of_work_done: 'fa-solid fa-file-circle-check',
+};
+
+const dutyStatusLabels: Record<DutyStatus, string> = {
+  scheduled: 'Scheduled',
+  active: 'Active',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
+const dutyStatusIcons: Record<DutyStatus, string> = {
+  scheduled: 'fa-solid fa-calendar-check',
+  active: 'fa-solid fa-person-circle-check',
+  completed: 'fa-solid fa-circle-check',
+  cancelled: 'fa-solid fa-circle-xmark',
 };
 
 const inputClass =
@@ -132,6 +184,59 @@ function initials(name: string) {
   );
 }
 
+function formatDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function startOfWeek(date: Date) {
+  const copy = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate()
+  );
+
+  const day = copy.getDay();
+  const difference = day === 0 ? -6 : 1 - day;
+
+  copy.setDate(copy.getDate() + difference);
+
+  return copy;
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function getDutyStatusClass(status: DutyStatus) {
+  switch (status) {
+    case 'active':
+      return 'bg-blue-100 text-blue-700';
+
+    case 'completed':
+      return 'bg-emerald-100 text-emerald-700';
+
+    case 'cancelled':
+      return 'bg-red-100 text-red-700';
+
+    case 'scheduled':
+    default:
+      return 'bg-amber-100 text-amber-700';
+  }
+}
+
 function Field({
   label,
   required,
@@ -147,6 +252,7 @@ function Field({
         {label}
         {required && <span className="text-red-500"> *</span>}
       </label>
+
       {children}
     </div>
   );
@@ -177,6 +283,7 @@ export default function StaffPage() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [duties, setDuties] = useState<DutyRecord[]>([]);
 
   const [schoolId, setSchoolId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -184,6 +291,7 @@ export default function StaffPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [savingDuty, setSavingDuty] = useState(false);
 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -210,6 +318,22 @@ export default function StaffPage() {
   const [documentYearId, setDocumentYearId] = useState('');
   const [documentSemesterId, setDocumentSemesterId] = useState('');
   const [documentFile, setDocumentFile] = useState<File | null>(null);
+
+  const [showDutyForm, setShowDutyForm] = useState(false);
+  const [editingDutyId, setEditingDutyId] = useState<string | null>(null);
+  const [dutyForm, setDutyForm] = useState<DutyForm>({
+    ...emptyDutyForm,
+  });
+
+  const [dutyView, setDutyView] = useState<'week' | 'month'>('week');
+
+  const [dutyAnchorDate, setDutyAnchorDate] = useState(
+    formatDateKey(new Date())
+  );
+
+  const [dutySearch, setDutySearch] = useState('');
+  const [dutyStatusFilter, setDutyStatusFilter] =
+    useState<DutyStatus | 'all'>('all');
 
   useEffect(() => {
     loadPage();
@@ -261,6 +385,7 @@ export default function StaffPage() {
       documentsResult,
       yearsResult,
       semestersResult,
+      dutiesResult,
     ] = await Promise.all([
       supabase
         .from('staff')
@@ -292,6 +417,17 @@ export default function StaffPage() {
           ascending: true,
           nullsFirst: false,
         }),
+
+      supabase
+        .from('staff_duty_roster')
+        .select('*')
+        .eq('school_id', profile.schoolId)
+        .order('start_date', {
+          ascending: true,
+        })
+        .order('end_date', {
+          ascending: true,
+        }),
     ]);
 
     if (staffResult.error) {
@@ -316,6 +452,12 @@ export default function StaffPage() {
       setError((current) => current || semestersResult.error!.message);
     } else {
       setSemesters((semestersResult.data || []) as Semester[]);
+    }
+
+    if (dutiesResult.error) {
+      setError((current) => current || dutiesResult.error!.message);
+    } else {
+      setDuties((dutiesResult.data || []) as DutyRecord[]);
     }
 
     setLoading(false);
@@ -507,6 +649,10 @@ export default function StaffPage() {
     );
 
     setDocuments((current) =>
+      current.filter((item) => item.staff_id !== person.id)
+    );
+
+    setDuties((current) =>
       current.filter((item) => item.staff_id !== person.id)
     );
 
@@ -710,6 +856,218 @@ export default function StaffPage() {
     setMessage('Teaching document deleted successfully.');
   }
 
+  function openAddDutyForm(staffId?: string) {
+    const today = formatDateKey(new Date());
+
+    setEditingDutyId(null);
+
+    setDutyForm({
+      ...emptyDutyForm,
+      staff_id:
+        staffId ||
+        selectedStaffId ||
+        '',
+      start_date: today,
+      end_date: today,
+      status: 'scheduled',
+    });
+
+    setError('');
+    setMessage('');
+    setShowDutyForm(true);
+  }
+
+  function openEditDutyForm(duty: DutyRecord) {
+    setEditingDutyId(duty.id);
+
+    setDutyForm({
+      staff_id: duty.staff_id,
+      duty_type: duty.duty_type,
+      start_date: duty.start_date,
+      end_date: duty.end_date,
+      notes: duty.notes || '',
+      status: duty.status,
+    });
+
+    setError('');
+    setMessage('');
+    setShowDutyForm(true);
+  }
+
+  function closeDutyForm() {
+    if (savingDuty) return;
+
+    setShowDutyForm(false);
+    setEditingDutyId(null);
+    setDutyForm({ ...emptyDutyForm });
+  }
+
+  async function saveDuty(event: React.FormEvent) {
+    event.preventDefault();
+
+    setError('');
+    setMessage('');
+
+    if (!schoolId) {
+      setError('School profile could not be found.');
+      return;
+    }
+
+    if (!dutyForm.staff_id) {
+      setError('Please select a staff member.');
+      return;
+    }
+
+    if (!dutyForm.duty_type.trim()) {
+      setError('Duty type is required.');
+      return;
+    }
+
+    if (!dutyForm.start_date || !dutyForm.end_date) {
+      setError('Start date and end date are required.');
+      return;
+    }
+
+    if (dutyForm.end_date < dutyForm.start_date) {
+      setError('End date cannot be earlier than the start date.');
+      return;
+    }
+
+    const selectedPerson = staff.find(
+      (person) => person.id === dutyForm.staff_id
+    );
+
+    if (!selectedPerson) {
+      setError('The selected staff member could not be found.');
+      return;
+    }
+
+    setSavingDuty(true);
+
+    if (editingDutyId) {
+      const { data, error: updateError } = await supabase
+        .from('staff_duty_roster')
+        .update({
+          staff_id: dutyForm.staff_id,
+          duty_type: dutyForm.duty_type.trim(),
+          start_date: dutyForm.start_date,
+          end_date: dutyForm.end_date,
+          notes: dutyForm.notes.trim() || null,
+          status: dutyForm.status,
+        })
+        .eq('id', editingDutyId)
+        .eq('school_id', schoolId)
+        .select('*')
+        .maybeSingle();
+
+      if (updateError) {
+        setError(updateError.message);
+      } else if (!data) {
+        setError(
+          'Duty assignment could not be updated. Please check your permissions.'
+        );
+      } else {
+        setDuties((current) =>
+          current
+            .map((item) =>
+              item.id === editingDutyId
+                ? (data as DutyRecord)
+                : item
+            )
+            .sort((a, b) =>
+              a.start_date.localeCompare(b.start_date)
+            )
+        );
+
+        setMessage(
+          `Duty assignment updated for ${selectedPerson.full_name}.`
+        );
+
+        closeDutyForm();
+      }
+    } else {
+      const { data, error: insertError } = await supabase
+        .from('staff_duty_roster')
+        .insert({
+          school_id: schoolId,
+          staff_id: dutyForm.staff_id,
+          duty_type: dutyForm.duty_type.trim(),
+          start_date: dutyForm.start_date,
+          end_date: dutyForm.end_date,
+          notes: dutyForm.notes.trim() || null,
+          status: dutyForm.status,
+          created_by: currentUserId,
+        })
+        .select('*')
+        .single();
+
+      if (insertError) {
+        setError(insertError.message);
+      } else {
+        setDuties((current) =>
+          [...current, data as DutyRecord].sort((a, b) =>
+            a.start_date.localeCompare(b.start_date)
+          )
+        );
+
+        setMessage(
+          `Duty assigned successfully to ${selectedPerson.full_name}.`
+        );
+
+        closeDutyForm();
+      }
+    }
+
+    setSavingDuty(false);
+  }
+
+  async function deleteDuty(duty: DutyRecord) {
+    if (!schoolId) return;
+
+    const person = staff.find(
+      (item) => item.id === duty.staff_id
+    );
+
+    const confirmed = window.confirm(
+      `Remove this duty assignment?\n\nStaff: ${
+        person?.full_name || 'Unknown staff'
+      }\nDuty: ${duty.duty_type}\nDate: ${formatDate(
+        duty.start_date
+      )} - ${formatDate(duty.end_date)}`
+    );
+
+    if (!confirmed) return;
+
+    setError('');
+    setMessage('');
+
+    const { error: deleteError } = await supabase
+      .from('staff_duty_roster')
+      .delete()
+      .eq('id', duty.id)
+      .eq('school_id', schoolId);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    setDuties((current) =>
+      current.filter((item) => item.id !== duty.id)
+    );
+
+    setMessage('Duty assignment removed successfully.');
+  }
+
+  function scrollToDutyRoster() {
+    document
+      .getElementById('staff-duty-roster')
+      ?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+  }
+
   const departments = useMemo(
     () =>
       Array.from(
@@ -780,6 +1138,25 @@ export default function StaffPage() {
     [staff]
   );
 
+  const dutyStats = useMemo(
+    () => ({
+      total: duties.length,
+      scheduled: duties.filter(
+        (duty) => duty.status === 'scheduled'
+      ).length,
+      active: duties.filter(
+        (duty) => duty.status === 'active'
+      ).length,
+      completed: duties.filter(
+        (duty) => duty.status === 'completed'
+      ).length,
+      cancelled: duties.filter(
+        (duty) => duty.status === 'cancelled'
+      ).length,
+    }),
+    [duties]
+  );
+
   const selectedStaff =
     staff.find(
       (person) => person.id === selectedStaffId
@@ -787,6 +1164,10 @@ export default function StaffPage() {
 
   const selectedDocuments = documents.filter(
     (document) => document.staff_id === selectedStaffId
+  );
+
+  const selectedDuties = duties.filter(
+    (duty) => duty.staff_id === selectedStaffId
   );
 
   const selectedUnitDocuments =
@@ -825,6 +1206,235 @@ export default function StaffPage() {
       academicYears.find(
         (year) => year.id === yearId
       )?.name || '—'
+    );
+  }
+
+  const filteredDuties = useMemo(() => {
+    const query = dutySearch.trim().toLowerCase();
+
+    return duties.filter((duty) => {
+      const person = staff.find(
+        (item) => item.id === duty.staff_id
+      );
+
+      const matchesSearch =
+        !query ||
+        (person?.full_name || '').toLowerCase().includes(query) ||
+        duty.duty_type.toLowerCase().includes(query) ||
+        (duty.notes || '').toLowerCase().includes(query);
+
+      const matchesStatus =
+        dutyStatusFilter === 'all' ||
+        duty.status === dutyStatusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [
+    duties,
+    staff,
+    dutySearch,
+    dutyStatusFilter,
+  ]);
+
+  function dutyAppliesOnDate(
+    duty: DutyRecord,
+    dateKey: string
+  ) {
+    return (
+      duty.start_date <= dateKey &&
+      duty.end_date >= dateKey
+    );
+  }
+
+  function dutiesForDate(dateKey: string) {
+    return filteredDuties.filter((duty) =>
+      dutyAppliesOnDate(duty, dateKey)
+    );
+  }
+
+  const dutyWeekDays = useMemo(() => {
+    const anchor = parseDateKey(dutyAnchorDate);
+    const monday = startOfWeek(anchor);
+
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + index);
+
+      return date;
+    });
+  }, [dutyAnchorDate]);
+
+  const dutyMonthDays = useMemo(() => {
+    const anchor = parseDateKey(dutyAnchorDate);
+    const monthStart = startOfMonth(anchor);
+    const gridStart = startOfWeek(monthStart);
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+
+      return date;
+    });
+  }, [dutyAnchorDate]);
+
+  const dutyMonthLabel = useMemo(() => {
+    const anchor = parseDateKey(dutyAnchorDate);
+
+    return anchor.toLocaleDateString('en-GB', {
+      month: 'long',
+      year: 'numeric',
+    });
+  }, [dutyAnchorDate]);
+
+  const dutyWeekLabel = useMemo(() => {
+    if (dutyWeekDays.length !== 7) return '';
+
+    const first = dutyWeekDays[0];
+    const last = dutyWeekDays[6];
+
+    const firstLabel = first.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+    });
+
+    const lastLabel = last.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+
+    return `${firstLabel} – ${lastLabel}`;
+  }, [dutyWeekDays]);
+
+  function goToDutyPrevious() {
+    const date = parseDateKey(dutyAnchorDate);
+
+    if (dutyView === 'week') {
+      date.setDate(date.getDate() - 7);
+    } else {
+      date.setMonth(date.getMonth() - 1);
+    }
+
+    setDutyAnchorDate(formatDateKey(date));
+  }
+
+  function goToDutyNext() {
+    const date = parseDateKey(dutyAnchorDate);
+
+    if (dutyView === 'week') {
+      date.setDate(date.getDate() + 7);
+    } else {
+      date.setMonth(date.getMonth() + 1);
+    }
+
+    setDutyAnchorDate(formatDateKey(date));
+  }
+
+  function goToDutyToday() {
+    setDutyAnchorDate(formatDateKey(new Date()));
+  }
+
+  function staffDutyCount(staffId: string) {
+    return duties.filter(
+      (duty) => duty.staff_id === staffId
+    ).length;
+  }
+
+  function staffActiveDutyCount(staffId: string) {
+    return duties.filter(
+      (duty) =>
+        duty.staff_id === staffId &&
+        duty.status === 'active'
+    ).length;
+  }
+
+  function renderDutyCard(
+    duty: DutyRecord,
+    compact = false
+  ) {
+    const person = staff.find(
+      (item) => item.id === duty.staff_id
+    );
+
+    return (
+      <div
+        key={duty.id}
+        className={`group rounded-xl border border-slate-200 bg-white transition duration-300 hover:-translate-y-0.5 hover:shadow-md ${
+          compact ? 'p-2.5' : 'p-3'
+        }`}
+      >
+        <div className="flex items-start gap-2">
+          <div
+            className={`flex shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white ${
+              compact
+                ? 'h-8 w-8 text-xs'
+                : 'h-9 w-9 text-sm'
+            }`}
+          >
+            <i className="fa-solid fa-user-shield" />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p
+              className={`truncate font-bold text-slate-800 ${
+                compact ? 'text-xs' : 'text-sm'
+              }`}
+            >
+              {person?.full_name || 'Unknown Staff'}
+            </p>
+
+            <p
+              className={`mt-0.5 truncate font-semibold text-slate-500 ${
+                compact ? 'text-[11px]' : 'text-xs'
+              }`}
+            >
+              {duty.duty_type}
+            </p>
+
+            {!compact && (
+              <p className="mt-1 text-[11px] text-slate-400">
+                {formatDate(duty.start_date)} –{' '}
+                {formatDate(duty.end_date)}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div
+          className={`mt-2 flex items-center justify-between gap-2 ${
+            compact ? 'flex-col items-start' : ''
+          }`}
+        >
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${getDutyStatusClass(
+              duty.status
+            )}`}
+          >
+            <i className={dutyStatusIcons[duty.status]} />
+            {dutyStatusLabels[duty.status]}
+          </span>
+
+          <div className="flex gap-1 opacity-70 transition group-hover:opacity-100">
+            <button
+              type="button"
+              onClick={() => openEditDutyForm(duty)}
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition duration-300 hover:bg-slate-900 hover:text-white"
+              title="Edit duty"
+            >
+              <i className="fa-solid fa-pen text-[10px]" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => deleteDuty(duty)}
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-50 text-red-600 transition duration-300 hover:bg-red-600 hover:text-white"
+              title="Remove duty"
+            >
+              <i className="fa-solid fa-trash text-[10px]" />
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -879,6 +1489,16 @@ export default function StaffPage() {
           }
         }
 
+        @keyframes btiDutyGlow {
+          0%,
+          100% {
+            box-shadow: 0 0 0 0 rgba(15, 23, 42, 0);
+          }
+          50% {
+            box-shadow: 0 0 0 4px rgba(15, 23, 42, 0.04);
+          }
+        }
+
         .bti-staff-page {
           animation: btiStaffFadeUp 0.55s ease-out both;
         }
@@ -892,19 +1512,24 @@ export default function StaffPage() {
         }
 
         .bti-staff-modal {
-          animation: btiStaffModal 0.32s cubic-bezier(0.22, 1, 0.36, 1)
-            both;
+          animation: btiStaffModal 0.32s
+            cubic-bezier(0.22, 1, 0.36, 1) both;
         }
 
         .bti-staff-icon-pulse:hover {
           animation: btiStaffPulse 0.7s ease-in-out;
         }
 
+        .bti-duty-glow {
+          animation: btiDutyGlow 2.5s ease-in-out infinite;
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .bti-staff-page,
           .bti-staff-card,
           .bti-staff-stat,
-          .bti-staff-modal {
+          .bti-staff-modal,
+          .bti-duty-glow {
             animation: none !important;
           }
         }
@@ -926,19 +1551,30 @@ export default function StaffPage() {
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
                 Manage teaching and non-teaching staff,
-                employment details, staff status, and
-                teaching documents from one place.
+                employment details, staff status, teaching
+                documents, and staff duties from one place.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={openAddForm}
-              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-slate-900/10 transition duration-300 hover:-translate-y-1 hover:bg-slate-800 hover:shadow-xl"
-            >
-              <i className="fa-solid fa-user-plus transition duration-300 group-hover:rotate-6" />
-              Add Staff
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={scrollToDutyRoster}
+                className="group inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition duration-300 hover:-translate-y-1 hover:bg-slate-50 hover:shadow-lg"
+              >
+                <i className="fa-solid fa-calendar-check transition duration-300 group-hover:scale-110" />
+                Duty Roster
+              </button>
+
+              <button
+                type="button"
+                onClick={openAddForm}
+                className="group inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-slate-900/10 transition duration-300 hover:-translate-y-1 hover:bg-slate-800 hover:shadow-xl"
+              >
+                <i className="fa-solid fa-user-plus transition duration-300 group-hover:rotate-6" />
+                Add Staff
+              </button>
+            </div>
           </div>
 
           {/* ALERTS */}
@@ -956,7 +1592,7 @@ export default function StaffPage() {
             </div>
           )}
 
-          {/* STATS */}
+          {/* STAFF STATS */}
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {[
               {
@@ -1014,7 +1650,6 @@ export default function StaffPage() {
           {/* SEARCH / FILTERS */}
           <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:shadow-md sm:p-5">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-
               <div className="relative xl:col-span-2">
                 <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition duration-300" />
 
@@ -1175,7 +1810,7 @@ export default function StaffPage() {
                       </div>
 
                       {/* QUICK DETAILS */}
-                      <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:min-w-[560px]">
+                      <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5 xl:min-w-[700px]">
                         <div className="rounded-xl bg-slate-50 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
                           <p className="text-xs font-medium text-slate-400">
                             Phone
@@ -1220,6 +1855,16 @@ export default function StaffPage() {
                             }
                           </p>
                         </div>
+
+                        <div className="rounded-xl bg-slate-50 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
+                          <p className="text-xs font-medium text-slate-400">
+                            Duties
+                          </p>
+
+                          <p className="mt-1 font-semibold text-slate-700">
+                            {staffDutyCount(person.id)}
+                          </p>
+                        </div>
                       </div>
 
                       {/* ACTIONS */}
@@ -1240,6 +1885,15 @@ export default function StaffPage() {
                         >
                           <i className="fa-solid fa-pen transition group-hover:rotate-6" />
                           Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openAddDutyForm(person.id)}
+                          className="group inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800"
+                        >
+                          <i className="fa-solid fa-calendar-plus transition group-hover:scale-110" />
+                          Duty
                         </button>
 
                         <button
@@ -1270,6 +1924,394 @@ export default function StaffPage() {
               </div>
             )}
           </div>
+
+          {/* STAFF DUTY ROSTER */}
+          <section
+            id="staff-duty-roster"
+            className="mt-8 scroll-mt-20 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+          >
+            <div className="border-b border-slate-200 bg-slate-900 px-5 py-6 text-white sm:px-7">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <div className="mb-3 flex items-center gap-3">
+                    <div className="bti-staff-icon-pulse flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 transition duration-300">
+                      <i className="fa-solid fa-calendar-check" />
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest text-white/50">
+                        Staff Management
+                      </p>
+
+                      <h2 className="text-2xl font-bold">
+                        Staff Duty Roster
+                      </h2>
+                    </div>
+                  </div>
+
+                  <p className="max-w-2xl text-sm leading-6 text-white/60">
+                    Assign, manage, and monitor staff duties using a
+                    central weekly or monthly roster.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => openAddDutyForm()}
+                  className="group inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-slate-900 shadow-lg transition duration-300 hover:-translate-y-1 hover:bg-slate-100 hover:shadow-xl"
+                >
+                  <i className="fa-solid fa-calendar-plus transition duration-300 group-hover:scale-110" />
+                  Assign Duty
+                </button>
+              </div>
+            </div>
+
+            {/* DUTY STATS */}
+            <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:grid-cols-4 sm:p-5">
+              {[
+                {
+                  label: 'Total',
+                  value: dutyStats.total,
+                  icon: 'fa-solid fa-calendar-days',
+                },
+                {
+                  label: 'Scheduled',
+                  value: dutyStats.scheduled,
+                  icon: 'fa-solid fa-calendar-check',
+                },
+                {
+                  label: 'Active',
+                  value: dutyStats.active,
+                  icon: 'fa-solid fa-person-circle-check',
+                },
+                {
+                  label: 'Completed',
+                  value: dutyStats.completed,
+                  icon: 'fa-solid fa-circle-check',
+                },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-2xl border border-slate-200 bg-white p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                        {item.label}
+                      </p>
+
+                      <p className="mt-1 text-2xl font-bold text-slate-900">
+                        {item.value}
+                      </p>
+                    </div>
+
+                    <i className={`${item.icon} text-slate-400`} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* DUTY FILTERS */}
+            <div className="border-b border-slate-200 p-4 sm:p-5">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="relative md:col-span-2">
+                  <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+
+                  <input
+                    value={dutySearch}
+                    onChange={(event) =>
+                      setDutySearch(event.target.value)
+                    }
+                    placeholder="Search staff member, duty type or notes..."
+                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                  />
+                </div>
+
+                <select
+                  value={dutyStatusFilter}
+                  onChange={(event) =>
+                    setDutyStatusFilter(
+                      event.target.value as DutyStatus | 'all'
+                    )
+                  }
+                  className={inputClass}
+                >
+                  <option value="all">All Duty Statuses</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
+
+            {/* DUTY TOOLBAR */}
+            <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDutyView('week')}
+                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition duration-300 ${
+                      dutyView === 'week'
+                        ? 'bg-slate-900 text-white shadow-md'
+                        : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <i className="fa-solid fa-calendar-week" />
+                    Weekly
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDutyView('month')}
+                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition duration-300 ${
+                      dutyView === 'month'
+                        ? 'bg-slate-900 text-white shadow-md'
+                        : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <i className="fa-solid fa-calendar-days" />
+                    Monthly
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={goToDutyPrevious}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-600 transition duration-300 hover:-translate-y-0.5 hover:bg-slate-50"
+                    title="Previous"
+                  >
+                    <i className="fa-solid fa-chevron-left" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={goToDutyToday}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition duration-300 hover:-translate-y-0.5 hover:bg-slate-50"
+                  >
+                    Today
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={goToDutyNext}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-600 transition duration-300 hover:-translate-y-0.5 hover:bg-slate-50"
+                    title="Next"
+                  >
+                    <i className="fa-solid fa-chevron-right" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center justify-center gap-2 text-center">
+                <i className="fa-solid fa-calendar text-slate-400" />
+
+                <h3 className="text-lg font-bold text-slate-900">
+                  {dutyView === 'week'
+                    ? dutyWeekLabel
+                    : dutyMonthLabel}
+                </h3>
+              </div>
+            </div>
+
+            {/* EMPTY DUTY STATE */}
+            {filteredDuties.length === 0 ? (
+              <div className="px-6 py-16 text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                  <i className="fa-solid fa-calendar-xmark text-2xl" />
+                </div>
+
+                <h3 className="font-bold text-slate-800">
+                  No duty assignments found
+                </h3>
+
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+                  {duties.length === 0
+                    ? 'No staff duties have been assigned yet. Use Assign Duty to create the first roster entry.'
+                    : 'Try changing your duty search or status filter.'}
+                </p>
+
+                {duties.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => openAddDutyForm()}
+                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800"
+                  >
+                    <i className="fa-solid fa-calendar-plus" />
+                    Assign Duty
+                  </button>
+                )}
+              </div>
+            ) : dutyView === 'week' ? (
+              /* WEEKLY ROSTER */
+              <div className="overflow-x-auto">
+                <div className="grid min-w-[980px] grid-cols-7 divide-x divide-slate-200">
+                  {dutyWeekDays.map((date) => {
+                    const dateKey = formatDateKey(date);
+                    const dateDuties = dutiesForDate(dateKey);
+                    const isToday =
+                      dateKey === formatDateKey(new Date());
+
+                    return (
+                      <div
+                        key={dateKey}
+                        className={`min-h-[330px] bg-white ${
+                          isToday ? 'bg-slate-50' : ''
+                        }`}
+                      >
+                        <div
+                          className={`border-b border-slate-200 p-3 text-center ${
+                            isToday
+                              ? 'bg-slate-900 text-white'
+                              : 'bg-slate-50'
+                          }`}
+                        >
+                          <p
+                            className={`text-xs font-bold uppercase tracking-wide ${
+                              isToday
+                                ? 'text-white/60'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {date.toLocaleDateString('en-GB', {
+                              weekday: 'short',
+                            })}
+                          </p>
+
+                          <p
+                            className={`mt-1 text-xl font-bold ${
+                              isToday
+                                ? 'text-white'
+                                : 'text-slate-900'
+                            }`}
+                          >
+                            {date.getDate()}
+                          </p>
+
+                          <p
+                            className={`text-[11px] ${
+                              isToday
+                                ? 'text-white/60'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {date.toLocaleDateString('en-GB', {
+                              month: 'short',
+                            })}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2 p-2">
+                          {dateDuties.length === 0 ? (
+                            <div className="py-8 text-center text-slate-300">
+                              <i className="fa-regular fa-calendar text-lg" />
+                              <p className="mt-1 text-[10px]">
+                                No duty
+                              </p>
+                            </div>
+                          ) : (
+                            dateDuties.map((duty) =>
+                              renderDutyCard(duty, true)
+                            )
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* MONTHLY ROSTER */
+              <div className="overflow-x-auto">
+                <div className="min-w-[900px]">
+                  <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+                    {[
+                      'Monday',
+                      'Tuesday',
+                      'Wednesday',
+                      'Thursday',
+                      'Friday',
+                      'Saturday',
+                      'Sunday',
+                    ].map((day) => (
+                      <div
+                        key={day}
+                        className="border-r border-slate-200 px-3 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500 last:border-r-0"
+                      >
+                        {day}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-7">
+                    {dutyMonthDays.map((date) => {
+                      const dateKey = formatDateKey(date);
+                      const dateDuties = dutiesForDate(dateKey);
+
+                      const isCurrentMonth =
+                        date.getMonth() ===
+                        parseDateKey(
+                          dutyAnchorDate
+                        ).getMonth();
+
+                      const isToday =
+                        dateKey === formatDateKey(new Date());
+
+                      return (
+                        <div
+                          key={dateKey}
+                          className={`min-h-[145px] border-b border-r border-slate-200 p-2 transition duration-300 hover:bg-slate-50 ${
+                            !isCurrentMonth
+                              ? 'bg-slate-50/50'
+                              : 'bg-white'
+                          }`}
+                        >
+                          <div className="mb-2 flex items-center justify-between">
+                            <span
+                              className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold ${
+                                isToday
+                                  ? 'bg-slate-900 text-white'
+                                  : isCurrentMonth
+                                    ? 'text-slate-700'
+                                    : 'text-slate-300'
+                              }`}
+                            >
+                              {date.getDate()}
+                            </span>
+
+                            {dateDuties.length > 0 && (
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500">
+                                {dateDuties.length}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="space-y-1.5">
+                            {dateDuties
+                              .slice(0, 3)
+                              .map((duty) =>
+                                renderDutyCard(
+                                  duty,
+                                  true
+                                )
+                              )}
+
+                            {dateDuties.length > 3 && (
+                              <p className="px-1 text-[10px] font-semibold text-slate-400">
+                                +{dateDuties.length - 3} more
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       </div>
 
@@ -1590,6 +2632,250 @@ export default function StaffPage() {
         </div>
       )}
 
+      {/* DUTY FORM MODAL */}
+      {showDutyForm && (
+        <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-sm sm:p-6">
+          <div className="bti-staff-modal my-4 w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl sm:my-8">
+
+            <div className="border-b border-slate-200 bg-slate-900 px-5 py-6 text-white sm:px-7">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
+                    <i className="fa-solid fa-calendar-plus" />
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-white/50">
+                      Staff Duty Roster
+                    </p>
+
+                    <h2 className="mt-1 text-xl font-bold">
+                      {editingDutyId
+                        ? 'Edit Duty Assignment'
+                        : 'Assign Duty'}
+                    </h2>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeDutyForm}
+                  disabled={savingDuty}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white transition duration-300 hover:rotate-90 hover:bg-white/20 disabled:opacity-50"
+                >
+                  <i className="fa-solid fa-xmark" />
+                </button>
+              </div>
+            </div>
+
+            <form
+              onSubmit={saveDuty}
+              className="p-5 sm:p-7"
+            >
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+
+                <div className="md:col-span-2">
+                  <Field label="Staff Member" required>
+                    <select
+                      value={dutyForm.staff_id}
+                      onChange={(event) =>
+                        setDutyForm({
+                          ...dutyForm,
+                          staff_id: event.target.value,
+                        })
+                      }
+                      required
+                      className={inputClass}
+                    >
+                      <option value="">
+                        Select staff member
+                      </option>
+
+                      {staff
+                        .filter(
+                          (person) =>
+                            person.status === 'active'
+                        )
+                        .map((person) => (
+                          <option
+                            key={person.id}
+                            value={person.id}
+                          >
+                            {person.full_name} —{' '}
+                            {person.staff_number}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                </div>
+
+                <div className="md:col-span-2">
+                  <Field label="Duty Type" required>
+                    <input
+                      value={dutyForm.duty_type}
+                      onChange={(event) =>
+                        setDutyForm({
+                          ...dutyForm,
+                          duty_type: event.target.value,
+                        })
+                      }
+                      required
+                      placeholder="e.g. Morning Duty, Break Duty, Closing Duty"
+                      className={inputClass}
+                    />
+
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {[
+                        'Morning Duty',
+                        'Break Duty',
+                        'Closing Duty',
+                        'Assembly Duty',
+                        'Examination Duty',
+                        'Weekend Duty',
+                      ].map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() =>
+                            setDutyForm({
+                              ...dutyForm,
+                              duty_type: type,
+                            })
+                          }
+                          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-500 transition duration-300 hover:bg-slate-900 hover:text-white"
+                        >
+                          {type}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                </div>
+
+                <Field label="Start Date" required>
+                  <input
+                    type="date"
+                    value={dutyForm.start_date}
+                    onChange={(event) =>
+                      setDutyForm({
+                        ...dutyForm,
+                        start_date: event.target.value,
+                      })
+                    }
+                    required
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field label="End Date" required>
+                  <input
+                    type="date"
+                    value={dutyForm.end_date}
+                    min={dutyForm.start_date || undefined}
+                    onChange={(event) =>
+                      setDutyForm({
+                        ...dutyForm,
+                        end_date: event.target.value,
+                      })
+                    }
+                    required
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field label="Status" required>
+                  <select
+                    value={dutyForm.status}
+                    onChange={(event) =>
+                      setDutyForm({
+                        ...dutyForm,
+                        status:
+                          event.target.value as DutyStatus,
+                      })
+                    }
+                    required
+                    className={inputClass}
+                  >
+                    <option value="scheduled">
+                      Scheduled
+                    </option>
+                    <option value="active">Active</option>
+                    <option value="completed">
+                      Completed
+                    </option>
+                    <option value="cancelled">
+                      Cancelled
+                    </option>
+                  </select>
+                </Field>
+
+                <div className="md:col-span-2">
+                  <Field label="Notes">
+                    <textarea
+                      value={dutyForm.notes}
+                      onChange={(event) =>
+                        setDutyForm({
+                          ...dutyForm,
+                          notes: event.target.value,
+                        })
+                      }
+                      rows={4}
+                      placeholder="Optional notes about the duty assignment..."
+                      className={inputClass}
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              <div className="mt-7 rounded-2xl bg-slate-50 p-4">
+                <div className="flex items-start gap-3">
+                  <i className="fa-solid fa-circle-info mt-0.5 text-slate-400" />
+
+                  <p className="text-xs leading-5 text-slate-500">
+                    Duty assignments are stored centrally and will
+                    later be available to the relevant teacher
+                    dashboard, My Schedule, School Calendar, and
+                    notification system.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeDutyForm}
+                  disabled={savingDuty}
+                  className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 transition duration-300 hover:-translate-y-0.5 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={savingDuty}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-bold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800 disabled:opacity-60"
+                >
+                  <i
+                    className={
+                      savingDuty
+                        ? 'fa-solid fa-spinner fa-spin'
+                        : editingDutyId
+                          ? 'fa-solid fa-floppy-disk'
+                          : 'fa-solid fa-calendar-plus'
+                    }
+                  />
+
+                  {savingDuty
+                    ? 'Saving...'
+                    : editingDutyId
+                      ? 'Save Duty Changes'
+                      : 'Assign Duty'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* STAFF DETAILS MODAL */}
       {showDetails && selectedStaff && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm sm:p-6">
@@ -1733,6 +3019,111 @@ export default function StaffPage() {
                         value={selectedStaff.address || '—'}
                       />
                     </div>
+                  </div>
+
+                  {/* DUTY SUMMARY */}
+                  <div className="bti-duty-glow rounded-2xl border border-slate-200 p-5 transition duration-300 hover:shadow-md">
+                    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="font-bold text-slate-900">
+                          Duty Roster
+                        </h3>
+
+                        <p className="mt-1 text-xs text-slate-500">
+                          Duty assignments for this staff member.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openAddDutyForm(selectedStaff.id)
+                        }
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800"
+                      >
+                        <i className="fa-solid fa-calendar-plus" />
+                        Assign Duty
+                      </button>
+                    </div>
+
+                    <div className="mb-5 grid grid-cols-3 gap-3">
+                      <div className="rounded-xl bg-slate-50 p-3 text-center">
+                        <p className="text-xl font-bold text-slate-900">
+                          {selectedDuties.length}
+                        </p>
+
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                          Total
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-blue-50 p-3 text-center">
+                        <p className="text-xl font-bold text-blue-700">
+                          {staffActiveDutyCount(
+                            selectedStaff.id
+                          )}
+                        </p>
+
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-blue-400">
+                          Active
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-amber-50 p-3 text-center">
+                        <p className="text-xl font-bold text-amber-700">
+                          {
+                            selectedDuties.filter(
+                              (duty) =>
+                                duty.status === 'scheduled'
+                            ).length
+                          }
+                        </p>
+
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-amber-400">
+                          Scheduled
+                        </p>
+                      </div>
+                    </div>
+
+                    {selectedDuties.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
+                        <i className="fa-solid fa-calendar-plus mb-3 text-xl text-slate-300" />
+
+                        <p>
+                          No duty assignments have been created for
+                          this staff member.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {selectedDuties
+                          .slice()
+                          .sort((a, b) =>
+                            a.start_date.localeCompare(
+                              b.start_date
+                            )
+                          )
+                          .slice(0, 5)
+                          .map((duty) =>
+                            renderDutyCard(duty)
+                          )}
+
+                        {selectedDuties.length > 5 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowDetails(false);
+                              scrollToDutyRoster();
+                            }}
+                            className="mt-2 w-full rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 transition duration-300 hover:bg-slate-50"
+                          >
+                            View all {selectedDuties.length} duty
+                            assignments
+                            <i className="fa-solid fa-arrow-right ml-2" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* TEACHING DOCUMENTS */}
@@ -2137,6 +3528,17 @@ export default function StaffPage() {
                     </h3>
 
                     <div className="mt-4 space-y-2">
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openAddDutyForm(selectedStaff.id)
+                        }
+                        className="group flex w-full items-center gap-3 rounded-xl bg-slate-900 px-4 py-3 text-left text-sm font-semibold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md"
+                      >
+                        <i className="fa-solid fa-calendar-plus w-4 text-center transition group-hover:scale-110" />
+                        Assign Duty
+                      </button>
 
                       <button
                         type="button"
