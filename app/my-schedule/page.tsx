@@ -6,16 +6,15 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faCalendarDays,
   faClock,
-  faChalkboardUser,
   faBookOpen,
   faGraduationCap,
   faCircleCheck,
   faCircleXmark,
   faRotate,
-  faArrowRight,
   faCalendarWeek,
   faUserTie,
   faTriangleExclamation,
+  faArrowRight,
 } from '@fortawesome/free-solid-svg-icons';
 
 type TimetableEntry = {
@@ -175,7 +174,48 @@ export default function MySchedulePage() {
         throw timetableError;
       }
 
-      setEntries((timetable ?? []) as TimetableEntry[]);
+      /*
+       * Supabase returns nested relationships as arrays.
+       * Normalize them into the object shape used by the page.
+       */
+      const normalizedEntries: TimetableEntry[] = (timetable ?? []).map(
+        (entry: any) => {
+          const academicYear = Array.isArray(entry.academic_year)
+            ? entry.academic_year[0] ?? null
+            : entry.academic_year ?? null;
+
+          const assignment = Array.isArray(entry.teacher_assignment)
+            ? entry.teacher_assignment[0] ?? null
+            : entry.teacher_assignment ?? null;
+
+          const classRecord = Array.isArray(assignment?.class)
+            ? assignment.class[0] ?? null
+            : assignment?.class ?? null;
+
+          const subject = Array.isArray(assignment?.subject)
+            ? assignment.subject[0] ?? null
+            : assignment?.subject ?? null;
+
+          const teacher = Array.isArray(assignment?.teacher)
+            ? assignment.teacher[0] ?? null
+            : assignment?.teacher ?? null;
+
+          return {
+            ...entry,
+            academic_year: academicYear,
+            teacher_assignment: assignment
+              ? {
+                  ...assignment,
+                  class: classRecord,
+                  subject,
+                  teacher,
+                }
+              : null,
+          };
+        }
+      );
+
+      setEntries(normalizedEntries);
     } catch (err: any) {
       console.error(err);
       setError(err?.message || 'Unable to load your schedule.');
@@ -288,6 +328,7 @@ export default function MySchedulePage() {
                     <p className="font-semibold text-white">
                       {user.full_name || 'Teacher'}
                     </p>
+
                     <p className="text-xs text-slate-400">
                       {academicYearName}
                     </p>
@@ -306,6 +347,7 @@ export default function MySchedulePage() {
                 icon={faRotate}
                 className={refreshing ? 'animate-spin' : ''}
               />
+
               {refreshing ? 'Refreshing...' : 'Refresh Schedule'}
             </button>
           </div>
@@ -321,9 +363,13 @@ export default function MySchedulePage() {
               icon={faTriangleExclamation}
               className="mt-0.5"
             />
+
             <div>
               <p className="font-semibold">Schedule unavailable</p>
-              <p className="mt-1 text-sm text-red-200/80">{error}</p>
+
+              <p className="mt-1 text-sm text-red-200/80">
+                {error}
+              </p>
             </div>
           </div>
         )}
@@ -424,7 +470,10 @@ export default function MySchedulePage() {
                 </div>
 
                 <div>
-                  <h2 className="text-xl font-black">Weekly Timetable</h2>
+                  <h2 className="text-xl font-black">
+                    Weekly Timetable
+                  </h2>
+
                   <p className="text-sm text-slate-400">
                     Monday to Friday teaching schedule
                   </p>
@@ -446,7 +495,9 @@ export default function MySchedulePage() {
                     >
                       <div
                         className={`border-b border-white/10 px-4 py-4 ${
-                          isToday ? 'bg-indigo-500/10' : 'bg-white/[0.02]'
+                          isToday
+                            ? 'bg-indigo-500/10'
+                            : 'bg-white/[0.02]'
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -455,7 +506,9 @@ export default function MySchedulePage() {
                               {day.short}
                             </p>
 
-                            <h3 className="mt-1 font-black">{day.name}</h3>
+                            <h3 className="mt-1 font-black">
+                              {day.name}
+                            </h3>
                           </div>
 
                           {isToday && (
@@ -473,6 +526,7 @@ export default function MySchedulePage() {
                               icon={faCalendarDays}
                               className="mb-2 text-slate-600"
                             />
+
                             <p className="text-xs text-slate-500">
                               No lessons
                             </p>
@@ -568,8 +622,9 @@ export default function MySchedulePage() {
                 </h2>
 
                 <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-400">
-                  Your teaching schedule will appear here once an administrator
-                  assigns timetable periods to your teaching assignments.
+                  Your teaching schedule will appear here once an
+                  administrator assigns timetable periods to your teaching
+                  assignments.
                 </p>
               </div>
             )}
@@ -583,6 +638,7 @@ export default function MySchedulePage() {
             opacity: 0;
             transform: translateY(8px);
           }
+
           to {
             opacity: 1;
             transform: translateY(0);
@@ -612,7 +668,9 @@ function SummaryCard({
         <span className="text-3xl font-black">{value}</span>
       </div>
 
-      <p className="mt-4 text-sm font-medium text-slate-400">{label}</p>
+      <p className="mt-4 text-sm font-medium text-slate-400">
+        {label}
+      </p>
     </div>
   );
 }
@@ -651,6 +709,7 @@ function LessonCard({ entry }: { entry: TimetableEntry }) {
       {assignment?.class?.level && (
         <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
           <FontAwesomeIcon icon={faBookOpen} />
+
           <span>{assignment.class.level}</span>
         </div>
       )}
