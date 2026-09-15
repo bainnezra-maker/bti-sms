@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -16,6 +16,12 @@ import {
   faCircleCheck,
   faCalendarDays,
   faLayerGroup,
+  faGraduationCap,
+  faUsers,
+  faArrowRight,
+  faChalkboardTeacher,
+  faBookOpen,
+  faCircleInfo,
 } from '@fortawesome/free-solid-svg-icons';
 
 type AcademicYear = {
@@ -62,12 +68,6 @@ export default function ClassesPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
-  // --------------------------------------------------
-  // NORMALIZE CLASS DATA
-  // Supabase may return relationships as arrays.
-  // We convert them into single objects for the UI.
-  // --------------------------------------------------
-
   const normalizeClass = (item: any): ClassRecord => ({
     id: item.id,
     school_id: item.school_id,
@@ -82,10 +82,6 @@ export default function ClassesPage() {
       ? item.programme[0] || null
       : item.programme || null,
   });
-
-  // --------------------------------------------------
-  // GET SCHOOL ID
-  // --------------------------------------------------
 
   const getSchoolId = async () => {
     const {
@@ -113,10 +109,6 @@ export default function ClassesPage() {
 
     return data.school_id as string;
   };
-
-  // --------------------------------------------------
-  // LOAD DATA
-  // --------------------------------------------------
 
   const loadData = async () => {
     setLoading(true);
@@ -176,8 +168,6 @@ export default function ClassesPage() {
         throw new Error(programmeError.message);
       }
 
-      // FIX:
-      // Normalize Supabase relationship arrays into objects.
       setClasses(
         (classData || []).map((item: any) => normalizeClass(item))
       );
@@ -195,10 +185,6 @@ export default function ClassesPage() {
     loadData();
   }, []);
 
-  // --------------------------------------------------
-  // RESET FORM
-  // --------------------------------------------------
-
   const resetForm = () => {
     setName('');
     setLevel('');
@@ -206,10 +192,6 @@ export default function ClassesPage() {
     setProgrammeId('');
     setEditingId(null);
   };
-
-  // --------------------------------------------------
-  // EDIT CLASS
-  // --------------------------------------------------
 
   const editClass = (classItem: ClassRecord) => {
     setError('');
@@ -226,10 +208,6 @@ export default function ClassesPage() {
       behavior: 'smooth',
     });
   };
-
-  // --------------------------------------------------
-  // SAVE CLASS
-  // --------------------------------------------------
 
   const saveClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,14 +235,10 @@ export default function ClassesPage() {
       const payload = {
         school_id: schoolId,
         name: trimmedName,
-        level: level || null,
+        level: level.trim() || null,
         academic_year_id: academicYearId,
         programme_id: programmeId || null,
       };
-
-      // --------------------------------------------------
-      // UPDATE CLASS
-      // --------------------------------------------------
 
       if (editingId) {
         const { data, error: updateError } = await supabase
@@ -299,22 +273,14 @@ export default function ClassesPage() {
 
           setClasses((current) =>
             current.map((item) =>
-              item.id === editingId
-                ? normalizedClass
-                : item
+              item.id === editingId ? normalizedClass : item
             )
           );
         }
 
         setMessage('Class updated successfully.');
         resetForm();
-      }
-
-      // --------------------------------------------------
-      // CREATE CLASS
-      // --------------------------------------------------
-
-      else {
+      } else {
         const { data, error: insertError } = await supabase
           .from('classes')
           .insert(payload)
@@ -360,16 +326,12 @@ export default function ClassesPage() {
     }
   };
 
-  // --------------------------------------------------
-  // DELETE CLASS
-  // --------------------------------------------------
-
   const deleteClass = async (classItem: ClassRecord) => {
     if (deletingId) return;
 
     const confirmed = window.confirm(
       `Are you sure you want to delete "${classItem.name}"?\n\n` +
-        `This action cannot be undone.`
+        'This action cannot be undone.'
     );
 
     if (!confirmed) return;
@@ -380,10 +342,6 @@ export default function ClassesPage() {
 
     try {
       const schoolId = await getSchoolId();
-
-      // --------------------------------------------------
-      // CHECK ENROLLMENTS
-      // --------------------------------------------------
 
       const {
         count: enrollmentCount,
@@ -402,10 +360,6 @@ export default function ClassesPage() {
         );
       }
 
-      // --------------------------------------------------
-      // CHECK TEACHER ASSIGNMENTS
-      // --------------------------------------------------
-
       const {
         count: teacherAssignmentCount,
         error: teacherAssignmentError,
@@ -422,10 +376,6 @@ export default function ClassesPage() {
           `Unable to check teacher assignments: ${teacherAssignmentError.message}`
         );
       }
-
-      // --------------------------------------------------
-      // DON'T DELETE A CLASS THAT IS IN USE
-      // --------------------------------------------------
 
       const studentsUsingClass = enrollmentCount || 0;
       const teachersUsingClass = teacherAssignmentCount || 0;
@@ -456,10 +406,6 @@ export default function ClassesPage() {
         );
       }
 
-      // --------------------------------------------------
-      // DELETE CLASS
-      // --------------------------------------------------
-
       const { error: deleteError } = await supabase
         .from('classes')
         .delete()
@@ -470,12 +416,10 @@ export default function ClassesPage() {
         throw new Error(deleteError.message);
       }
 
-      // Remove from visible list
       setClasses((current) =>
         current.filter((item) => item.id !== classItem.id)
       );
 
-      // If user was editing this class, reset the form
       if (editingId === classItem.id) {
         resetForm();
       }
@@ -488,437 +432,921 @@ export default function ClassesPage() {
     }
   };
 
-  // --------------------------------------------------
-  // FILTER CLASSES
-  // --------------------------------------------------
-
-  const filteredClasses = classes.filter((item) => {
+  const filteredClasses = useMemo(() => {
     const query = search.toLowerCase().trim();
 
-    if (!query) return true;
+    if (!query) return classes;
 
-    return (
-      item.name.toLowerCase().includes(query) ||
-      (item.level || '').toLowerCase().includes(query) ||
-      (item.programme?.name || '').toLowerCase().includes(query) ||
-      (item.academic_year?.name || '').toLowerCase().includes(query)
-    );
-  });
+    return classes.filter((item) => {
+      return (
+        item.name.toLowerCase().includes(query) ||
+        (item.level || '').toLowerCase().includes(query) ||
+        (item.programme?.name || '')
+          .toLowerCase()
+          .includes(query) ||
+        (item.academic_year?.name || '')
+          .toLowerCase()
+          .includes(query)
+      );
+    });
+  }, [classes, search]);
 
-  // --------------------------------------------------
-  // UI
-  // --------------------------------------------------
+  const formCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+
+    classes.forEach((item) => {
+      const form = item.level || 'Other';
+      counts[form] = (counts[form] || 0) + 1;
+    });
+
+    return counts;
+  }, [classes]);
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      {/* PAGE HEADER */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-3 text-2xl font-bold text-gray-900 dark:text-white">
-            <FontAwesomeIcon
-              icon={faSchool}
-              className="text-blue-600 transition-transform duration-300 hover:scale-110 hover:rotate-6"
-            />
-            Classes
-          </h1>
+    <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-8 lg:pt-8">
+      <div className="mx-auto max-w-7xl">
 
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Manage your school classes, academic years and programmes.
-          </p>
-        </div>
+        {/* PREMIUM HEADER */}
+        <div className="relative mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 shadow-xl sm:p-8">
 
-        <div className="rounded-lg bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-          {classes.length} {classes.length === 1 ? 'Class' : 'Classes'}
-        </div>
-      </div>
+          <div className="absolute -right-16 -top-20 h-48 w-48 rounded-full bg-blue-500/20 blur-3xl animate-pulse" />
+          <div className="absolute -bottom-24 left-1/3 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
+          <div className="absolute right-1/3 top-1/2 h-32 w-32 rounded-full bg-indigo-500/10 blur-3xl" />
 
-      {/* ERROR MESSAGE */}
-      {error && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
-          <FontAwesomeIcon
-            icon={faTriangleExclamation}
-            className="mt-0.5 shrink-0 animate-pulse"
-          />
+          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
 
-          <span>{error}</span>
-        </div>
-      )}
+            <div className="flex items-center gap-4">
 
-      {/* SUCCESS MESSAGE */}
-      {message && (
-        <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300">
-          <FontAwesomeIcon
-            icon={faCircleCheck}
-            className="mt-0.5 shrink-0 transition-transform duration-300 hover:scale-110"
-          />
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/10 shadow-lg ring-1 ring-white/20 backdrop-blur">
 
-          <span>{message}</span>
-        </div>
-      )}
+                <FontAwesomeIcon
+                  icon={faSchool}
+                  className="text-2xl text-cyan-300 transition-transform duration-500 hover:scale-125 hover:rotate-6 animate-pulse"
+                />
 
-      {/* FORM */}
-      <form
-        onSubmit={saveClass}
-        className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800"
-      >
-        <div className="mb-5 flex items-center gap-2">
-          <FontAwesomeIcon
-            icon={editingId ? faPenToSquare : faPlus}
-            className="text-blue-600 transition-transform duration-300 hover:scale-110"
-          />
+              </div>
 
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {editingId ? 'Edit Class' : 'Add Class'}
-          </h2>
-        </div>
+              <div>
+                <div className="mb-2 flex flex-wrap items-center gap-2">
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {/* CLASS NAME */}
-          <div>
-            <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-              <FontAwesomeIcon icon={faSchool} className="text-gray-400" />
-              Class Name
-            </label>
+                  <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-300 ring-1 ring-cyan-400/20">
+                    <FontAwesomeIcon
+                      icon={faLayerGroup}
+                      className="mr-1"
+                    />
+                    Academic Management
+                  </span>
 
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. A, B, 1A, 2B"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
+                  <span className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-400/20">
+                    <FontAwesomeIcon
+                      icon={faCircleCheck}
+                      className="mr-1"
+                    />
+                    Active
+                  </span>
+
+                </div>
+
+                <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+                  Classes
+                </h1>
+
+                <p className="mt-1 max-w-2xl text-sm text-slate-300">
+                  Organize classes by form, programme and academic year.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:flex">
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white/10">
+
+                <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
+                  <FontAwesomeIcon icon={faSchool} />
+                  Total Classes
+                </div>
+
+                <div className="mt-1 text-2xl font-bold text-white">
+                  {classes.length}
+                </div>
+
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white/10">
+
+                <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
+                  <FontAwesomeIcon icon={faLayerGroup} />
+                  Programmes
+                </div>
+
+                <div className="mt-1 text-2xl font-bold text-white">
+                  {programmes.length}
+                </div>
+
+              </div>
+
+            </div>
+
           </div>
+        </div>
 
-          {/* LEVEL */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Level / Form
-            </label>
+        {/* MESSAGES */}
+        {error && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
 
-            <input
-              type="text"
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              placeholder="e.g. Form 1"
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-          </div>
-
-          {/* ACADEMIC YEAR */}
-          <div>
-            <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-100">
               <FontAwesomeIcon
-                icon={faCalendarDays}
-                className="text-gray-400"
+                icon={faTriangleExclamation}
+                className="animate-pulse"
               />
-              Academic Year
-            </label>
+            </div>
 
-            <select
-              value={academicYearId}
-              onChange={(e) => setAcademicYearId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            >
-              <option value="">Select academic year</option>
+            <div className="flex-1">
+              <p className="font-bold">
+                Action could not be completed
+              </p>
 
-              {academicYears.map((year) => (
-                <option key={year.id} value={year.id}>
-                  {year.name}
-                </option>
-              ))}
-            </select>
-          </div>
+              <p className="mt-1">
+                {error}
+              </p>
+            </div>
 
-          {/* PROGRAMME */}
-          <div>
-            <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-              <FontAwesomeIcon
-                icon={faLayerGroup}
-                className="text-gray-400"
-              />
-              Programme
-            </label>
-
-            <select
-              value={programmeId}
-              onChange={(e) => setProgrammeId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            >
-              <option value="">Select programme</option>
-
-              {programmes.map((programme) => (
-                <option key={programme.id} value={programme.id}>
-                  {programme.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* FORM BUTTONS */}
-        <div className="mt-5 flex flex-wrap gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:scale-[1.02] hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <FontAwesomeIcon
-              icon={
-                saving
-                  ? faSpinner
-                  : editingId
-                  ? faFloppyDisk
-                  : faPlus
-              }
-              className={
-                saving
-                  ? 'animate-spin'
-                  : 'transition-transform duration-200'
-              }
-            />
-
-            {saving
-              ? 'Saving...'
-              : editingId
-              ? 'Save Changes'
-              : 'Add Class'}
-          </button>
-
-          {editingId && (
             <button
               type="button"
-              onClick={resetForm}
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-all duration-200 hover:scale-[1.02] hover:bg-gray-50 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+              onClick={() => setError('')}
+              className="rounded-lg p-2 text-red-500 transition hover:bg-red-100"
             >
-              <FontAwesomeIcon
-                icon={faXmark}
-                className="transition-transform duration-200 hover:rotate-90"
-              />
-
-              Cancel Edit
+              <FontAwesomeIcon icon={faXmark} />
             </button>
-          )}
-        </div>
-      </form>
 
-      {/* SEARCH */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <div className="relative">
-          <FontAwesomeIcon
-            icon={faMagnifyingGlass}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 transition-transform duration-200"
-          />
+          </div>
+        )}
 
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search classes, levels, programmes or academic years..."
-            className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-          />
-        </div>
-      </div>
+        {message && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 shadow-sm">
 
-      {/* CLASS LIST */}
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        {loading ? (
-          <div className="flex min-h-[220px] items-center justify-center">
-            <div className="flex flex-col items-center gap-3 text-gray-500 dark:text-gray-400">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
               <FontAwesomeIcon
-                icon={faSpinner}
-                className="text-3xl text-blue-600 animate-spin"
+                icon={faCircleCheck}
+                className="animate-bounce"
               />
-
-              <span className="text-sm">Loading classes...</span>
-            </div>
-          </div>
-        ) : filteredClasses.length === 0 ? (
-          <div className="flex min-h-[220px] flex-col items-center justify-center px-4 text-center">
-            <FontAwesomeIcon
-              icon={faSchool}
-              className="mb-4 text-4xl text-gray-300 transition-transform duration-300 hover:scale-110 dark:text-gray-600"
-            />
-
-            <h3 className="font-semibold text-gray-700 dark:text-gray-200">
-              {search ? 'No classes found' : 'No classes yet'}
-            </h3>
-
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {search
-                ? 'Try a different search term.'
-                : 'Add your first class using the form above.'}
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* DESKTOP TABLE */}
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-700/50 dark:text-gray-400">
-                  <tr>
-                    <th className="px-5 py-3">Class</th>
-                    <th className="px-5 py-3">Level</th>
-                    <th className="px-5 py-3">Programme</th>
-                    <th className="px-5 py-3">Academic Year</th>
-                    <th className="px-5 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredClasses.map((classItem) => (
-                    <tr
-                      key={classItem.id}
-                      className="transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/30"
-                    >
-                      <td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">
-                        <div className="flex items-center gap-2">
-                          <FontAwesomeIcon
-                            icon={faSchool}
-                            className="text-blue-500 transition-transform duration-200 hover:scale-110"
-                          />
-                          {classItem.name}
-                        </div>
-                      </td>
-
-                      <td className="px-5 py-4 text-gray-600 dark:text-gray-300">
-                        {classItem.level || '—'}
-                      </td>
-
-                      <td className="px-5 py-4 text-gray-600 dark:text-gray-300">
-                        {classItem.programme?.name || '—'}
-                      </td>
-
-                      <td className="px-5 py-4 text-gray-600 dark:text-gray-300">
-                        {classItem.academic_year?.name || '—'}
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => editClass(classItem)}
-                            disabled={deletingId === classItem.id}
-                            title="Edit class"
-                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-all duration-200 hover:scale-105 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
-                          >
-                            <FontAwesomeIcon
-                              icon={faPenToSquare}
-                              className="transition-transform duration-200 hover:rotate-6"
-                            />
-                            Edit
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => deleteClass(classItem)}
-                            disabled={deletingId === classItem.id}
-                            title="Delete class"
-                            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition-all duration-200 hover:scale-105 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
-                          >
-                            <FontAwesomeIcon
-                              icon={
-                                deletingId === classItem.id
-                                  ? faSpinner
-                                  : faTrashCan
-                              }
-                              className={
-                                deletingId === classItem.id
-                                  ? 'animate-spin'
-                                  : 'transition-transform duration-200 hover:rotate-12'
-                              }
-                            />
-
-                            {deletingId === classItem.id
-                              ? 'Deleting...'
-                              : 'Delete'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
 
-            {/* MOBILE CARDS */}
-            <div className="divide-y divide-gray-200 md:hidden dark:divide-gray-700">
-              {filteredClasses.map((classItem) => (
-                <div
-                  key={classItem.id}
-                  className="p-4 transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/30"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2 font-semibold text-gray-900 dark:text-white">
-                        <FontAwesomeIcon
-                          icon={faSchool}
-                          className="text-blue-500"
-                        />
-                        {classItem.name}
-                      </div>
+            <div className="flex-1">
+              <p className="font-bold">Success</p>
 
-                      <div className="mt-2 space-y-1 text-sm text-gray-500 dark:text-gray-400">
-                        <p>
-                          <span className="font-medium">Level:</span>{' '}
-                          {classItem.level || '—'}
-                        </p>
+              <p className="mt-1">
+                {message}
+              </p>
+            </div>
 
-                        <p>
-                          <span className="font-medium">Programme:</span>{' '}
-                          {classItem.programme?.name || '—'}
-                        </p>
+            <button
+              type="button"
+              onClick={() => setMessage('')}
+              className="rounded-lg p-2 text-emerald-600 transition hover:bg-emerald-100"
+            >
+              <FontAwesomeIcon icon={faXmark} />
+            </button>
 
-                        <p>
-                          <span className="font-medium">
-                            Academic Year:
-                          </span>{' '}
-                          {classItem.academic_year?.name || '—'}
-                        </p>
-                      </div>
-                    </div>
+          </div>
+        )}
+
+        {/* FORM + QUICK INFO */}
+        <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
+
+          {/* FORM */}
+          <div className="xl:col-span-2">
+
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition-all duration-300 hover:shadow-lg">
+
+              <div className="border-b border-slate-100 bg-gradient-to-r from-blue-50 via-white to-cyan-50 p-6">
+
+                <div className="flex items-center gap-3">
+
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md">
+
+                    <FontAwesomeIcon
+                      icon={editingId ? faPenToSquare : faPlus}
+                      className="transition-transform duration-300 hover:scale-125"
+                    />
+
                   </div>
 
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => editClass(classItem)}
-                      disabled={deletingId === classItem.id}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs font-semibold text-blue-700 transition-all duration-200 hover:scale-[1.02] hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
-                    >
-                      <FontAwesomeIcon icon={faPenToSquare} />
-                      Edit
-                    </button>
+                  <div>
+                    <h2 className="font-bold text-slate-900">
+                      {editingId
+                        ? 'Edit Class'
+                        : 'Create New Class'}
+                    </h2>
 
+                    <p className="text-xs text-slate-500">
+                      {editingId
+                        ? 'Update the class information below.'
+                        : 'Add a class to your academic structure.'}
+                    </p>
+                  </div>
+
+                </div>
+
+              </div>
+
+              <form
+                onSubmit={saveClass}
+                className="p-6"
+              >
+
+                <div className="grid gap-5 md:grid-cols-2">
+
+                  {/* CLASS NAME */}
+                  <div>
+                    <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <FontAwesomeIcon
+                        icon={faSchool}
+                        className="text-blue-500"
+                      />
+                      Class Name
+                    </label>
+
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) =>
+                        setName(e.target.value)
+                      }
+                      placeholder="e.g. A, B, 1A, 2B"
+                      className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  {/* FORM */}
+                  <div>
+                    <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <FontAwesomeIcon
+                        icon={faGraduationCap}
+                        className="text-blue-500"
+                      />
+                      Level / Form
+                    </label>
+
+                    <select
+                      value={level}
+                      onChange={(e) =>
+                        setLevel(e.target.value)
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition-all duration-200 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    >
+                      <option value="">
+                        Select form
+                      </option>
+                      <option value="Form 1">
+                        Form 1
+                      </option>
+                      <option value="Form 2">
+                        Form 2
+                      </option>
+                      <option value="Form 3">
+                        Form 3
+                      </option>
+                    </select>
+                  </div>
+
+                  {/* ACADEMIC YEAR */}
+                  <div>
+                    <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <FontAwesomeIcon
+                        icon={faCalendarDays}
+                        className="text-blue-500"
+                      />
+                      Academic Year
+                    </label>
+
+                    <select
+                      value={academicYearId}
+                      onChange={(e) =>
+                        setAcademicYearId(e.target.value)
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition-all duration-200 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    >
+                      <option value="">
+                        Select academic year
+                      </option>
+
+                      {academicYears.map((year) => (
+                        <option
+                          key={year.id}
+                          value={year.id}
+                        >
+                          {year.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* PROGRAMME */}
+                  <div>
+                    <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <FontAwesomeIcon
+                        icon={faLayerGroup}
+                        className="text-blue-500"
+                      />
+                      Programme
+                    </label>
+
+                    <select
+                      value={programmeId}
+                      onChange={(e) =>
+                        setProgrammeId(e.target.value)
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition-all duration-200 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    >
+                      <option value="">
+                        Select programme
+                      </option>
+
+                      {programmes.map((programme) => (
+                        <option
+                          key={programme.id}
+                          value={programme.id}
+                        >
+                          {programme.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                </div>
+
+                {/* ACTIONS */}
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 px-5 py-3 font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:from-blue-700 hover:to-cyan-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+
+                    <FontAwesomeIcon
+                      icon={
+                        saving
+                          ? faSpinner
+                          : editingId
+                          ? faFloppyDisk
+                          : faPlus
+                      }
+                      className={
+                        saving
+                          ? 'animate-spin'
+                          : ''
+                      }
+                    />
+
+                    {saving
+                      ? 'Saving...'
+                      : editingId
+                      ? 'Save Changes'
+                      : 'Create Class'}
+
+                  </button>
+
+                  {editingId && (
                     <button
                       type="button"
-                      onClick={() => deleteClass(classItem)}
-                      disabled={deletingId === classItem.id}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700 transition-all duration-200 hover:scale-[1.02] hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
+                      onClick={resetForm}
+                      disabled={saving}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-100 disabled:opacity-60"
                     >
                       <FontAwesomeIcon
-                        icon={
-                          deletingId === classItem.id
-                            ? faSpinner
-                            : faTrashCan
-                        }
-                        className={
-                          deletingId === classItem.id
-                            ? 'animate-spin'
-                            : ''
-                        }
+                        icon={faXmark}
+                        className="transition-transform duration-300 hover:rotate-90"
                       />
-
-                      {deletingId === classItem.id
-                        ? 'Deleting...'
-                        : 'Delete'}
+                      Cancel
                     </button>
-                  </div>
+                  )}
+
                 </div>
-              ))}
+
+              </form>
             </div>
-          </>
-        )}
+          </div>
+
+          {/* QUICK FORM OVERVIEW */}
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+
+            <div className="mb-5 flex items-center gap-3">
+
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+                <FontAwesomeIcon
+                  icon={faGraduationCap}
+                  className="transition-transform duration-500 hover:scale-125 hover:-rotate-6"
+                />
+              </div>
+
+              <div>
+                <h2 className="font-bold text-slate-900">
+                  Form Overview
+                </h2>
+
+                <p className="text-xs text-slate-500">
+                  Current class structure
+                </p>
+              </div>
+
+            </div>
+
+            <div className="space-y-3">
+
+              {['Form 1', 'Form 2', 'Form 3'].map(
+                (form) => (
+                  <div
+                    key={form}
+                    className="group flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50"
+                  >
+
+                    <div className="flex items-center gap-3">
+
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm transition-transform duration-300 group-hover:scale-110">
+                        <FontAwesomeIcon icon={faSchool} />
+                      </div>
+
+                      <span className="font-semibold text-slate-700">
+                        {form}
+                      </span>
+
+                    </div>
+
+                    <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
+                      {formCounts[form] || 0}
+                    </span>
+
+                  </div>
+                )
+              )}
+
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+
+              <div className="flex gap-3">
+
+                <FontAwesomeIcon
+                  icon={faCircleInfo}
+                  className="mt-0.5 text-blue-500"
+                />
+
+                <p className="text-xs leading-5 text-blue-700">
+                  Classes are linked to academic years and
+                  programmes. Student promotion uses the
+                  Form/Level information stored here.
+                </p>
+
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+
+        {/* SEARCH + LIST */}
+        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+
+          <div className="border-b border-slate-100 p-5 sm:p-6">
+
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
+              <div className="flex items-center gap-3">
+
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white">
+                  <FontAwesomeIcon
+                    icon={faSchool}
+                    className="transition-transform duration-500 hover:scale-125"
+                  />
+                </div>
+
+                <div>
+                  <h2 className="font-bold text-slate-900">
+                    All Classes
+                  </h2>
+
+                  <p className="text-sm text-slate-500">
+                    Showing {filteredClasses.length} of{' '}
+                    {classes.length} classes
+                  </p>
+                </div>
+
+              </div>
+
+              <div className="relative w-full lg:max-w-md">
+
+                <FontAwesomeIcon
+                  icon={faMagnifyingGlass}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-400"
+                />
+
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) =>
+                    setSearch(e.target.value)
+                  }
+                  placeholder="Search class, form, programme..."
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition-all duration-200 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                />
+
+              </div>
+
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex min-h-[280px] flex-col items-center justify-center">
+
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50">
+                <FontAwesomeIcon
+                  icon={faSpinner}
+                  className="text-2xl text-blue-600 animate-spin"
+                />
+              </div>
+
+              <p className="font-semibold text-slate-600">
+                Loading classes...
+              </p>
+
+              <p className="mt-1 text-sm text-slate-400">
+                Preparing your academic structure
+              </p>
+
+            </div>
+          ) : filteredClasses.length === 0 ? (
+            <div className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
+
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
+                <FontAwesomeIcon
+                  icon={faSchool}
+                  className="text-2xl text-slate-400 transition-transform duration-500 hover:scale-125 hover:rotate-6"
+                />
+              </div>
+
+              <h3 className="font-bold text-slate-800">
+                {search
+                  ? 'No classes found'
+                  : 'No classes yet'}
+              </h3>
+
+              <p className="mt-1 max-w-md text-sm text-slate-500">
+                {search
+                  ? 'Try a different search term.'
+                  : 'Create your first class using the form above.'}
+              </p>
+
+            </div>
+          ) : (
+            <>
+              {/* DESKTOP TABLE */}
+              <div className="hidden overflow-x-auto md:block">
+
+                <table className="w-full text-left text-sm">
+
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-6 py-4">
+                        Class
+                      </th>
+
+                      <th className="px-6 py-4">
+                        Form
+                      </th>
+
+                      <th className="px-6 py-4">
+                        Programme
+                      </th>
+
+                      <th className="px-6 py-4">
+                        Academic Year
+                      </th>
+
+                      <th className="px-6 py-4 text-right">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+
+                    {filteredClasses.map(
+                      (classItem, index) => (
+                        <tr
+                          key={classItem.id}
+                          className="group transition-all duration-300 hover:bg-blue-50/40"
+                          style={{
+                            animationDelay: `${index * 40}ms`,
+                          }}
+                        >
+
+                          <td className="px-6 py-4">
+
+                            <div className="flex items-center gap-3">
+
+                              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition-all duration-300 group-hover:scale-110 group-hover:bg-blue-100">
+
+                                <FontAwesomeIcon
+                                  icon={faSchool}
+                                  className="transition-transform duration-300 group-hover:rotate-6"
+                                />
+
+                              </div>
+
+                              <div>
+                                <p className="font-bold text-slate-900">
+                                  {classItem.name}
+                                </p>
+
+                                <p className="text-xs text-slate-400">
+                                  Class structure
+                                </p>
+                              </div>
+
+                            </div>
+
+                          </td>
+
+                          <td className="px-6 py-4">
+
+                            <span className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700">
+                              <FontAwesomeIcon
+                                icon={faGraduationCap}
+                              />
+                              {classItem.level || '—'}
+                            </span>
+
+                          </td>
+
+                          <td className="px-6 py-4">
+
+                            <span className="inline-flex items-center gap-2 rounded-full bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700">
+                              <FontAwesomeIcon
+                                icon={faLayerGroup}
+                              />
+                              {classItem.programme?.name ||
+                                'All programmes'}
+                            </span>
+
+                          </td>
+
+                          <td className="px-6 py-4">
+
+                            <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
+                              <FontAwesomeIcon
+                                icon={faCalendarDays}
+                                className="text-slate-400"
+                              />
+                              {classItem.academic_year?.name ||
+                                '—'}
+                            </span>
+
+                          </td>
+
+                          <td className="px-6 py-4">
+
+                            <div className="flex justify-end gap-2">
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  editClass(classItem)
+                                }
+                                disabled={
+                                  deletingId ===
+                                  classItem.id
+                                }
+                                className="inline-flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition-all duration-300 hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-md disabled:opacity-50"
+                              >
+                                <FontAwesomeIcon
+                                  icon={faPenToSquare}
+                                  className="transition-transform duration-300 hover:rotate-6"
+                                />
+                                Edit
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  deleteClass(classItem)
+                                }
+                                disabled={
+                                  deletingId ===
+                                  classItem.id
+                                }
+                                className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700 transition-all duration-300 hover:-translate-y-0.5 hover:bg-red-100 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+
+                                <FontAwesomeIcon
+                                  icon={
+                                    deletingId ===
+                                    classItem.id
+                                      ? faSpinner
+                                      : faTrashCan
+                                  }
+                                  className={
+                                    deletingId ===
+                                    classItem.id
+                                      ? 'animate-spin'
+                                      : 'transition-transform duration-300 hover:rotate-12'
+                                  }
+                                />
+
+                                {deletingId ===
+                                classItem.id
+                                  ? 'Deleting...'
+                                  : 'Delete'}
+
+                              </button>
+
+                            </div>
+
+                          </td>
+
+                        </tr>
+                      )
+                    )}
+
+                  </tbody>
+
+                </table>
+              </div>
+
+              {/* MOBILE / TABLET CARDS */}
+              <div className="divide-y divide-slate-100 md:hidden">
+
+                {filteredClasses.map(
+                  (classItem, index) => (
+                    <div
+                      key={classItem.id}
+                      className="group p-5 transition-all duration-300 hover:bg-blue-50/30"
+                      style={{
+                        animationDelay: `${index * 40}ms`,
+                      }}
+                    >
+
+                      <div className="flex items-start gap-4">
+
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:bg-blue-100">
+
+                          <FontAwesomeIcon
+                            icon={faSchool}
+                            className="transition-transform duration-300 group-hover:rotate-6"
+                          />
+
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+
+                          <div className="flex items-start justify-between gap-3">
+
+                            <div>
+                              <h3 className="font-bold text-slate-900">
+                                {classItem.name}
+                              </h3>
+
+                              <p className="mt-1 text-xs text-slate-400">
+                                Academic class
+                              </p>
+                            </div>
+
+                            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+                              {classItem.level || '—'}
+                            </span>
+
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-1 gap-2">
+
+                            <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                              <FontAwesomeIcon
+                                icon={faLayerGroup}
+                                className="text-cyan-500"
+                              />
+
+                              <span>
+                                {classItem.programme?.name ||
+                                  'All programmes'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                              <FontAwesomeIcon
+                                icon={faCalendarDays}
+                                className="text-blue-500"
+                              />
+
+                              <span>
+                                {classItem.academic_year?.name ||
+                                  'No academic year'}
+                              </span>
+                            </div>
+
+                          </div>
+
+                          <div className="mt-4 flex gap-2">
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                editClass(classItem)
+                              }
+                              disabled={
+                                deletingId ===
+                                classItem.id
+                              }
+                              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-50 px-3 py-2.5 text-xs font-bold text-blue-700 transition-all duration-300 hover:-translate-y-0.5 hover:bg-blue-100 disabled:opacity-50"
+                            >
+                              <FontAwesomeIcon
+                                icon={faPenToSquare}
+                              />
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                deleteClass(classItem)
+                              }
+                              disabled={
+                                deletingId ===
+                                classItem.id
+                              }
+                              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-xs font-bold text-red-700 transition-all duration-300 hover:-translate-y-0.5 hover:bg-red-100 disabled:opacity-50"
+                            >
+
+                              <FontAwesomeIcon
+                                icon={
+                                  deletingId ===
+                                  classItem.id
+                                    ? faSpinner
+                                    : faTrashCan
+                                }
+                                className={
+                                  deletingId ===
+                                  classItem.id
+                                    ? 'animate-spin'
+                                    : ''
+                                }
+                              />
+
+                              {deletingId ===
+                              classItem.id
+                                ? 'Deleting...'
+                                : 'Delete'}
+
+                            </button>
+
+                          </div>
+
+                        </div>
+
+                      </div>
+                    </div>
+                  )
+                )}
+
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* FOOTER */}
+        <div className="mt-6 flex flex-col gap-2 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+
+          <div className="flex items-center gap-2">
+            <FontAwesomeIcon
+              icon={faChalkboardTeacher}
+              className="text-blue-400"
+            />
+            <span>
+              BTI-SMS Academic Structure
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <FontAwesomeIcon
+              icon={faBookOpen}
+              className="text-cyan-400"
+            />
+            <span>
+              Classes • Forms • Programmes • Academic Years
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <span>Manage</span>
+            <FontAwesomeIcon
+              icon={faArrowRight}
+              className="text-slate-300"
+            />
+            <span>Organize</span>
+          </div>
+
+        </div>
+
       </div>
     </div>
   );
