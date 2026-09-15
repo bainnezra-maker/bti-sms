@@ -331,7 +331,7 @@ const [yearFilter, setYearFilter] = useState('all');
 const [statusFilter, setStatusFilter] = useState<
 'all' | 'upcoming' | 'today' | 'completed'
 
-«('all');»
+>('all');
 
 const [showModal, setShowModal] = useState(false);
 const [editingActivity, setEditingActivity] =
