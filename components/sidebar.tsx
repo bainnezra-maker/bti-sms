@@ -104,18 +104,24 @@ const adminMenuSections: MenuSection[] = [
   },
 
   {
-    title: 'ADMINISTRATION',
-    items: [
       {
-        name: 'Teacher Assignments',
-        href: '/teacher-assignments',
-        icon: 'fa-solid fa-chalkboard-user',
-      },
-      {
-        name: 'Announcements',
-        href: '/announcements',
-        icon: 'fa-solid fa-bullhorn',
-      },
+  title: 'ADMINISTRATION',
+  items: [
+    {
+      name: 'Teacher Assignments',
+      href: '/teacher-assignments',
+      icon: 'fa-solid fa-chalkboard-user',
+    },
+    {
+      name: 'Activities',
+      href: '/activities',
+      icon: 'fa-solid fa-calendar-check',
+    },
+    {
+      name: 'Announcements',
+      href: '/announcements',
+      icon: 'fa-solid fa-bullhorn',
+    },
       {
         name: 'Staff',
         href: '/staff',
