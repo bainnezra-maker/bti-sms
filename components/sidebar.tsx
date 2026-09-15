@@ -58,8 +58,13 @@ const adminMenuSections: MenuSection[] = [
         name: 'Assessment Reports',
         href: '/assessment-reports',
         icon: 'fa-solid fa-clipboard-check',
-      },
+      }, 
       {
+        name: 'Timetable',
+        href: '/timetable',
+        icon: 'fa-solid fa-calendar-days',
+       },
+       {
         name: 'Promotion',
         href: '/promotion',
         icon: 'fa-solid fa-graduation-cap',
