@@ -492,17 +492,16 @@ export default function AssessmentReportsPage() {
       const buildRows = async () => {
         try {
           const enrollmentQuery = supabase
-            .from('enrollments')
-            .select(
-              `
-              student_id,
-              class_id,
-              academic_year_id,
-              programme_id,
-              status
-            `
-            )
-            .eq('school_id', schoolId);
+  .from('enrollments')
+  .select(
+    `
+    student_id,
+    class_id,
+    academic_year_id,
+    programme_id,
+    status
+  `
+  );
 
           const { data: enrollmentData, error: enrollmentError } =
             await enrollmentQuery;
