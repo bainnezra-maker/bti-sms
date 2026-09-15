@@ -41,6 +41,7 @@ export default function ClassesPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -125,17 +126,13 @@ export default function ClassesPage() {
     if (yearsResult.error) {
       setError(yearsResult.error.message);
     } else {
-      setAcademicYears(
-        yearsResult.data || []
-      );
+      setAcademicYears(yearsResult.data || []);
     }
 
     if (programmesResult.error) {
       setError(programmesResult.error.message);
     } else {
-      setProgrammes(
-        programmesResult.data || []
-      );
+      setProgrammes(programmesResult.data || []);
     }
 
     setLoading(false);
@@ -145,15 +142,13 @@ export default function ClassesPage() {
     setName('');
     setLevel('');
     setProgrammeId('');
-    setEditingId(null);
+    setEditingId('');
 
     const currentYear = academicYears.find(
       (year) => year.is_current
     );
 
-    setAcademicYearId(
-      currentYear?.id || ''
-    );
+    setAcademicYearId(currentYear?.id || '');
   }
 
   function cancelEdit() {
@@ -166,9 +161,7 @@ export default function ClassesPage() {
       (year) => year.is_current
     );
 
-    setAcademicYearId(
-      currentYear?.id || ''
-    );
+    setAcademicYearId(currentYear?.id || '');
 
     setError('');
     setMessage('');
@@ -179,11 +172,6 @@ export default function ClassesPage() {
     setName(record.name || '');
     setLevel(record.level || '');
 
-    /*
-     * IMPORTANT:
-     * When editing an existing class, always use the
-     * academic year stored on that class.
-     */
     setAcademicYearId(
       record.academic_year_id || ''
     );
@@ -210,9 +198,7 @@ export default function ClassesPage() {
     setMessage('');
 
     if (!name.trim()) {
-      setError(
-        'Please enter the class name.'
-      );
+      setError('Please enter the class name.');
       return;
     }
 
@@ -241,12 +227,6 @@ export default function ClassesPage() {
 
     try {
       if (editingId) {
-        /*
-         * UPDATE EXISTING CLASS
-         *
-         * We use .select() so Supabase returns the
-         * actual updated database row.
-         */
         const {
           data: updatedRows,
           error: updateError,
@@ -266,10 +246,6 @@ export default function ClassesPage() {
           return;
         }
 
-        /*
-         * If no row comes back, the update was not actually
-         * permitted or the class was not found.
-         */
         if (!updatedRows || updatedRows.length === 0) {
           setError(
             'The class could not be updated. Please check that your account has permission to update classes.'
@@ -280,10 +256,6 @@ export default function ClassesPage() {
         const updatedClass =
           updatedRows[0] as ClassRecord;
 
-        /*
-         * Update the visible list immediately using the
-         * exact record returned from Supabase.
-         */
         setClasses((current) =>
           current.map((item) =>
             item.id === updatedClass.id
@@ -293,15 +265,11 @@ export default function ClassesPage() {
         );
 
         setMessage(
-          `Class "${updatedClass.name}" updated successfully to ${
-            getYearName(updatedClass.academic_year_id)
-          }.`
+          `Class "${updatedClass.name}" updated successfully to ${getYearName(
+            updatedClass.academic_year_id
+          )}.`
         );
 
-        /*
-         * Clear editing mode but deliberately do NOT
-         * reload stale form values.
-         */
         setName('');
         setLevel('');
         setProgrammeId('');
@@ -316,14 +284,8 @@ export default function ClassesPage() {
           currentYear?.id || ''
         );
 
-        /*
-         * Refresh from database as a final confirmation.
-         */
         await loadData();
       } else {
-        /*
-         * CREATE NEW CLASS
-         */
         const {
           data: insertedRows,
           error: insertError,
@@ -379,7 +341,7 @@ export default function ClassesPage() {
     }
 
     const confirmed = window.confirm(
-      `Delete class ${record.name}?`
+      `Delete "${record.name}"?\n\nThis will permanently remove this class from the class list.\n\nContinue?`
     );
 
     if (!confirmed) {
@@ -388,29 +350,150 @@ export default function ClassesPage() {
 
     setError('');
     setMessage('');
+    setDeletingId(id);
 
-    const { error: deleteError } =
-      await supabase
-        .from('classes')
-        .delete()
-        .eq('id', id);
+    try {
+      /*
+       * Get the school first so that all checks remain
+       * restricted to the administrator's school.
+       */
+      const schoolId = await getSchoolId();
 
-    if (deleteError) {
-      setError(
-        deleteError.message
+      if (!schoolId) {
+        return;
+      }
+
+      /*
+       * Check whether students have enrollment records
+       * connected to this class.
+       */
+      const {
+        count: enrollmentCount,
+        error: enrollmentCheckError,
+      } = await supabase
+        .from('enrollments')
+        .select('id', {
+          count: 'exact',
+          head: true,
+        })
+        .eq('class_id', id);
+
+      if (enrollmentCheckError) {
+        setError(
+          `Unable to check whether this class is being used: ${enrollmentCheckError.message}`
+        );
+        return;
+      }
+
+      /*
+       * Check whether teachers have been assigned
+       * to this class.
+       */
+      const {
+        count: teacherAssignmentCount,
+        error: teacherAssignmentCheckError,
+      } = await supabase
+        .from('teacher_assignments')
+        .select('id', {
+          count: 'exact',
+          head: true,
+        })
+        .eq('class_id', id);
+
+      if (teacherAssignmentCheckError) {
+        setError(
+          `Unable to check teacher assignments: ${teacherAssignmentCheckError.message}`
+        );
+        return;
+      }
+
+      /*
+       * Do not destroy academic history accidentally.
+       *
+       * If students or teachers are already connected,
+       * tell the administrator why the class cannot be
+       * safely deleted.
+       */
+      if (
+        (enrollmentCount || 0) > 0 ||
+        (teacherAssignmentCount || 0) > 0
+      ) {
+        const reasons: string[] = [];
+
+        if ((enrollmentCount || 0) > 0) {
+          reasons.push(
+            `${enrollmentCount} student enrollment${
+              enrollmentCount === 1 ? '' : 's'
+            }`
+          );
+        }
+
+        if ((teacherAssignmentCount || 0) > 0) {
+          reasons.push(
+            `${teacherAssignmentCount} teacher assignment${
+              teacherAssignmentCount === 1 ? '' : 's'
+            }`
+          );
+        }
+
+        setError(
+          `This class cannot be deleted because it is currently being used by ${reasons.join(
+            ' and '
+          )}. Remove or move those records first.`
+        );
+
+        return;
+      }
+
+      /*
+       * Delete only an unused class.
+       *
+       * The school_id condition prevents accidentally
+       * deleting a class belonging to another school.
+       */
+      const { error: deleteError } =
+        await supabase
+          .from('classes')
+          .delete()
+          .eq('id', id)
+          .eq('school_id', schoolId);
+
+      if (deleteError) {
+        setError(
+          `Unable to delete class: ${deleteError.message}`
+        );
+        return;
+      }
+
+      /*
+       * Remove it from the screen immediately.
+       */
+      setClasses((current) =>
+        current.filter(
+          (item) => item.id !== id
+        )
       );
-      return;
+
+      /*
+       * If the class being edited was deleted,
+       * clear the form.
+       */
+      if (editingId === id) {
+        cancelEdit();
+      }
+
+      setMessage(
+        `Class "${record.name}" was deleted successfully.`
+      );
+
+      /*
+       * Reload from Supabase so the page always reflects
+       * the actual database.
+       */
+      await loadData();
+    } finally {
+      setDeletingId(null);
     }
-
-    setMessage(
-      'Class deleted successfully.'
-    );
-
-    setClasses((current) =>
-      current.filter(
-        (item) => item.id !== id
-      )
-    );
   }
 
   const filteredClasses =
@@ -746,7 +829,11 @@ export default function ClassesPage() {
                                   record
                                 )
                               }
-                              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                              disabled={
+                                deletingId ===
+                                record.id
+                              }
+                              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                             >
                               Edit
                             </button>
@@ -758,9 +845,16 @@ export default function ClassesPage() {
                                   record.id
                                 )
                               }
-                              className="rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                              disabled={
+                                deletingId ===
+                                record.id
+                              }
+                              className="rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              Delete
+                              {deletingId ===
+                              record.id
+                                ? 'Deleting...'
+                                : 'Delete'}
                             </button>
 
                           </div>
