@@ -1,7 +1,29 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import Link from 'next/link';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faArrowDown,
+  faArrowRight,
+  faBookOpen,
+  faGraduationCap,
+  faLayerGroup,
+  faMagnifyingGlass,
+  faPenToSquare,
+  faPlus,
+  faTrash,
+  faUserGraduate,
+  faUsers,
+  faUserShield,
+  faBuildingColumns,
+  faSchool,
+  faChevronDown,
+  faChevronRight,
+  faCircleCheck,
+  faFileArrowDown,
+  faUserPlus,
+} from '@fortawesome/free-solid-svg-icons';
 import { createClient } from '@/lib/supabase/client';
 
 type Student = {
@@ -25,6 +47,7 @@ type SchoolClass = {
   id: string;
   name: string;
   programme_id: string | null;
+  level: string | null;
 };
 
 type AcademicYear = {
@@ -46,6 +69,26 @@ type StudentAcademicInfo = {
   programmeId: string | null;
   programmeName: string;
   academicYearName: string;
+  formName: string;
+};
+
+type ClassGroup = {
+  classId: string;
+  className: string;
+  students: Student[];
+};
+
+type ProgrammeGroup = {
+  programmeId: string;
+  programmeName: string;
+  classes: ClassGroup[];
+  students: Student[];
+};
+
+type FormGroup = {
+  formName: string;
+  programmes: ProgrammeGroup[];
+  students: Student[];
 };
 
 export default function StudentsPage() {
@@ -64,6 +107,10 @@ export default function StudentsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [openForms, setOpenForms] = useState<string[]>([]);
+  const [openProgrammes, setOpenProgrammes] = useState<string[]>([]);
+  const [openClasses, setOpenClasses] = useState<string[]>([]);
 
   async function loadStudents() {
     setLoading(true);
@@ -115,7 +162,7 @@ export default function StudentsPage() {
 
       supabase
         .from('classes')
-        .select('id, name, programme_id')
+        .select('id, name, programme_id, level')
         .eq('school_id', schoolId)
         .order('name'),
 
@@ -228,6 +275,7 @@ export default function StudentsPage() {
         programmeId,
         programmeName: programme?.name ?? '',
         academicYearName: academicYear?.name ?? '',
+        formName: schoolClass?.level ?? 'Unassigned Form',
       });
     }
 
@@ -294,6 +342,114 @@ export default function StudentsPage() {
     currentAcademicInfo,
   ]);
 
+  /*
+   * Build the hierarchy:
+   *
+   * Form
+   *   └── Programme / Department
+   *         └── Class
+   *               └── Students
+   */
+  const formGroups = useMemo<FormGroup[]>(() => {
+    const formMap = new Map<string, FormGroup>();
+
+    for (const student of filteredStudents) {
+      const academicInfo = currentAcademicInfo.get(student.id);
+
+      const formName =
+        academicInfo?.formName || 'Unassigned Form';
+
+      const programmeName =
+        academicInfo?.programmeName || 'Unassigned Programme';
+
+      const programmeId =
+        academicInfo?.programmeId || 'unassigned-programme';
+
+      const className =
+        academicInfo?.className || 'Unassigned Class';
+
+      const classId =
+        academicInfo?.classId || 'unassigned-class';
+
+      if (!formMap.has(formName)) {
+        formMap.set(formName, {
+          formName,
+          programmes: [],
+          students: [],
+        });
+      }
+
+      const formGroup = formMap.get(formName)!;
+
+      formGroup.students.push(student);
+
+      let programmeGroup = formGroup.programmes.find(
+        (item) => item.programmeId === programmeId
+      );
+
+      if (!programmeGroup) {
+        programmeGroup = {
+          programmeId,
+          programmeName,
+          classes: [],
+          students: [],
+        };
+
+        formGroup.programmes.push(programmeGroup);
+      }
+
+      programmeGroup.students.push(student);
+
+      let classGroup = programmeGroup.classes.find(
+        (item) => item.classId === classId
+      );
+
+      if (!classGroup) {
+        classGroup = {
+          classId,
+          className,
+          students: [],
+        };
+
+        programmeGroup.classes.push(classGroup);
+      }
+
+      classGroup.students.push(student);
+    }
+
+    const sortForms = (a: FormGroup, b: FormGroup) => {
+      const getNumber = (value: string) => {
+        const match = value.match(/\d+/);
+        return match ? Number(match[0]) : 999;
+      };
+
+      const numberA = getNumber(a.formName);
+      const numberB = getNumber(b.formName);
+
+      if (numberA !== numberB) {
+        return numberA - numberB;
+      }
+
+      return a.formName.localeCompare(b.formName);
+    };
+
+    return Array.from(formMap.values())
+      .sort(sortForms)
+      .map((form) => ({
+        ...form,
+        programmes: form.programmes
+          .sort((a, b) =>
+            a.programmeName.localeCompare(b.programmeName)
+          )
+          .map((programme) => ({
+            ...programme,
+            classes: programme.classes.sort((a, b) =>
+              a.className.localeCompare(b.className)
+            ),
+          })),
+      }));
+  }, [filteredStudents, currentAcademicInfo]);
+
   const activeCount = students.filter(
     (student) => student.status === 'active'
   ).length;
@@ -306,6 +462,54 @@ export default function StudentsPage() {
     students.length -
     activeCount -
     graduatedCount;
+
+  function toggleItem(
+    id: string,
+    setter: Dispatch<SetStateAction<string[]>>
+  ) {
+    setter((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id]
+    );
+  }
+
+  function expandAll() {
+    setOpenForms(formGroups.map((form) => form.formName));
+
+    const programmeIds: string[] = [];
+    const classIds: string[] = [];
+
+    formGroups.forEach((form) => {
+      form.programmes.forEach((programme) => {
+        programmeIds.push(
+          `${form.formName}-${programme.programmeId}`
+        );
+
+        programme.classes.forEach((schoolClass) => {
+          classIds.push(
+            `${form.formName}-${programme.programmeId}-${schoolClass.classId}`
+          );
+        });
+      });
+    });
+
+    setOpenProgrammes(programmeIds);
+    setOpenClasses(classIds);
+  }
+
+  function collapseAll() {
+    setOpenForms([]);
+    setOpenProgrammes([]);
+    setOpenClasses([]);
+  }
+
+  function clearFilters() {
+    setSearch('');
+    setProgrammeFilter('all');
+    setClassFilter('all');
+    setStatusFilter('all');
+  }
 
   async function deleteStudent(
     id: string,
@@ -334,20 +538,17 @@ export default function StudentsPage() {
     );
   }
 
-  function clearFilters() {
-    setSearch('');
-    setProgrammeFilter('all');
-    setClassFilter('all');
-    setStatusFilter('all');
-  }
-
   if (loading) {
     return (
       <div className="p-6 lg:p-10">
         <div className="mx-auto max-w-7xl">
-          <p className="text-slate-500">
-            Loading students...
-          </p>
+          <div className="flex items-center gap-3 text-slate-500">
+            <FontAwesomeIcon
+              icon={faGraduationCap}
+              className="animate-bounce text-blue-600"
+            />
+            <p>Loading students...</p>
+          </div>
         </div>
       </div>
     );
@@ -360,7 +561,11 @@ export default function StudentsPage() {
         {/* Header */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="mb-1 text-sm font-medium text-blue-600">
+            <p className="mb-1 flex items-center gap-2 text-sm font-medium text-blue-600">
+              <FontAwesomeIcon
+                icon={faSchool}
+                className="animate-pulse"
+              />
               Student Information System
             </p>
 
@@ -374,56 +579,89 @@ export default function StudentsPage() {
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-  <Link
-    href="/students/student-account"
-    className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100"
-  >
-    🔐 Create Student Login
-  </Link>
+            <Link
+              href="/students/student-account"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 font-semibold text-blue-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-100"
+            >
+              <FontAwesomeIcon
+                icon={faUserShield}
+                className="transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6"
+              />
+              Create Student Login
+            </Link>
 
-  <Link
-    href="/students/import"
-    className="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
-  >
-    📥 Bulk Import
-  </Link>
+            <Link
+              href="/students/import"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 font-semibold text-emerald-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100"
+            >
+              <FontAwesomeIcon
+                icon={faFileArrowDown}
+                className="transition-transform duration-300 group-hover:translate-y-1"
+              />
+              Bulk Import
+            </Link>
 
-  <Link
-    href="/students/add"
-    className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-blue-700"
-  >
-    + Add Student
-  </Link>
-</div>
-</div>         
+            <Link
+              href="/students/add"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-700"
+            >
+              <FontAwesomeIcon
+                icon={faPlus}
+                className="transition-transform duration-300 group-hover:rotate-90"
+              />
+              Add Student
+            </Link>
+          </div>
+        </div>
 
         {/* Statistics */}
         <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">
-              Total Students
-            </p>
+          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-500">
+                Total Students
+              </p>
+
+              <FontAwesomeIcon
+                icon={faUsers}
+                className="text-blue-500 transition-transform duration-300 group-hover:scale-110"
+              />
+            </div>
 
             <p className="mt-2 text-3xl font-bold text-slate-900">
               {students.length}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">
-              Active Students
-            </p>
+          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-500">
+                Active Students
+              </p>
+
+              <FontAwesomeIcon
+                icon={faCircleCheck}
+                className="text-green-500 transition-transform duration-300 group-hover:scale-110"
+              />
+            </div>
 
             <p className="mt-2 text-3xl font-bold text-green-600">
               {activeCount}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">
-              Other Status
-            </p>
+          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-500">
+                Other Status
+              </p>
+
+              <FontAwesomeIcon
+                icon={faLayerGroup}
+                className="text-orange-500 transition-transform duration-300 group-hover:scale-110"
+              />
+            </div>
 
             <p className="mt-2 text-3xl font-bold text-orange-500">
               {graduatedCount + otherCount}
@@ -442,15 +680,22 @@ export default function StudentsPage() {
                 Search Student
               </label>
 
-              <input
-                type="text"
-                placeholder="Name or admission number..."
-                value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
+              <div className="relative">
+                <FontAwesomeIcon
+                  icon={faMagnifyingGlass}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+
+                <input
+                  type="text"
+                  placeholder="Name or admission number..."
+                  value={search}
+                  onChange={(event) =>
+                    setSearch(event.target.value)
+                  }
+                  className="w-full rounded-xl border border-slate-300 py-3 pl-11 pr-4 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
             </div>
 
             <div>
@@ -461,9 +706,7 @@ export default function StudentsPage() {
               <select
                 value={programmeFilter}
                 onChange={(event) => {
-                  setProgrammeFilter(
-                    event.target.value
-                  );
+                  setProgrammeFilter(event.target.value);
                   setClassFilter('all');
                 }}
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
@@ -552,7 +795,7 @@ export default function StudentsPage() {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 Clear Filters
               </button>
@@ -593,12 +836,15 @@ export default function StudentsPage() {
           </div>
         )}
 
-        {/* Student List */}
+        {/* Hierarchical Student Directory */}
         {filteredStudents.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
 
-            <div className="mb-3 text-5xl">
-              👨‍🎓
+            <div className="mb-4 text-blue-500">
+              <FontAwesomeIcon
+                icon={faUserGraduate}
+                className="text-5xl animate-bounce"
+              />
             </div>
 
             <h2 className="text-xl font-semibold text-slate-900">
@@ -612,199 +858,465 @@ export default function StudentsPage() {
             <button
               type="button"
               onClick={clearFilters}
-              className="mt-5 rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700"
+              className="mt-5 rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white transition hover:bg-blue-700"
             >
               Clear Filters
             </button>
 
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
 
-            {filteredStudents.map((student) => {
-              const academicInfo =
-                currentAcademicInfo.get(
-                  student.id
-                );
+            {/* Directory Controls */}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
 
-              return (
-                <div
-                  key={student.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <FontAwesomeIcon
+                  icon={faSchool}
+                  className="text-blue-600"
+                />
+                Student Directory
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={expandAll}
+                  className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
                 >
+                  Expand All
+                </button>
 
-                  {/* Student Header */}
-                  <div className="flex items-start justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={collapseAll}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Collapse All
+                </button>
+              </div>
 
-                    <div className="flex items-center gap-4">
+            </div>
 
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xl">
-                        👨‍🎓
-                      </div>
+            {/* Forms */}
+            <div className="space-y-4">
 
-                      <div>
-                        <h2 className="font-bold text-slate-900">
-                          {student.full_name}
-                        </h2>
+              {formGroups.map((form) => {
+                const formOpen = openForms.includes(form.formName);
 
-                        <p className="text-sm text-slate-500">
-                          {student.admission_number}
-                        </p>
-                      </div>
+                return (
+                  <div
+                    key={form.formName}
+                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                  >
 
-                    </div>
-
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        student.status === 'active'
-                          ? 'bg-green-100 text-green-700'
-                          : student.status === 'graduated'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-orange-100 text-orange-700'
-                      }`}
-                    >
-                      {student.status}
-                    </span>
-
-                  </div>
-
-                  {/* Student Information */}
-                  <div className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Programme
-                      </p>
-
-                      <p className="mt-1 text-sm font-medium text-slate-700">
-                        {academicInfo?.programmeName ||
-                          'Not enrolled'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Class
-                      </p>
-
-                      <p className="mt-1 text-sm font-medium text-slate-700">
-                        {academicInfo?.className ||
-                          'Not enrolled'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Academic Year
-                      </p>
-
-                      <p className="mt-1 text-sm font-medium text-slate-700">
-                        {academicInfo?.academicYearName ||
-                          'Not enrolled'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Gender
-                      </p>
-
-                      <p className="mt-1 text-sm font-medium text-slate-700">
-                        {student.gender ||
-                          'Not provided'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        JHS Aggregate
-                      </p>
-
-                      <p className="mt-1 text-sm font-semibold text-blue-700">
-                        {student.jhs_aggregate !== null &&
-                        student.jhs_aggregate !== undefined
-                          ? student.jhs_aggregate
-                          : 'Not provided'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Admission Date
-                      </p>
-
-                      <p className="mt-1 text-sm font-medium text-slate-700">
-                        {student.admission_date ||
-                          'Not provided'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Guardian
-                      </p>
-
-                      <p className="mt-1 text-sm font-medium text-slate-700">
-                        {student.guardian_name ||
-                          'Not provided'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Guardian Phone
-                      </p>
-
-                      <p className="mt-1 text-sm font-medium text-slate-700">
-                        {student.guardian_phone ||
-                          'Not provided'}
-                      </p>
-                    </div>
-
-                  </div>
-
-                  {/* Actions */}
-                  <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4">
-
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-
-                      <Link
-                        href={`/students/${student.id}`}
-                        className="rounded-xl bg-blue-600 px-5 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                      >
-                        View Profile
-                      </Link>
-
-                      {student.status === 'active' && (
-                        <Link
-                          href="/students/student-account"
-                          className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 text-center text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100"
-                        >
-                          🔐 Create Login
-                        </Link>
-                      )}
-
-                    </div>
-
+                    {/* FORM */}
                     <button
                       type="button"
                       onClick={() =>
-                        deleteStudent(
-                          student.id,
-                          student.full_name
+                        toggleItem(
+                          form.formName,
+                          setOpenForms
                         )
                       }
-                      className="self-start rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                      className="group flex w-full items-center justify-between gap-4 bg-gradient-to-r from-blue-50 to-white p-5 text-left transition hover:from-blue-100"
                     >
-                      Delete
+                      <div className="flex min-w-0 items-center gap-4">
+
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition-transform duration-300 group-hover:scale-105">
+                          <FontAwesomeIcon
+                            icon={faGraduationCap}
+                            className={
+                              formOpen
+                                ? 'animate-pulse'
+                                : ''
+                            }
+                          />
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                            Form
+                          </p>
+
+                          <h2 className="truncate text-xl font-bold text-slate-900">
+                            {form.formName}
+                          </h2>
+
+                          <p className="mt-1 text-sm text-slate-500">
+                            {form.students.length}{' '}
+                            {form.students.length === 1
+                              ? 'student'
+                              : 'students'}
+                          </p>
+                        </div>
+
+                      </div>
+
+                      <FontAwesomeIcon
+                        icon={
+                          formOpen
+                            ? faChevronDown
+                            : faChevronRight
+                        }
+                        className="shrink-0 text-blue-600 transition-transform duration-300"
+                      />
                     </button>
 
+                    {/* PROGRAMMES */}
+                    {formOpen && (
+                      <div className="border-t border-slate-100 bg-slate-50 p-3 sm:p-5">
+
+                        <div className="space-y-3">
+
+                          {form.programmes.map(
+                            (programme) => {
+                              const programmeKey =
+                                `${form.formName}-${programme.programmeId}`;
+
+                              const programmeOpen =
+                                openProgrammes.includes(
+                                  programmeKey
+                                );
+
+                              return (
+                                <div
+                                  key={programmeKey}
+                                  className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                                >
+
+                                  {/* PROGRAMME / DEPARTMENT */}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      toggleItem(
+                                        programmeKey,
+                                        setOpenProgrammes
+                                      )
+                                    }
+                                    className="group flex w-full items-center justify-between gap-4 p-4 text-left transition hover:bg-slate-50"
+                                  >
+                                    <div className="flex min-w-0 items-center gap-3">
+
+                                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 transition-transform duration-300 group-hover:scale-105">
+                                        <FontAwesomeIcon
+                                          icon={faBuildingColumns}
+                                          className={
+                                            programmeOpen
+                                              ? 'animate-pulse'
+                                              : ''
+                                          }
+                                        />
+                                      </div>
+
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                                          Department / Programme
+                                        </p>
+
+                                        <h3 className="truncate font-bold text-slate-800">
+                                          {programme.programmeName}
+                                        </h3>
+
+                                        <p className="text-xs text-slate-500">
+                                          {programme.students.length}{' '}
+                                          {programme.students.length === 1
+                                            ? 'student'
+                                            : 'students'}
+                                        </p>
+                                      </div>
+
+                                    </div>
+
+                                    <FontAwesomeIcon
+                                      icon={
+                                        programmeOpen
+                                          ? faChevronDown
+                                          : faChevronRight
+                                      }
+                                      className="shrink-0 text-slate-400 transition-transform duration-300"
+                                    />
+                                  </button>
+
+                                  {/* CLASSES */}
+                                  {programmeOpen && (
+                                    <div className="border-t border-slate-100 bg-slate-50 p-3">
+
+                                      <div className="space-y-2">
+
+                                        {programme.classes.map(
+                                          (schoolClass) => {
+                                            const classKey =
+                                              `${form.formName}-${programme.programmeId}-${schoolClass.classId}`;
+
+                                            const classOpen =
+                                              openClasses.includes(
+                                                classKey
+                                              );
+
+                                            return (
+                                              <div
+                                                key={classKey}
+                                                className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                                              >
+
+                                                {/* CLASS */}
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    toggleItem(
+                                                      classKey,
+                                                      setOpenClasses
+                                                    )
+                                                  }
+                                                  className="group flex w-full items-center justify-between gap-4 p-4 text-left transition hover:bg-blue-50"
+                                                >
+                                                  <div className="flex min-w-0 items-center gap-3">
+
+                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 transition-transform duration-300 group-hover:scale-110">
+                                                      <FontAwesomeIcon
+                                                        icon={faBookOpen}
+                                                        className={
+                                                          classOpen
+                                                            ? 'animate-pulse'
+                                                            : ''
+                                                        }
+                                                      />
+                                                    </div>
+
+                                                    <div className="min-w-0">
+                                                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                                                        Class
+                                                      </p>
+
+                                                      <h4 className="truncate font-semibold text-slate-800">
+                                                        {schoolClass.className}
+                                                      </h4>
+
+                                                      <p className="text-xs text-slate-500">
+                                                        {schoolClass.students.length}{' '}
+                                                        {schoolClass.students.length === 1
+                                                          ? 'student'
+                                                          : 'students'}
+                                                      </p>
+                                                    </div>
+
+                                                  </div>
+
+                                                  <FontAwesomeIcon
+                                                    icon={
+                                                      classOpen
+                                                        ? faChevronDown
+                                                        : faChevronRight
+                                                    }
+                                                    className="shrink-0 text-slate-400 transition-transform duration-300"
+                                                  />
+                                                </button>
+
+                                                {/* STUDENTS */}
+                                                {classOpen && (
+                                                  <div className="border-t border-slate-100 bg-slate-50 p-3">
+
+                                                    <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+
+                                                      {schoolClass.students.map(
+                                                        (student) => {
+                                                          const academicInfo =
+                                                            currentAcademicInfo.get(
+                                                              student.id
+                                                            );
+
+                                                          return (
+                                                            <div
+                                                              key={student.id}
+                                                              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                                                            >
+
+                                                              {/* Student Header */}
+                                                              <div className="flex items-start justify-between gap-3">
+
+                                                                <div className="flex min-w-0 items-center gap-3">
+
+                                                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                                                                    <FontAwesomeIcon
+                                                                      icon={faUserGraduate}
+                                                                      className="transition-transform duration-300 hover:scale-110"
+                                                                    />
+                                                                  </div>
+
+                                                                  <div className="min-w-0">
+                                                                    <h5 className="truncate font-bold text-slate-900">
+                                                                      {student.full_name}
+                                                                    </h5>
+
+                                                                    <p className="text-xs text-slate-500">
+                                                                      {student.admission_number}
+                                                                    </p>
+                                                                  </div>
+
+                                                                </div>
+
+                                                                <span
+                                                                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                                                    student.status === 'active'
+                                                                      ? 'bg-green-100 text-green-700'
+                                                                      : student.status === 'graduated'
+                                                                      ? 'bg-blue-100 text-blue-700'
+                                                                      : 'bg-orange-100 text-orange-700'
+                                                                  }`}
+                                                                >
+                                                                  {student.status}
+                                                                </span>
+
+                                                              </div>
+
+                                                              {/* Student Information */}
+                                                              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+
+                                                                <div>
+                                                                  <p className="text-[11px] text-slate-400">
+                                                                    Gender
+                                                                  </p>
+
+                                                                  <p className="mt-1 text-xs font-medium text-slate-700">
+                                                                    {student.gender ||
+                                                                      'Not provided'}
+                                                                  </p>
+                                                                </div>
+
+                                                                <div>
+                                                                  <p className="text-[11px] text-slate-400">
+                                                                    JHS Aggregate
+                                                                  </p>
+
+                                                                  <p className="mt-1 text-xs font-semibold text-blue-700">
+                                                                    {student.jhs_aggregate !== null &&
+                                                                    student.jhs_aggregate !== undefined
+                                                                      ? student.jhs_aggregate
+                                                                      : 'Not provided'}
+                                                                  </p>
+                                                                </div>
+
+                                                                <div>
+                                                                  <p className="text-[11px] text-slate-400">
+                                                                    Guardian
+                                                                  </p>
+
+                                                                  <p className="mt-1 truncate text-xs font-medium text-slate-700">
+                                                                    {student.guardian_name ||
+                                                                      'Not provided'}
+                                                                  </p>
+                                                                </div>
+
+                                                                <div>
+                                                                  <p className="text-[11px] text-slate-400">
+                                                                    Guardian Phone
+                                                                  </p>
+
+                                                                  <p className="mt-1 truncate text-xs font-medium text-slate-700">
+                                                                    {student.guardian_phone ||
+                                                                      'Not provided'}
+                                                                  </p>
+                                                                </div>
+
+                                                              </div>
+
+                                                              {/* Actions */}
+                                                              <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3">
+
+                                                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+
+                                                                  <Link
+                                                                    href={`/students/${student.id}`}
+                                                                    className="group inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                                                                  >
+                                                                    <FontAwesomeIcon
+                                                                      icon={faPenToSquare}
+                                                                      className="transition-transform duration-300 group-hover:scale-110"
+                                                                    />
+                                                                    View Profile
+                                                                  </Link>
+
+                                                                  {student.status === 'active' && (
+                                                                    <Link
+                                                                      href="/students/student-account"
+                                                                      className="group inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+                                                                    >
+                                                                      <FontAwesomeIcon
+                                                                        icon={faUserPlus}
+                                                                        className="transition-transform duration-300 group-hover:scale-110"
+                                                                      />
+                                                                      Create Login
+                                                                    </Link>
+                                                                  )}
+
+                                                                </div>
+
+                                                                <button
+                                                                  type="button"
+                                                                  onClick={() =>
+                                                                    deleteStudent(
+                                                                      student.id,
+                                                                      student.full_name
+                                                                    )
+                                                                  }
+                                                                  className="group self-start rounded-lg px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                                                                >
+                                                                  <FontAwesomeIcon
+                                                                    icon={faTrash}
+                                                                    className="mr-2 transition-transform duration-300 group-hover:scale-110"
+                                                                  />
+                                                                  Delete
+                                                                </button>
+
+                                                              </div>
+
+                                                              {/* Academic Info */}
+                                                              {academicInfo?.academicYearName && (
+                                                                <p className="mt-3 flex items-center gap-2 text-[11px] text-slate-400">
+                                                                  <FontAwesomeIcon
+                                                                    icon={faCircleCheck}
+                                                                    className="text-green-500"
+                                                                  />
+                                                                  {academicInfo.academicYearName}
+                                                                </p>
+                                                              )}
+
+                                                            </div>
+                                                          );
+                                                        }
+                                                      )}
+
+                                                    </div>
+
+                                                  </div>
+                                                )}
+
+                                              </div>
+                                            );
+                                          }
+                                        )}
+
+                                      </div>
+
+                                    </div>
+                                  )}
+
+                                </div>
+                              );
+                            }
+                          )}
+
+                        </div>
+
+                      </div>
+                    )}
+
                   </div>
+                );
+              })}
 
-                </div>
-              );
-            })}
-
+            </div>
           </div>
         )}
 
