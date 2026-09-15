@@ -63,6 +63,27 @@ export default function ClassesPage() {
   const [message, setMessage] = useState('');
 
   // --------------------------------------------------
+  // NORMALIZE CLASS DATA
+  // Supabase may return relationships as arrays.
+  // We convert them into single objects for the UI.
+  // --------------------------------------------------
+
+  const normalizeClass = (item: any): ClassRecord => ({
+    id: item.id,
+    school_id: item.school_id,
+    name: item.name,
+    level: item.level ?? null,
+    academic_year_id: item.academic_year_id ?? null,
+    programme_id: item.programme_id ?? null,
+    academic_year: Array.isArray(item.academic_year)
+      ? item.academic_year[0] || null
+      : item.academic_year || null,
+    programme: Array.isArray(item.programme)
+      ? item.programme[0] || null
+      : item.programme || null,
+  });
+
+  // --------------------------------------------------
   // GET SCHOOL ID
   // --------------------------------------------------
 
@@ -155,7 +176,12 @@ export default function ClassesPage() {
         throw new Error(programmeError.message);
       }
 
-      setClasses((classData || []) as ClassRecord[]);
+      // FIX:
+      // Normalize Supabase relationship arrays into objects.
+      setClasses(
+        (classData || []).map((item: any) => normalizeClass(item))
+      );
+
       setAcademicYears((yearData || []) as AcademicYear[]);
       setProgrammes((programmeData || []) as Programme[]);
     } catch (err: any) {
@@ -236,7 +262,10 @@ export default function ClassesPage() {
         programme_id: programmeId || null,
       };
 
-      // UPDATE
+      // --------------------------------------------------
+      // UPDATE CLASS
+      // --------------------------------------------------
+
       if (editingId) {
         const { data, error: updateError } = await supabase
           .from('classes')
@@ -266,10 +295,12 @@ export default function ClassesPage() {
         }
 
         if (data) {
+          const normalizedClass = normalizeClass(data);
+
           setClasses((current) =>
             current.map((item) =>
               item.id === editingId
-                ? (data as ClassRecord)
+                ? normalizedClass
                 : item
             )
           );
@@ -279,7 +310,10 @@ export default function ClassesPage() {
         resetForm();
       }
 
-      // CREATE
+      // --------------------------------------------------
+      // CREATE CLASS
+      // --------------------------------------------------
+
       else {
         const { data, error: insertError } = await supabase
           .from('classes')
@@ -307,8 +341,10 @@ export default function ClassesPage() {
         }
 
         if (data) {
+          const normalizedClass = normalizeClass(data);
+
           setClasses((current) =>
-            [...current, data as ClassRecord].sort((a, b) =>
+            [...current, normalizedClass].sort((a, b) =>
               a.name.localeCompare(b.name)
             )
           );
@@ -634,7 +670,11 @@ export default function ClassesPage() {
                   ? faFloppyDisk
                   : faPlus
               }
-              className={saving ? 'animate-spin' : 'transition-transform duration-200'}
+              className={
+                saving
+                  ? 'animate-spin'
+                  : 'transition-transform duration-200'
+              }
             />
 
             {saving
@@ -653,7 +693,7 @@ export default function ClassesPage() {
             >
               <FontAwesomeIcon
                 icon={faXmark}
-                className="transition-transform duration-200 group-hover:rotate-90"
+                className="transition-transform duration-200 hover:rotate-90"
               />
 
               Cancel Edit
