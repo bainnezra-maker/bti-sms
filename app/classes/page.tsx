@@ -2,25 +2,41 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faSchool,
+  faPlus,
+  faPenToSquare,
+  faTrashCan,
+  faMagnifyingGlass,
+  faFloppyDisk,
+  faXmark,
+  faSpinner,
+  faTriangleExclamation,
+  faCircleCheck,
+  faCalendarDays,
+  faLayerGroup,
+} from '@fortawesome/free-solid-svg-icons';
 
 type AcademicYear = {
   id: string;
   name: string;
-  is_current: boolean;
 };
 
 type Programme = {
   id: string;
   name: string;
-  code: string | null;
 };
 
 type ClassRecord = {
   id: string;
+  school_id: string;
   name: string;
   level: string | null;
-  programme_id: string | null;
   academic_year_id: string | null;
+  programme_id: string | null;
+  academic_year?: AcademicYear | null;
+  programme?: Programme | null;
 };
 
 export default function ClassesPage() {
@@ -36,842 +52,833 @@ export default function ClassesPage() {
   const [programmeId, setProgrammeId] = useState('');
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+
+  // --------------------------------------------------
+  // GET SCHOOL ID
+  // --------------------------------------------------
+
+  const getSchoolId = async () => {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      throw new Error('You must be logged in.');
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('school_id')
+      .eq('id', user.id)
+      .single();
+
+    if (error) {
+      throw new Error('Unable to determine your school.');
+    }
+
+    if (!data?.school_id) {
+      throw new Error('Your account is not linked to a school.');
+    }
+
+    return data.school_id as string;
+  };
+
+  // --------------------------------------------------
+  // LOAD DATA
+  // --------------------------------------------------
+
+  const loadData = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const schoolId = await getSchoolId();
+
+      const [
+        { data: classData, error: classError },
+        { data: yearData, error: yearError },
+        { data: programmeData, error: programmeError },
+      ] = await Promise.all([
+        supabase
+          .from('classes')
+          .select(`
+            id,
+            school_id,
+            name,
+            level,
+            academic_year_id,
+            programme_id,
+            academic_year:academic_years (
+              id,
+              name
+            ),
+            programme:programmes (
+              id,
+              name
+            )
+          `)
+          .eq('school_id', schoolId)
+          .order('name', { ascending: true }),
+
+        supabase
+          .from('academic_years')
+          .select('id, name')
+          .eq('school_id', schoolId)
+          .order('start_date', { ascending: false }),
+
+        supabase
+          .from('programmes')
+          .select('id, name')
+          .eq('school_id', schoolId)
+          .order('name', { ascending: true }),
+      ]);
+
+      if (classError) {
+        throw new Error(classError.message);
+      }
+
+      if (yearError) {
+        throw new Error(yearError.message);
+      }
+
+      if (programmeError) {
+        throw new Error(programmeError.message);
+      }
+
+      setClasses((classData || []) as ClassRecord[]);
+      setAcademicYears((yearData || []) as AcademicYear[]);
+      setProgrammes((programmeData || []) as Programme[]);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to load classes.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  async function getSchoolId() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  // --------------------------------------------------
+  // RESET FORM
+  // --------------------------------------------------
 
-    if (!user) {
-      window.location.href = '/login';
-      return null;
-    }
-
-    const { data: profile, error: profileError } =
-      await supabase
-        .from('users')
-        .select('school_id')
-        .eq('id', user.id)
-        .single();
-
-    if (profileError || !profile?.school_id) {
-      setError('School profile could not be found.');
-      return null;
-    }
-
-    return profile.school_id as string;
-  }
-
-  async function loadData() {
-    setLoading(true);
-    setError('');
-
-    const schoolId = await getSchoolId();
-
-    if (!schoolId) {
-      setLoading(false);
-      return;
-    }
-
-    const [
-      classesResult,
-      yearsResult,
-      programmesResult,
-    ] = await Promise.all([
-      supabase
-        .from('classes')
-        .select(
-          'id, name, level, programme_id, academic_year_id'
-        )
-        .eq('school_id', schoolId)
-        .order('name'),
-
-      supabase
-        .from('academic_years')
-        .select('id, name, is_current')
-        .eq('school_id', schoolId)
-        .order('start_date', {
-          ascending: false,
-          nullsFirst: false,
-        }),
-
-      supabase
-        .from('programmes')
-        .select('id, name, code')
-        .eq('school_id', schoolId)
-        .order('name'),
-    ]);
-
-    if (classesResult.error) {
-      setError(classesResult.error.message);
-    } else {
-      setClasses(
-        (classesResult.data || []) as ClassRecord[]
-      );
-    }
-
-    if (yearsResult.error) {
-      setError(yearsResult.error.message);
-    } else {
-      setAcademicYears(yearsResult.data || []);
-    }
-
-    if (programmesResult.error) {
-      setError(programmesResult.error.message);
-    } else {
-      setProgrammes(programmesResult.data || []);
-    }
-
-    setLoading(false);
-  }
-
-  function resetForm() {
+  const resetForm = () => {
     setName('');
     setLevel('');
-    setProgrammeId('');
-    setEditingId('');
-
-    const currentYear = academicYears.find(
-      (year) => year.is_current
-    );
-
-    setAcademicYearId(currentYear?.id || '');
-  }
-
-  function cancelEdit() {
-    setName('');
-    setLevel('');
+    setAcademicYearId('');
     setProgrammeId('');
     setEditingId(null);
+  };
 
-    const currentYear = academicYears.find(
-      (year) => year.is_current
-    );
+  // --------------------------------------------------
+  // EDIT CLASS
+  // --------------------------------------------------
 
-    setAcademicYearId(currentYear?.id || '');
-
+  const editClass = (classItem: ClassRecord) => {
     setError('');
     setMessage('');
-  }
 
-  function editClass(record: ClassRecord) {
-    setEditingId(record.id);
-    setName(record.name || '');
-    setLevel(record.level || '');
-
-    setAcademicYearId(
-      record.academic_year_id || ''
-    );
-
-    setProgrammeId(
-      record.programme_id || ''
-    );
-
-    setError('');
-    setMessage('');
+    setEditingId(classItem.id);
+    setName(classItem.name);
+    setLevel(classItem.level || '');
+    setAcademicYearId(classItem.academic_year_id || '');
+    setProgrammeId(classItem.programme_id || '');
 
     window.scrollTo({
       top: 0,
       behavior: 'smooth',
     });
-  }
+  };
 
-  async function saveClass(
-    e: React.FormEvent
-  ) {
+  // --------------------------------------------------
+  // SAVE CLASS
+  // --------------------------------------------------
+
+  const saveClass = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setError('');
     setMessage('');
 
-    if (!name.trim()) {
-      setError('Please enter the class name.');
+    const trimmedName = name.trim();
+
+    if (!trimmedName) {
+      setError('Please enter a class name.');
       return;
     }
 
     if (!academicYearId) {
-      setError(
-        'Please select the academic year for this class.'
-      );
-      return;
-    }
-
-    const schoolId = await getSchoolId();
-
-    if (!schoolId) {
+      setError('Please select an academic year.');
       return;
     }
 
     setSaving(true);
 
-    const payload = {
-      school_id: schoolId,
-      name: name.trim(),
-      level: level.trim() || null,
-      academic_year_id: academicYearId,
-      programme_id: programmeId || null,
-    };
-
     try {
+      const schoolId = await getSchoolId();
+
+      const payload = {
+        school_id: schoolId,
+        name: trimmedName,
+        level: level || null,
+        academic_year_id: academicYearId,
+        programme_id: programmeId || null,
+      };
+
+      // UPDATE
       if (editingId) {
-        const {
-          data: updatedRows,
-          error: updateError,
-        } = await supabase
+        const { data, error: updateError } = await supabase
           .from('classes')
           .update(payload)
           .eq('id', editingId)
           .eq('school_id', schoolId)
-          .select(
-            'id, name, level, programme_id, academic_year_id'
-          );
+          .select(`
+            id,
+            school_id,
+            name,
+            level,
+            academic_year_id,
+            programme_id,
+            academic_year:academic_years (
+              id,
+              name
+            ),
+            programme:programmes (
+              id,
+              name
+            )
+          `)
+          .single();
 
         if (updateError) {
-          setError(
-            `Unable to update class: ${updateError.message}`
-          );
-          return;
+          throw new Error(updateError.message);
         }
 
-        if (!updatedRows || updatedRows.length === 0) {
-          setError(
-            'The class could not be updated. Please check that your account has permission to update classes.'
+        if (data) {
+          setClasses((current) =>
+            current.map((item) =>
+              item.id === editingId
+                ? (data as ClassRecord)
+                : item
+            )
           );
-          return;
         }
 
-        const updatedClass =
-          updatedRows[0] as ClassRecord;
+        setMessage('Class updated successfully.');
+        resetForm();
+      }
 
-        setClasses((current) =>
-          current.map((item) =>
-            item.id === updatedClass.id
-              ? updatedClass
-              : item
-          )
-        );
-
-        setMessage(
-          `Class "${updatedClass.name}" updated successfully to ${getYearName(
-            updatedClass.academic_year_id
-          )}.`
-        );
-
-        setName('');
-        setLevel('');
-        setProgrammeId('');
-        setEditingId(null);
-
-        const currentYear =
-          academicYears.find(
-            (year) => year.is_current
-          );
-
-        setAcademicYearId(
-          currentYear?.id || ''
-        );
-
-        await loadData();
-      } else {
-        const {
-          data: insertedRows,
-          error: insertError,
-        } = await supabase
+      // CREATE
+      else {
+        const { data, error: insertError } = await supabase
           .from('classes')
           .insert(payload)
-          .select(
-            'id, name, level, programme_id, academic_year_id'
-          );
+          .select(`
+            id,
+            school_id,
+            name,
+            level,
+            academic_year_id,
+            programme_id,
+            academic_year:academic_years (
+              id,
+              name
+            ),
+            programme:programmes (
+              id,
+              name
+            )
+          `)
+          .single();
 
         if (insertError) {
-          setError(
-            `Unable to create class: ${insertError.message}`
-          );
-          return;
+          throw new Error(insertError.message);
         }
 
-        if (!insertedRows || insertedRows.length === 0) {
-          setError(
-            'The class could not be created.'
+        if (data) {
+          setClasses((current) =>
+            [...current, data as ClassRecord].sort((a, b) =>
+              a.name.localeCompare(b.name)
+            )
           );
-          return;
         }
 
-        const newClass =
-          insertedRows[0] as ClassRecord;
-
-        setClasses((current) => [
-          ...current,
-          newClass,
-        ]);
-
-        setMessage(
-          `Class "${newClass.name}" created successfully.`
-        );
-
+        setMessage('Class created successfully.');
         resetForm();
-
-        await loadData();
       }
+    } catch (err: any) {
+      setError(err?.message || 'Unable to save class.');
     } finally {
       setSaving(false);
     }
-  }
+  };
 
-  async function deleteClass(id: string) {
-    const record = classes.find(
-      (item) => item.id === id
-    );
+  // --------------------------------------------------
+  // DELETE CLASS
+  // --------------------------------------------------
 
-    if (!record) {
-      return;
-    }
+  const deleteClass = async (classItem: ClassRecord) => {
+    if (deletingId) return;
 
     const confirmed = window.confirm(
-      `Delete "${record.name}"?\n\nThis will permanently remove this class from the class list.\n\nContinue?`
+      `Are you sure you want to delete "${classItem.name}"?\n\n` +
+        `This action cannot be undone.`
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     setError('');
     setMessage('');
-    setDeletingId(id);
+    setDeletingId(classItem.id);
 
     try {
-      /*
-       * Get the school first so that all checks remain
-       * restricted to the administrator's school.
-       */
       const schoolId = await getSchoolId();
 
-      if (!schoolId) {
-        return;
-      }
+      // --------------------------------------------------
+      // CHECK ENROLLMENTS
+      // --------------------------------------------------
 
-      /*
-       * Check whether students have enrollment records
-       * connected to this class.
-       */
       const {
         count: enrollmentCount,
-        error: enrollmentCheckError,
+        error: enrollmentError,
       } = await supabase
         .from('enrollments')
         .select('id', {
           count: 'exact',
           head: true,
         })
-        .eq('class_id', id);
+        .eq('class_id', classItem.id);
 
-      if (enrollmentCheckError) {
-        setError(
-          `Unable to check whether this class is being used: ${enrollmentCheckError.message}`
+      if (enrollmentError) {
+        throw new Error(
+          `Unable to check student enrollments: ${enrollmentError.message}`
         );
-        return;
       }
 
-      /*
-       * Check whether teachers have been assigned
-       * to this class.
-       */
+      // --------------------------------------------------
+      // CHECK TEACHER ASSIGNMENTS
+      // --------------------------------------------------
+
       const {
         count: teacherAssignmentCount,
-        error: teacherAssignmentCheckError,
+        error: teacherAssignmentError,
       } = await supabase
         .from('teacher_assignments')
         .select('id', {
           count: 'exact',
           head: true,
         })
-        .eq('class_id', id);
+        .eq('class_id', classItem.id);
 
-      if (teacherAssignmentCheckError) {
-        setError(
-          `Unable to check teacher assignments: ${teacherAssignmentCheckError.message}`
+      if (teacherAssignmentError) {
+        throw new Error(
+          `Unable to check teacher assignments: ${teacherAssignmentError.message}`
         );
-        return;
       }
 
-      /*
-       * Do not destroy academic history accidentally.
-       *
-       * If students or teachers are already connected,
-       * tell the administrator why the class cannot be
-       * safely deleted.
-       */
-      if (
-        (enrollmentCount || 0) > 0 ||
-        (teacherAssignmentCount || 0) > 0
-      ) {
-        const reasons: string[] = [];
+      // --------------------------------------------------
+      // DON'T DELETE A CLASS THAT IS IN USE
+      // --------------------------------------------------
 
-        if ((enrollmentCount || 0) > 0) {
-          reasons.push(
-            `${enrollmentCount} student enrollment${
-              enrollmentCount === 1 ? '' : 's'
+      const studentsUsingClass = enrollmentCount || 0;
+      const teachersUsingClass = teacherAssignmentCount || 0;
+
+      if (studentsUsingClass > 0 || teachersUsingClass > 0) {
+        const details: string[] = [];
+
+        if (studentsUsingClass > 0) {
+          details.push(
+            `${studentsUsingClass} student enrollment${
+              studentsUsingClass === 1 ? '' : 's'
             }`
           );
         }
 
-        if ((teacherAssignmentCount || 0) > 0) {
-          reasons.push(
-            `${teacherAssignmentCount} teacher assignment${
-              teacherAssignmentCount === 1 ? '' : 's'
+        if (teachersUsingClass > 0) {
+          details.push(
+            `${teachersUsingClass} teacher assignment${
+              teachersUsingClass === 1 ? '' : 's'
             }`
           );
         }
 
-        setError(
-          `This class cannot be deleted because it is currently being used by ${reasons.join(
+        throw new Error(
+          `This class cannot be deleted because it is currently in use by ${details.join(
             ' and '
-          )}. Remove or move those records first.`
+          )}. Remove the related records first.`
         );
-
-        return;
       }
 
-      /*
-       * Delete only an unused class.
-       *
-       * The school_id condition prevents accidentally
-       * deleting a class belonging to another school.
-       */
-      const { error: deleteError } =
-        await supabase
-          .from('classes')
-          .delete()
-          .eq('id', id)
-          .eq('school_id', schoolId);
+      // --------------------------------------------------
+      // DELETE CLASS
+      // --------------------------------------------------
+
+      const { error: deleteError } = await supabase
+        .from('classes')
+        .delete()
+        .eq('id', classItem.id)
+        .eq('school_id', schoolId);
 
       if (deleteError) {
-        setError(
-          `Unable to delete class: ${deleteError.message}`
-        );
-        return;
+        throw new Error(deleteError.message);
       }
 
-      /*
-       * Remove it from the screen immediately.
-       */
+      // Remove from visible list
       setClasses((current) =>
-        current.filter(
-          (item) => item.id !== id
-        )
+        current.filter((item) => item.id !== classItem.id)
       );
 
-      /*
-       * If the class being edited was deleted,
-       * clear the form.
-       */
-      if (editingId === id) {
-        cancelEdit();
+      // If user was editing this class, reset the form
+      if (editingId === classItem.id) {
+        resetForm();
       }
 
-      setMessage(
-        `Class "${record.name}" was deleted successfully.`
-      );
-
-      /*
-       * Reload from Supabase so the page always reflects
-       * the actual database.
-       */
-      await loadData();
+      setMessage(`"${classItem.name}" was deleted successfully.`);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to delete class.');
     } finally {
       setDeletingId(null);
     }
-  }
+  };
 
-  const filteredClasses =
-    classes.filter((record) => {
-      const yearName =
-        academicYears.find(
-          (year) =>
-            year.id ===
-            record.academic_year_id
-        )?.name || '';
+  // --------------------------------------------------
+  // FILTER CLASSES
+  // --------------------------------------------------
 
-      const programmeName =
-        programmes.find(
-          (programme) =>
-            programme.id ===
-            record.programme_id
-        )?.name || '';
+  const filteredClasses = classes.filter((item) => {
+    const query = search.toLowerCase().trim();
 
-      const text =
-        `${record.name} ${
-          record.level || ''
-        } ${yearName} ${programmeName}`
-          .toLowerCase();
+    if (!query) return true;
 
-      return text.includes(
-        search
-          .toLowerCase()
-          .trim()
-      );
-    });
-
-  function getYearName(
-    id: string | null
-  ) {
     return (
-      academicYears.find(
-        (year) =>
-          year.id === id
-      )?.name || 'Not assigned'
+      item.name.toLowerCase().includes(query) ||
+      (item.level || '').toLowerCase().includes(query) ||
+      (item.programme?.name || '').toLowerCase().includes(query) ||
+      (item.academic_year?.name || '').toLowerCase().includes(query)
     );
-  }
+  });
 
-  function getProgrammeName(
-    id: string | null
-  ) {
-    return (
-      programmes.find(
-        (programme) =>
-          programme.id === id
-      )?.name ||
-      'All programmes'
-    );
-  }
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
-      <div className="mx-auto max-w-7xl">
-
-        <div className="mb-8">
-          <div className="mb-2 text-4xl">
-            🏫
-          </div>
-
-          <h1 className="text-3xl font-bold text-slate-900">
+    <div className="space-y-6 p-4 md:p-6">
+      {/* PAGE HEADER */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="flex items-center gap-3 text-2xl font-bold text-gray-900 dark:text-white">
+            <FontAwesomeIcon
+              icon={faSchool}
+              className="text-blue-600 transition-transform duration-300 hover:scale-110 hover:rotate-6"
+            />
             Classes
           </h1>
 
-          <p className="mt-1 text-slate-500">
-            Create and manage classes by academic year and programme.
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Manage your school classes, academic years and programmes.
           </p>
         </div>
 
-        {error && (
-          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
-            {error}
+        <div className="rounded-lg bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+          {classes.length} {classes.length === 1 ? 'Class' : 'Classes'}
+        </div>
+      </div>
+
+      {/* ERROR MESSAGE */}
+      {error && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
+          <FontAwesomeIcon
+            icon={faTriangleExclamation}
+            className="mt-0.5 shrink-0 animate-pulse"
+          />
+
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* SUCCESS MESSAGE */}
+      {message && (
+        <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300">
+          <FontAwesomeIcon
+            icon={faCircleCheck}
+            className="mt-0.5 shrink-0 transition-transform duration-300 hover:scale-110"
+          />
+
+          <span>{message}</span>
+        </div>
+      )}
+
+      {/* FORM */}
+      <form
+        onSubmit={saveClass}
+        className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+      >
+        <div className="mb-5 flex items-center gap-2">
+          <FontAwesomeIcon
+            icon={editingId ? faPenToSquare : faPlus}
+            className="text-blue-600 transition-transform duration-300 hover:scale-110"
+          />
+
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            {editingId ? 'Edit Class' : 'Add Class'}
+          </h2>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {/* CLASS NAME */}
+          <div>
+            <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <FontAwesomeIcon icon={faSchool} className="text-gray-400" />
+              Class Name
+            </label>
+
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. A, B, 1A, 2B"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            />
           </div>
-        )}
 
-        {message && (
-          <div className="mb-5 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
-            {message}
+          {/* LEVEL */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Level / Form
+            </label>
+
+            <input
+              type="text"
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              placeholder="e.g. Form 1"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            />
           </div>
-        )}
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* ACADEMIC YEAR */}
+          <div>
+            <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <FontAwesomeIcon
+                icon={faCalendarDays}
+                className="text-gray-400"
+              />
+              Academic Year
+            </label>
 
-          {/* FORM */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-
-            <h2 className="text-lg font-bold text-slate-900">
-              {editingId
-                ? 'Edit Class'
-                : 'Add Class'}
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Assign each class to an academic year.
-            </p>
-
-            <form
-              onSubmit={saveClass}
-              className="mt-5 space-y-4"
+            <select
+              value={academicYearId}
+              onChange={(e) => setAcademicYearId(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             >
+              <option value="">Select academic year</option>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Academic Year
-                </label>
-
-                <select
-                  value={academicYearId}
-                  onChange={(e) =>
-                    setAcademicYearId(
-                      e.target.value
-                    )
-                  }
-                  required
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
-                >
-                  <option value="">
-                    Select academic year
-                  </option>
-
-                  {academicYears.map(
-                    (year) => (
-                      <option
-                        key={year.id}
-                        value={year.id}
-                      >
-                        {year.name}
-                        {year.is_current
-                          ? ' (Current)'
-                          : ''}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Programme
-                </label>
-
-                <select
-                  value={programmeId}
-                  onChange={(e) =>
-                    setProgrammeId(
-                      e.target.value
-                    )
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
-                >
-                  <option value="">
-                    All programmes / Not specified
-                  </option>
-
-                  {programmes.map(
-                    (programme) => (
-                      <option
-                        key={programme.id}
-                        value={programme.id}
-                      >
-                        {programme.name}
-                        {programme.code
-                          ? ` (${programme.code})`
-                          : ''}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Class Name
-                </label>
-
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) =>
-                    setName(
-                      e.target.value
-                    )
-                  }
-                  placeholder="e.g. Form 1 Electrical A"
-                  required
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Level
-                </label>
-
-                <input
-                  type="text"
-                  value={level}
-                  onChange={(e) =>
-                    setLevel(
-                      e.target.value
-                    )
-                  }
-                  placeholder="e.g. Form 1"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="w-full rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                {saving
-                  ? 'Saving...'
-                  : editingId
-                  ? 'Save Changes'
-                  : 'Add Class'}
-              </button>
-
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="w-full rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel Edit
-                </button>
-              )}
-
-            </form>
+              {academicYears.map((year) => (
+                <option key={year.id} value={year.id}>
+                  {year.name}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* CLASS LIST */}
-          <div className="lg:col-span-2">
+          {/* PROGRAMME */}
+          <div>
+            <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <FontAwesomeIcon
+                icon={faLayerGroup}
+                className="text-gray-400"
+              />
+              Programme
+            </label>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <select
+              value={programmeId}
+              onChange={(e) => setProgrammeId(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">Select programme</option>
 
-              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {programmes.map((programme) => (
+                <option key={programme.id} value={programme.id}>
+                  {programme.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    Class List
-                  </h2>
+        {/* FORM BUTTONS */}
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:scale-[1.02] hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <FontAwesomeIcon
+              icon={
+                saving
+                  ? faSpinner
+                  : editingId
+                  ? faFloppyDisk
+                  : faPlus
+              }
+              className={saving ? 'animate-spin' : 'transition-transform duration-200'}
+            />
 
-                  <p className="text-sm text-slate-500">
-                    {classes.length} class
-                    {classes.length !== 1
-                      ? 'es'
-                      : ''}
-                  </p>
-                </div>
+            {saving
+              ? 'Saving...'
+              : editingId
+              ? 'Save Changes'
+              : 'Add Class'}
+          </button>
 
-                <input
-                  type="text"
-                  placeholder="Search classes..."
-                  value={search}
-                  onChange={(e) =>
-                    setSearch(
-                      e.target.value
-                    )
-                  }
-                  className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-blue-500"
-                />
+          {editingId && (
+            <button
+              type="button"
+              onClick={resetForm}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-all duration-200 hover:scale-[1.02] hover:bg-gray-50 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            >
+              <FontAwesomeIcon
+                icon={faXmark}
+                className="transition-transform duration-200 group-hover:rotate-90"
+              />
 
-              </div>
+              Cancel Edit
+            </button>
+          )}
+        </div>
+      </form>
 
-              {loading ? (
-                <p className="py-10 text-center text-slate-500">
-                  Loading...
-                </p>
-              ) : filteredClasses.length === 0 ? (
-                <div className="py-10 text-center">
-                  <div className="mb-2 text-4xl">
-                    📭
-                  </div>
+      {/* SEARCH */}
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="relative">
+          <FontAwesomeIcon
+            icon={faMagnifyingGlass}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 transition-transform duration-200"
+          />
 
-                  <p className="text-slate-500">
-                    No classes found.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search classes, levels, programmes or academic years..."
+            className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          />
+        </div>
+      </div>
 
-                  {filteredClasses.map(
-                    (record) => (
-                      <div
-                        key={record.id}
-                        className="rounded-xl border border-slate-200 p-4"
-                      >
+      {/* CLASS LIST */}
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        {loading ? (
+          <div className="flex min-h-[220px] items-center justify-center">
+            <div className="flex flex-col items-center gap-3 text-gray-500 dark:text-gray-400">
+              <FontAwesomeIcon
+                icon={faSpinner}
+                className="text-3xl text-blue-600 animate-spin"
+              />
 
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-
-                          <div>
-
-                            <h3 className="text-lg font-bold text-slate-900">
-                              {record.name}
-                            </h3>
-
-                            <div className="mt-2 flex flex-wrap gap-2">
-
-                              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                                Academic Year:{' '}
-                                {getYearName(
-                                  record.academic_year_id
-                                )}
-                              </span>
-
-                              {record.level && (
-                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                                  {record.level}
-                                </span>
-                              )}
-
-                              <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
-                                {getProgrammeName(
-                                  record.programme_id
-                                )}
-                              </span>
-
-                            </div>
-
-                          </div>
-
-                          <div className="flex flex-wrap gap-2">
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                editClass(
-                                  record
-                                )
-                              }
-                              disabled={
-                                deletingId ===
-                                record.id
-                              }
-                              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                            >
-                              Edit
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                deleteClass(
-                                  record.id
-                                )
-                              }
-                              disabled={
-                                deletingId ===
-                                record.id
-                              }
-                              className="rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {deletingId ===
-                              record.id
-                                ? 'Deleting...'
-                                : 'Delete'}
-                            </button>
-
-                          </div>
-
-                        </div>
-
-                      </div>
-                    )
-                  )}
-
-                </div>
-              )}
-
+              <span className="text-sm">Loading classes...</span>
             </div>
           </div>
+        ) : filteredClasses.length === 0 ? (
+          <div className="flex min-h-[220px] flex-col items-center justify-center px-4 text-center">
+            <FontAwesomeIcon
+              icon={faSchool}
+              className="mb-4 text-4xl text-gray-300 transition-transform duration-300 hover:scale-110 dark:text-gray-600"
+            />
 
-        </div>
+            <h3 className="font-semibold text-gray-700 dark:text-gray-200">
+              {search ? 'No classes found' : 'No classes yet'}
+            </h3>
+
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {search
+                ? 'Try a different search term.'
+                : 'Add your first class using the form above.'}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* DESKTOP TABLE */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-700/50 dark:text-gray-400">
+                  <tr>
+                    <th className="px-5 py-3">Class</th>
+                    <th className="px-5 py-3">Level</th>
+                    <th className="px-5 py-3">Programme</th>
+                    <th className="px-5 py-3">Academic Year</th>
+                    <th className="px-5 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {filteredClasses.map((classItem) => (
+                    <tr
+                      key={classItem.id}
+                      className="transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                    >
+                      <td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">
+                        <div className="flex items-center gap-2">
+                          <FontAwesomeIcon
+                            icon={faSchool}
+                            className="text-blue-500 transition-transform duration-200 hover:scale-110"
+                          />
+                          {classItem.name}
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4 text-gray-600 dark:text-gray-300">
+                        {classItem.level || '—'}
+                      </td>
+
+                      <td className="px-5 py-4 text-gray-600 dark:text-gray-300">
+                        {classItem.programme?.name || '—'}
+                      </td>
+
+                      <td className="px-5 py-4 text-gray-600 dark:text-gray-300">
+                        {classItem.academic_year?.name || '—'}
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => editClass(classItem)}
+                            disabled={deletingId === classItem.id}
+                            title="Edit class"
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-all duration-200 hover:scale-105 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
+                          >
+                            <FontAwesomeIcon
+                              icon={faPenToSquare}
+                              className="transition-transform duration-200 hover:rotate-6"
+                            />
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteClass(classItem)}
+                            disabled={deletingId === classItem.id}
+                            title="Delete class"
+                            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition-all duration-200 hover:scale-105 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
+                          >
+                            <FontAwesomeIcon
+                              icon={
+                                deletingId === classItem.id
+                                  ? faSpinner
+                                  : faTrashCan
+                              }
+                              className={
+                                deletingId === classItem.id
+                                  ? 'animate-spin'
+                                  : 'transition-transform duration-200 hover:rotate-12'
+                              }
+                            />
+
+                            {deletingId === classItem.id
+                              ? 'Deleting...'
+                              : 'Delete'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* MOBILE CARDS */}
+            <div className="divide-y divide-gray-200 md:hidden dark:divide-gray-700">
+              {filteredClasses.map((classItem) => (
+                <div
+                  key={classItem.id}
+                  className="p-4 transition-colors duration-200 hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 font-semibold text-gray-900 dark:text-white">
+                        <FontAwesomeIcon
+                          icon={faSchool}
+                          className="text-blue-500"
+                        />
+                        {classItem.name}
+                      </div>
+
+                      <div className="mt-2 space-y-1 text-sm text-gray-500 dark:text-gray-400">
+                        <p>
+                          <span className="font-medium">Level:</span>{' '}
+                          {classItem.level || '—'}
+                        </p>
+
+                        <p>
+                          <span className="font-medium">Programme:</span>{' '}
+                          {classItem.programme?.name || '—'}
+                        </p>
+
+                        <p>
+                          <span className="font-medium">
+                            Academic Year:
+                          </span>{' '}
+                          {classItem.academic_year?.name || '—'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => editClass(classItem)}
+                      disabled={deletingId === classItem.id}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs font-semibold text-blue-700 transition-all duration-200 hover:scale-[1.02] hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
+                    >
+                      <FontAwesomeIcon icon={faPenToSquare} />
+                      Edit
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => deleteClass(classItem)}
+                      disabled={deletingId === classItem.id}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700 transition-all duration-200 hover:scale-[1.02] hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
+                    >
+                      <FontAwesomeIcon
+                        icon={
+                          deletingId === classItem.id
+                            ? faSpinner
+                            : faTrashCan
+                        }
+                        className={
+                          deletingId === classItem.id
+                            ? 'animate-spin'
+                            : ''
+                        }
+                      />
+
+                      {deletingId === classItem.id
+                        ? 'Deleting...'
+                        : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
