@@ -135,7 +135,10 @@ export default function StudentImportPage() {
   const [fileName, setFileName] = useState('');
 
   const selectedAcademicYear = useMemo(
-    () => academicYears.find((year) => year.id === academicYearId),
+    () =>
+      academicYears.find(
+        (year) => year.id === academicYearId
+      ),
     [academicYears, academicYearId]
   );
 
@@ -147,50 +150,6 @@ export default function StudentImportPage() {
     setLoadingData(true);
     setMessage('');
 
-    /*
-     * IMPORTANT:
-     * BTI-SMS stores the school relationship in the existing
-     * "users" table. We do not use Auth user_metadata.school_id.
-     *
-     * First get the logged-in Auth user, then use that user's
-     * existing users.school_id when loading school data.
-     */
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      setMessage('You must be logged in to access student import.');
-      setLoadingData(false);
-      return;
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .select('school_id')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (profileError) {
-      setMessage(
-        `Unable to load your school information: ${profileError.message}`
-      );
-      setLoadingData(false);
-      return;
-    }
-
-    if (!profile?.school_id) {
-      setMessage(
-        'Your BTI-SMS account is not linked to a school. Please contact the system administrator.'
-      );
-      setLoadingData(false);
-      return;
-    }
-
-    const schoolId = profile.school_id;
-
     const [
       { data: programmeData, error: programmeError },
       { data: yearData, error: yearError },
@@ -199,19 +158,20 @@ export default function StudentImportPage() {
       supabase
         .from('programmes')
         .select('id, name')
-        .eq('school_id', schoolId)
         .order('name'),
 
       supabase
         .from('academic_years')
         .select('id, name, start_date')
-        .eq('school_id', schoolId)
-        .order('start_date', { ascending: false }),
+        .order('start_date', {
+          ascending: false,
+        }),
 
       supabase
         .from('classes')
-        .select('id, name, level, programme_id, academic_year_id')
-        .eq('school_id', schoolId)
+        .select(
+          'id, name, level, programme_id, academic_year_id'
+        )
         .order('name'),
     ]);
 
@@ -229,8 +189,11 @@ export default function StudentImportPage() {
 
       const currentYear = (yearData || []).find(
         (year) =>
-          year.name.toLowerCase().includes('current') ||
-          year.start_date === new Date().getFullYear().toString()
+          year.name
+            .toLowerCase()
+            .includes('current') ||
+          year.start_date ===
+            new Date().getFullYear().toString()
       );
 
       if (currentYear) {
@@ -248,8 +211,8 @@ export default function StudentImportPage() {
       {
         'FULL NAME': 'John Mensah',
         FORM: 'Form 1',
-        PROGRAMME: 'Electrical',
-        CLASS: 'Form 1 Electrical A',
+        PROGRAMME: 'Electrical Engineering',
+        CLASS: 'Form 1 Electrical',
         GENDER: 'Male',
         'DATE OF BIRTH': '2010-05-12',
         'GUARDIAN NAME': 'Kwame Mensah',
@@ -267,7 +230,7 @@ export default function StudentImportPage() {
     worksheet['!cols'] = [
       { wch: 25 },
       { wch: 14 },
-      { wch: 20 },
+      { wch: 25 },
       { wch: 28 },
       { wch: 12 },
       { wch: 16 },
@@ -280,7 +243,11 @@ export default function StudentImportPage() {
 
     const workbook = XLSX.utils.book_new();
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Students');
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      'Students'
+    );
 
     XLSX.writeFile(
       workbook,
@@ -311,11 +278,13 @@ export default function StudentImportPage() {
       const firstSheet =
         workbook.Sheets[workbook.SheetNames[0]];
 
-      const json = XLSX.utils.sheet_to_json<
-        Record<string, unknown>
-      >(firstSheet, {
-        defval: '',
-      });
+      const json =
+        XLSX.utils.sheet_to_json<Record<string, unknown>>(
+          firstSheet,
+          {
+            defval: '',
+          }
+        );
 
       const mappedRows = json.map(mapRow);
 
@@ -341,48 +310,139 @@ export default function StudentImportPage() {
     return (
       programmes.find(
         (programme) =>
-          normalize(programme.name) === normalize(name)
+          normalize(programme.name) ===
+          normalize(name)
       ) || null
     );
   }
 
+  /*
+   * Find the student's class.
+   *
+   * CLASS NAME is the strongest identifier.
+   * FORM is used to confirm/narrow the match.
+   * PROGRAMME helps when there are multiple classes
+   * with the same name.
+   */
   function findClass(row: ImportRow) {
     const programme = findProgramme(row.programme);
 
-    let matches = classes.filter(
+    let yearClasses = classes.filter(
       (schoolClass) =>
-        schoolClass.academic_year_id === academicYearId
+        schoolClass.academic_year_id ===
+        academicYearId
     );
 
+    /*
+     * First try exact CLASS name.
+     */
     if (row.class_name) {
-      matches = matches.filter(
+      const classMatches = yearClasses.filter(
         (schoolClass) =>
           normalize(schoolClass.name) ===
           normalize(row.class_name)
       );
+
+      /*
+       * If there is exactly one class with this name,
+       * use it.
+       *
+       * We only reject it if a supplied FORM clearly
+       * conflicts with the class level.
+       */
+      if (classMatches.length === 1) {
+        const schoolClass = classMatches[0];
+
+        if (
+          row.form &&
+          schoolClass.level &&
+          normalize(schoolClass.level) !==
+            normalize(row.form)
+        ) {
+          return null;
+        }
+
+        return schoolClass;
+      }
+
+      /*
+       * Multiple classes with the same name.
+       * Narrow using FORM.
+       */
+      let matches = classMatches;
+
+      if (row.form) {
+        matches = matches.filter(
+          (schoolClass) =>
+            normalize(schoolClass.level) ===
+            normalize(row.form)
+        );
+      }
+
+      /*
+       * Use programme only to narrow the matches.
+       * Do NOT reject a class merely because its
+       * programme_id is null.
+       */
+      if (programme) {
+        const programmeMatches = matches.filter(
+          (schoolClass) =>
+            schoolClass.programme_id ===
+            programme.id
+        );
+
+        if (programmeMatches.length > 0) {
+          matches = programmeMatches;
+        }
+      }
+
+      if (matches.length === 1) {
+        return matches[0];
+      }
     }
 
-    if (row.form) {
-      matches = matches.filter(
-        (schoolClass) =>
-          normalize(schoolClass.level) ===
+    /*
+     * If CLASS was not enough, try FORM.
+     */
+    yearClasses = yearClasses.filter(
+      (schoolClass) =>
+        !row.form ||
+        normalize(schoolClass.level) ===
           normalize(row.form)
-      );
-    }
+    );
 
+    /*
+     * If PROGRAMME matches, use it to narrow the
+     * candidates.
+     */
     if (programme) {
-      matches = matches.filter(
+      const programmeMatches = yearClasses.filter(
         (schoolClass) =>
-          schoolClass.programme_id === programme.id
+          schoolClass.programme_id ===
+          programme.id
       );
+
+      if (programmeMatches.length === 1) {
+        return programmeMatches[0];
+      }
     }
 
-    return matches[0] || null;
+    /*
+     * If only one class remains for the supplied FORM,
+     * use it.
+     */
+    if (yearClasses.length === 1) {
+      return yearClasses[0];
+    }
+
+    return null;
   }
 
   async function importStudents() {
     if (!rows.length) {
-      setMessage('Please select an Excel file first.');
+      setMessage(
+        'Please select an Excel file first.'
+      );
       return;
     }
 
@@ -398,12 +458,13 @@ export default function StudentImportPage() {
     setErrors([]);
 
     let imported = 0;
+    let repaired = 0;
     let skipped = 0;
 
     const resultErrors: ResultMessage[] = [];
 
     /*
-     * Get the authenticated user.
+     * Get authenticated user.
      */
     const {
       data: { user },
@@ -411,13 +472,16 @@ export default function StudentImportPage() {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      setMessage('You must be logged in to import students.');
+      setMessage(
+        'You must be logged in to import students.'
+      );
       setImporting(false);
       return;
     }
 
     /*
-     * Get the existing school relationship from BTI-SMS users table.
+     * Get the existing school relationship from
+     * the BTI-SMS users table.
      */
     const { data: profile, error: profileError } =
       await supabase
@@ -436,7 +500,7 @@ export default function StudentImportPage() {
 
     if (!profile?.school_id) {
       setMessage(
-        'Your BTI-SMS account is not linked to a school. Please contact the system administrator.'
+        'Your BTI-SMS account is not linked to a school.'
       );
       setImporting(false);
       return;
@@ -444,7 +508,11 @@ export default function StudentImportPage() {
 
     const schoolId = profile.school_id;
 
-    for (let index = 0; index < rows.length; index++) {
+    for (
+      let index = 0;
+      index < rows.length;
+      index++
+    ) {
       const row = rows[index];
       const excelRowNumber = index + 2;
 
@@ -453,14 +521,18 @@ export default function StudentImportPage() {
 
         resultErrors.push({
           row: excelRowNumber,
-          message: 'FULL NAME is required.',
+          message:
+            'FULL NAME is required.',
         });
 
         continue;
       }
 
+      /*
+       * Find an existing student.
+       */
       const {
-        data: duplicate,
+        data: existingStudent,
         error: duplicateError,
       } = await supabase
         .from('students')
@@ -475,88 +547,201 @@ export default function StudentImportPage() {
 
         resultErrors.push({
           row: excelRowNumber,
-          message: `Could not check duplicate student: ${duplicateError.message}`,
-        });
-
-        continue;
-      }
-
-      if (duplicate) {
-        skipped++;
-
-        resultErrors.push({
-          row: excelRowNumber,
-          message: `${row.full_name} already exists in BTI-SMS.`,
-        });
-
-        continue;
-      }
-
-      const admissionDate =
-        row.admission_date ||
-        new Date().toISOString().slice(0, 10);
-
-      const studentPayload = {
-        school_id: schoolId,
-        full_name: row.full_name,
-        date_of_birth: row.date_of_birth || null,
-        gender: row.gender || null,
-        guardian_name: row.guardian_name || null,
-        guardian_phone: row.guardian_phone || null,
-        address: row.address || null,
-        admission_date: admissionDate,
-        jhs_aggregate: row.jhs_aggregate
-          ? Number(row.jhs_aggregate)
-          : null,
-      };
-
-      const {
-        data: student,
-        error: studentError,
-      } = await supabase
-        .from('students')
-        .insert(studentPayload)
-        .select('id')
-        .single();
-
-      if (studentError || !student) {
-        skipped++;
-
-        resultErrors.push({
-          row: excelRowNumber,
           message:
-            studentError?.message ||
-            'Student could not be created.',
+            `Could not check student: ${duplicateError.message}`,
         });
 
         continue;
       }
 
-      imported++;
+      let studentId: string;
 
-      const schoolClass = findClass(row);
+      /*
+       * EXISTING STUDENT
+       *
+       * We do NOT skip.
+       *
+       * This allows the importer to repair the missing
+       * enrollment for students that were already imported.
+       */
+      if (existingStudent) {
+        studentId = existingStudent.id;
+      } else {
+        /*
+         * NEW STUDENT
+         */
+        const admissionDate =
+          row.admission_date ||
+          new Date()
+            .toISOString()
+            .slice(0, 10);
 
-      if (schoolClass) {
-        const programme = findProgramme(row.programme);
+        const studentPayload = {
+          school_id: schoolId,
+          full_name: row.full_name,
+          date_of_birth:
+            row.date_of_birth || null,
+          gender: row.gender || null,
+          guardian_name:
+            row.guardian_name || null,
+          guardian_phone:
+            row.guardian_phone || null,
+          address: row.address || null,
+          admission_date: admissionDate,
+          jhs_aggregate: row.jhs_aggregate
+            ? Number(row.jhs_aggregate)
+            : null,
+        };
 
-        const { error: enrollmentError } =
-          await supabase.from('enrollments').insert({
-            student_id: student.id,
-            class_id: schoolClass.id,
-            academic_year_id: academicYearId,
-            programme_id:
-              programme?.id ||
-              schoolClass.programme_id ||
-              null,
-            enrollment_date: admissionDate,
-            status: 'active',
-          });
+        const {
+          data: student,
+          error: studentError,
+        } = await supabase
+          .from('students')
+          .insert(studentPayload)
+          .select('id')
+          .single();
 
-        if (enrollmentError) {
+        if (studentError || !student) {
+          skipped++;
+
           resultErrors.push({
             row: excelRowNumber,
-            message: `Student imported, but enrollment was not created: ${enrollmentError.message}`,
+            message:
+              studentError?.message ||
+              'Student could not be created.',
           });
+
+          continue;
+        }
+
+        studentId = student.id;
+        imported++;
+      }
+
+      /*
+       * Find academic placement.
+       */
+      const schoolClass = findClass(row);
+      const programme = findProgramme(
+        row.programme
+      );
+
+      /*
+       * If a matching class is found, create or
+       * update the enrollment.
+       */
+      if (schoolClass) {
+        const enrollmentDate =
+          row.admission_date ||
+          new Date()
+            .toISOString()
+            .slice(0, 10);
+
+        /*
+         * Excel programme takes priority.
+         * If Excel programme is blank, preserve
+         * the programme attached to the class.
+         */
+        const programmeId =
+          programme?.id ||
+          schoolClass.programme_id ||
+          null;
+
+        /*
+         * Check whether this student already has
+         * an enrollment for this academic year.
+         */
+        const {
+          data: existingEnrollment,
+          error: existingEnrollmentError,
+        } = await supabase
+          .from('enrollments')
+          .select('id')
+          .eq(
+            'student_id',
+            studentId
+          )
+          .eq(
+            'academic_year_id',
+            academicYearId
+          )
+          .limit(1)
+          .maybeSingle();
+
+        if (existingEnrollmentError) {
+          resultErrors.push({
+            row: excelRowNumber,
+            message:
+              `Could not check enrollment: ${existingEnrollmentError.message}`,
+          });
+
+          continue;
+        }
+
+        const enrollmentPayload = {
+          student_id: studentId,
+          class_id: schoolClass.id,
+          academic_year_id:
+            academicYearId,
+          programme_id: programmeId,
+          enrollment_date:
+            enrollmentDate,
+          status: 'active',
+        };
+
+        if (existingEnrollment) {
+          /*
+           * Update existing enrollment.
+           *
+           * This is what repairs the students that
+           * were previously imported without placement.
+           */
+          const { error: updateError } =
+            await supabase
+              .from('enrollments')
+              .update(
+                enrollmentPayload
+              )
+              .eq(
+                'id',
+                existingEnrollment.id
+              );
+
+          if (updateError) {
+            resultErrors.push({
+              row: excelRowNumber,
+              message:
+                `Student found, but enrollment could not be updated: ${updateError.message}`,
+            });
+          } else if (
+            existingStudent
+          ) {
+            repaired++;
+          }
+        } else {
+          /*
+           * Create new enrollment.
+           */
+          const {
+            error: enrollmentError,
+          } = await supabase
+            .from('enrollments')
+            .insert(
+              enrollmentPayload
+            );
+
+          if (enrollmentError) {
+            resultErrors.push({
+              row: excelRowNumber,
+              message:
+                `Student was created/found, but enrollment could not be created: ${enrollmentError.message}`,
+            });
+          } else if (
+            existingStudent
+          ) {
+            repaired++;
+          }
         }
       } else if (
         row.form ||
@@ -566,7 +751,7 @@ export default function StudentImportPage() {
         resultErrors.push({
           row: excelRowNumber,
           message:
-            'Student imported, but no matching class/enrollment was found for the supplied FORM, PROGRAMME and CLASS.',
+            'Student was imported/found, but no matching class could be identified. Check the CLASS and FORM against the Classes section.',
         });
       }
     }
@@ -574,7 +759,7 @@ export default function StudentImportPage() {
     setErrors(resultErrors);
 
     setMessage(
-      `Import complete: ${imported} student(s) imported, ${skipped} row(s) skipped.`
+      `Import complete: ${imported} new student(s) imported, ${repaired} existing student enrollment(s) assigned/repaired, ${skipped} row(s) skipped.`
     );
 
     setImporting(false);
@@ -596,8 +781,8 @@ export default function StudentImportPage() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-600">
-            Upload many students from Excel or CSV instead of
-            entering them one by one.
+            Upload many students from Excel or CSV
+            instead of entering them one by one.
           </p>
         </div>
 
@@ -608,8 +793,8 @@ export default function StudentImportPage() {
             </h2>
 
             <p className="mt-2 text-sm text-slate-600">
-              Use the official BTI-SMS template so your columns
-              match the importer.
+              Use the official BTI-SMS template so your
+              columns match the importer.
             </p>
 
             <button
@@ -627,14 +812,17 @@ export default function StudentImportPage() {
 
               <ul className="mt-2 space-y-1 text-sm text-slate-600">
                 {headers.map((header) => (
-                  <li key={header}>• {header}</li>
+                  <li key={header}>
+                    • {header}
+                  </li>
                 ))}
               </ul>
             </div>
 
             <div className="mt-5 rounded-xl bg-blue-50 p-4 text-sm text-blue-800">
-              Blank optional fields are accepted. FULL NAME is
-              required because every student record needs a name.
+              Blank optional fields are accepted.
+              FULL NAME is required because every
+              student record needs a name.
             </div>
           </section>
 
@@ -646,7 +834,9 @@ export default function StudentImportPage() {
             <select
               value={academicYearId}
               onChange={(event) =>
-                setAcademicYearId(event.target.value)
+                setAcademicYearId(
+                  event.target.value
+                )
               }
               disabled={loadingData}
               className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500"
@@ -658,7 +848,10 @@ export default function StudentImportPage() {
               </option>
 
               {academicYears.map((year) => (
-                <option key={year.id} value={year.id}>
+                <option
+                  key={year.id}
+                  value={year.id}
+                >
                   {year.name}
                 </option>
               ))}
@@ -667,7 +860,9 @@ export default function StudentImportPage() {
             {selectedAcademicYear && (
               <p className="mt-2 text-xs text-slate-500">
                 Students will be enrolled against{' '}
-                <strong>{selectedAcademicYear.name}</strong>{' '}
+                <strong>
+                  {selectedAcademicYear.name}
+                </strong>{' '}
                 when a matching class is found.
               </p>
             )}
@@ -677,7 +872,9 @@ export default function StudentImportPage() {
             </h2>
 
             <label className="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center hover:border-blue-400 hover:bg-blue-50">
-              <span className="text-4xl">📊</span>
+              <span className="text-4xl">
+                📊
+              </span>
 
               <span className="mt-3 font-semibold text-slate-800">
                 Choose Excel or CSV file
@@ -697,7 +894,8 @@ export default function StudentImportPage() {
 
             {fileName && (
               <div className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">
-                Selected file: <strong>{fileName}</strong>
+                Selected file:{' '}
+                <strong>{fileName}</strong>
               </div>
             )}
 
@@ -716,7 +914,8 @@ export default function StudentImportPage() {
                     </h2>
 
                     <p className="text-sm text-slate-500">
-                      {rows.length} student row(s) found.
+                      {rows.length} student row(s)
+                      found.
                     </p>
                   </div>
 
@@ -724,7 +923,8 @@ export default function StudentImportPage() {
                     type="button"
                     onClick={importStudents}
                     disabled={
-                      importing || !academicYearId
+                      importing ||
+                      !academicYearId
                     }
                     className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -738,76 +938,101 @@ export default function StudentImportPage() {
                   <table className="min-w-[1100px] text-left text-xs">
                     <thead className="bg-slate-100">
                       <tr>
-                        {headers.map((header) => (
-                          <th
-                            key={header}
-                            className="whitespace-nowrap px-3 py-3 font-semibold text-slate-700"
-                          >
-                            {header}
-                          </th>
-                        ))}
+                        {headers.map(
+                          (header) => (
+                            <th
+                              key={header}
+                              className="whitespace-nowrap px-3 py-3 font-semibold text-slate-700"
+                            >
+                              {header}
+                            </th>
+                          )
+                        )}
                       </tr>
                     </thead>
 
                     <tbody>
-                      {rows.slice(0, 50).map((row, index) => (
-                        <tr
-                          key={index}
-                          className="border-t border-slate-200"
-                        >
-                          <td className="px-3 py-3">
-                            {row.full_name}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.form}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.programme}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.class_name}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.gender}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.date_of_birth}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.guardian_name}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.guardian_phone}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.address}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.admission_date}
-                          </td>
-
-                          <td className="px-3 py-3">
-                            {row.jhs_aggregate}
-                          </td>
-                        </tr>
-                      ))}
+                      {rows
+                        .slice(0, 50)
+                        .map(
+                          (
+                            row,
+                            index
+                          ) => (
+                            <tr
+                              key={
+                                index
+                              }
+                              className="border-t border-slate-200"
+                            >
+                              <td className="px-3 py-3">
+                                {
+                                  row.full_name
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.form
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.programme
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.class_name
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.gender
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.date_of_birth
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.guardian_name
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.guardian_phone
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.address
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.admission_date
+                                }
+                              </td>
+                              <td className="px-3 py-3">
+                                {
+                                  row.jhs_aggregate
+                                }
+                              </td>
+                            </tr>
+                          )
+                        )}
                     </tbody>
                   </table>
                 </div>
 
                 {rows.length > 50 && (
                   <p className="mt-2 text-xs text-slate-500">
-                    Showing the first 50 rows in the preview. All{' '}
-                    {rows.length} rows will be imported.
+                    Showing the first 50 rows in
+                    the preview. All{' '}
+                    {rows.length} rows will be
+                    imported/repaired.
                   </p>
                 )}
               </div>
@@ -820,14 +1045,17 @@ export default function StudentImportPage() {
                 </h2>
 
                 <div className="mt-3 max-h-72 space-y-2 overflow-y-auto text-sm text-amber-800">
-                  {errors.map((error, index) => (
-                    <div key={index}>
-                      <strong>
-                        Excel row {error.row}:
-                      </strong>{' '}
-                      {error.message}
-                    </div>
-                  ))}
+                  {errors.map(
+                    (error, index) => (
+                      <div key={index}>
+                        <strong>
+                          Excel row{' '}
+                          {error.row}:
+                        </strong>{' '}
+                        {error.message}
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
             )}
