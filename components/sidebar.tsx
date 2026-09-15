@@ -104,7 +104,6 @@ const adminMenuSections: MenuSection[] = [
   },
 
   {
-      {
   title: 'ADMINISTRATION',
   items: [
     {
