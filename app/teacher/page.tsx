@@ -75,6 +75,17 @@ type AssessmentRecord = {
   term: string | null;
 };
 
+type TimetableEntry = {
+  id: string;
+  teacher_assignment_id: string;
+  academic_year_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  status: string;
+  notes: string | null;
+};
+
 type Metric = {
   label: string;
   value: number;
@@ -131,6 +142,14 @@ const quickActions = [
   },
 ];
 
+const DAY_NAMES: Record<number, string> = {
+  1: 'Monday',
+  2: 'Tuesday',
+  3: 'Wednesday',
+  4: 'Thursday',
+  5: 'Friday',
+};
+
 function initials(name: string) {
   const parts = name
     .trim()
@@ -161,6 +180,37 @@ function percentage(score: number, max: number) {
     0,
     Math.min(100, (score / max) * 100)
   );
+}
+
+function formatTime(value: string) {
+  const [hourPart, minutePart] =
+    value.split(':');
+
+  const hour = Number(hourPart);
+
+  if (Number.isNaN(hour)) {
+    return value;
+  }
+
+  const minute = minutePart ?? '00';
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+
+  return `${displayHour}:${minute} ${suffix}`;
+}
+
+function timeToMinutes(value: string) {
+  const [hour, minute] =
+    value.split(':').map(Number);
+
+  if (
+    Number.isNaN(hour) ||
+    Number.isNaN(minute)
+  ) {
+    return 0;
+  }
+
+  return hour * 60 + minute;
 }
 
 function useAnimatedNumber(
@@ -365,6 +415,9 @@ export default function TeacherDashboard() {
 
   const [attendanceRows, setAttendanceRows] =
     useState<AttendanceRow[]>([]);
+
+  const [timetableRows, setTimetableRows] =
+    useState<TimetableEntry[]>([]);
 
   const [loading, setLoading] =
     useState(true);
@@ -611,6 +664,57 @@ export default function TeacherDashboard() {
 
       /*
        * --------------------------------------------------
+       * TEACHER TIMETABLE
+       * --------------------------------------------------
+       */
+
+      let timetableDataRows: TimetableEntry[] =
+        [];
+
+      if (assignmentRows.length) {
+        const {
+          data: timetableData,
+          error: timetableError,
+        } = await supabase
+          .from('timetable')
+          .select(
+            'id, teacher_assignment_id, academic_year_id, day_of_week, start_time, end_time, status, notes'
+          )
+          .eq(
+            'school_id',
+            userProfile.school_id
+          )
+          .in(
+            'teacher_assignment_id',
+            assignmentRows.map(
+              (row) => row.id
+            )
+          )
+          .order('day_of_week', {
+            ascending: true,
+          })
+          .order('start_time', {
+            ascending: true,
+          });
+
+        if (timetableError) {
+          if (mounted) {
+            setError(
+              timetableError.message
+            );
+            setLoading(false);
+          }
+
+          return;
+        }
+
+        timetableDataRows =
+          (timetableData ??
+            []) as TimetableEntry[];
+      }
+
+      /*
+       * --------------------------------------------------
        * ACTIVE ENROLLMENTS
        * --------------------------------------------------
        */
@@ -776,6 +880,9 @@ export default function TeacherDashboard() {
       setStudents(studentRows);
       setAssessmentRows(assessmentRows);
       setAttendanceRows(attendance);
+      setTimetableRows(
+        timetableDataRows
+      );
 
       setLoading(false);
     }
@@ -826,6 +933,157 @@ export default function TeacherDashboard() {
         null
       );
     }, [academicYears]);
+
+  /*
+   * --------------------------------------------------
+   * MY SCHEDULE
+   * --------------------------------------------------
+   */
+
+  const scheduleRows =
+    useMemo(() => {
+      if (!currentAcademicYear?.id) {
+        return timetableRows;
+      }
+
+      return timetableRows.filter(
+        (row) =>
+          row.academic_year_id ===
+          currentAcademicYear.id
+      );
+    }, [
+      timetableRows,
+      currentAcademicYear,
+    ]);
+
+  const todayNumber =
+    new Date().getDay();
+
+  const todaySchedule =
+    useMemo(() => {
+      if (
+        todayNumber < 1 ||
+        todayNumber > 5
+      ) {
+        return [];
+      }
+
+      return scheduleRows
+        .filter(
+          (row) =>
+            row.day_of_week ===
+            todayNumber
+        )
+        .sort(
+          (a, b) =>
+            timeToMinutes(
+              a.start_time
+            ) -
+            timeToMinutes(
+              b.start_time
+            )
+        );
+    }, [
+      scheduleRows,
+      todayNumber,
+    ]);
+
+  const nextClass =
+    useMemo(() => {
+      const now = new Date();
+
+      const nowMinutes =
+        now.getHours() * 60 +
+        now.getMinutes();
+
+      const upcomingToday =
+        todaySchedule.filter(
+          (row) =>
+            row.status !== 'cancelled' &&
+            timeToMinutes(
+              row.start_time
+            ) >= nowMinutes
+        );
+
+      if (upcomingToday.length) {
+        return upcomingToday[0];
+      }
+
+      const futureDays =
+        scheduleRows
+          .filter(
+            (row) =>
+              row.status !==
+                'cancelled' &&
+              row.day_of_week >
+                todayNumber
+          )
+          .sort((a, b) => {
+            if (
+              a.day_of_week !==
+              b.day_of_week
+            ) {
+              return (
+                a.day_of_week -
+                b.day_of_week
+              );
+            }
+
+            return (
+              timeToMinutes(
+                a.start_time
+              ) -
+              timeToMinutes(
+                b.start_time
+              )
+            );
+          });
+
+      return futureDays[0] ?? null;
+    }, [
+      todaySchedule,
+      scheduleRows,
+      todayNumber,
+    ]);
+
+  const getScheduleDetails = (
+    timetable: TimetableEntry
+  ) => {
+    const assignment =
+      assignments.find(
+        (item) =>
+          item.id ===
+          timetable.teacher_assignment_id
+      );
+
+    const classItem =
+      classes.find(
+        (item) =>
+          item.id ===
+          assignment?.class_id
+      );
+
+    const subject =
+      subjects.find(
+        (item) =>
+          item.id ===
+          assignment?.subject_id
+      );
+
+    const semester =
+      semesters.find(
+        (item) =>
+          item.id ===
+          assignment?.term_id
+      );
+
+    return {
+      assignment,
+      classItem,
+      subject,
+      semester,
+    };
+  };
 
   /*
    * --------------------------------------------------
@@ -967,12 +1225,6 @@ export default function TeacherDashboard() {
 
       const submitted =
         assessmentRows.length;
-
-      /*
-       * Expected submissions are calculated
-       * from each unique current class-subject
-       * assignment and its actual enrolled students.
-       */
 
       const expectedAssignments =
         assignments.filter(
@@ -1467,6 +1719,17 @@ export default function TeacherDashboard() {
           }
         }
 
+        @keyframes btiFloat {
+          0%,
+          100% {
+            transform: translateY(0);
+          }
+
+          50% {
+            transform: translateY(-5px);
+          }
+        }
+
         .bti-card-in {
           animation: btiFadeUp
             0.55s ease-out both;
@@ -1477,9 +1740,15 @@ export default function TeacherDashboard() {
             1s ease-out both;
         }
 
+        .bti-float {
+          animation: btiFloat
+            3.5s ease-in-out infinite;
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .bti-card-in,
-          .bti-grow {
+          .bti-grow,
+          .bti-float {
             animation: none;
           }
         }
@@ -1567,6 +1836,432 @@ export default function TeacherDashboard() {
                 />
               )
             )}
+          </section>
+
+          {/* MY SCHEDULE */}
+
+          <section className="bti-card-in relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+            <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-slate-100/80" />
+
+            <div className="relative">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.16em] text-slate-500">
+                    <i className="fa-solid fa-calendar-days" />
+                    Teacher Schedule
+                  </div>
+
+                  <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950">
+                    My Schedule
+                  </h2>
+
+                  <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+                    Your teaching timetable is now
+                    available directly from your
+                    dashboard.
+                  </p>
+                </div>
+
+                <Link
+                  href="/my-schedule"
+                  className="group inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-xs font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800"
+                >
+                  <i className="fa-solid fa-calendar-week" />
+                  View Full Schedule
+                  <i className="fa-solid fa-arrow-right transition group-hover:translate-x-1" />
+                </Link>
+              </div>
+
+              {scheduleRows.length === 0 ? (
+                <div className="mt-7 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
+                    <i className="fa-solid fa-calendar-xmark text-xl" />
+                  </div>
+
+                  <h3 className="mt-4 text-sm font-black text-slate-800">
+                    No timetable entries yet
+                  </h3>
+
+                  <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-400">
+                    Once your timetable is assigned,
+                    your teaching schedule will appear
+                    here automatically.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* NEXT CLASS */}
+
+                  <div className="mt-7 grid gap-4 lg:grid-cols-[1fr_1.5fr]">
+                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl">
+                      <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/[.05]" />
+
+                      <div className="relative">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[10px] font-black uppercase tracking-[.16em] text-slate-400">
+                            Next Class
+                          </p>
+
+                          <span className="bti-float flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
+                            <i className="fa-solid fa-forward" />
+                          </span>
+                        </div>
+
+                        {nextClass ? (
+                          (() => {
+                            const details =
+                              getScheduleDetails(
+                                nextClass
+                              );
+
+                            return (
+                              <>
+                                <p className="mt-5 text-2xl font-black">
+                                  {details.subject
+                                    ?.name ??
+                                    'Scheduled Lesson'}
+                                </p>
+
+                                <p className="mt-1 text-sm font-semibold text-slate-300">
+                                  {details.classItem
+                                    ?.name ??
+                                    'Assigned class'}
+                                </p>
+
+                                <div className="mt-5 flex flex-wrap gap-2">
+                                  <span className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black">
+                                    <i className="fa-solid fa-clock mr-1.5 text-slate-400" />
+                                    {formatTime(
+                                      nextClass.start_time
+                                    )}{' '}
+                                    –{' '}
+                                    {formatTime(
+                                      nextClass.end_time
+                                    )}
+                                  </span>
+
+                                  <span className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black">
+                                    <i className="fa-solid fa-calendar-day mr-1.5 text-slate-400" />
+                                    {DAY_NAMES[
+                                      nextClass
+                                        .day_of_week
+                                    ] ??
+                                      'Scheduled'}
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          })()
+                        ) : (
+                          <div className="mt-6">
+                            <p className="text-lg font-black">
+                              No upcoming class
+                            </p>
+
+                            <p className="mt-1 text-xs text-slate-400">
+                              Your schedule is clear for
+                              the remaining timetable.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* TODAY */}
+
+                    <div className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-[.16em] text-slate-400">
+                            Today
+                          </p>
+
+                          <h3 className="mt-1 text-lg font-black text-slate-900">
+                            {todayNumber >= 1 &&
+                            todayNumber <= 5
+                              ? DAY_NAMES[
+                                  todayNumber
+                                ]
+                              : 'Weekend'}
+                          </h3>
+                        </div>
+
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm">
+                          <i className="fa-solid fa-clock" />
+                        </span>
+                      </div>
+
+                      {todaySchedule.length ===
+                      0 ? (
+                        <div className="mt-5 rounded-2xl bg-white px-4 py-5 text-center">
+                          <i className="fa-solid fa-mug-hot text-slate-300" />
+
+                          <p className="mt-2 text-xs font-black text-slate-600">
+                            No classes scheduled today
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="mt-5 space-y-2">
+                          {todaySchedule
+                            .slice(0, 4)
+                            .map(
+                              (entry) => {
+                                const details =
+                                  getScheduleDetails(
+                                    entry
+                                  );
+
+                                const cancelled =
+                                  entry.status ===
+                                  'cancelled';
+
+                                return (
+                                  <div
+                                    key={
+                                      entry.id
+                                    }
+                                    className={`group flex items-center gap-3 rounded-2xl border p-3 transition ${
+                                      cancelled
+                                        ? 'border-red-100 bg-red-50/60'
+                                        : 'border-white bg-white hover:-translate-y-0.5 hover:shadow-md'
+                                    }`}
+                                  >
+                                    <div
+                                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                                        cancelled
+                                          ? 'bg-red-100 text-red-600'
+                                          : 'bg-slate-100 text-slate-700'
+                                      }`}
+                                    >
+                                      <i
+                                        className={
+                                          cancelled
+                                            ? 'fa-solid fa-ban'
+                                            : 'fa-solid fa-book-open'
+                                        }
+                                      />
+                                    </div>
+
+                                    <div className="min-w-0 flex-1">
+                                      <p
+                                        className={`truncate text-xs font-black ${
+                                          cancelled
+                                            ? 'text-red-700 line-through'
+                                            : 'text-slate-800'
+                                        }`}
+                                      >
+                                        {details
+                                          .subject
+                                          ?.name ??
+                                          'Lesson'}
+                                      </p>
+
+                                      <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                                        {details
+                                          .classItem
+                                          ?.name ??
+                                          'Class'}{' '}
+                                        ·{' '}
+                                        {formatTime(
+                                          entry.start_time
+                                        )}
+                                      </p>
+                                    </div>
+
+                                    {cancelled ? (
+                                      <span className="rounded-full bg-red-100 px-2 py-1 text-[8px] font-black uppercase text-red-600">
+                                        Cancelled
+                                      </span>
+                                    ) : (
+                                      <i className="fa-solid fa-chevron-right text-[9px] text-slate-300 transition group-hover:translate-x-0.5" />
+                                    )}
+                                  </div>
+                                );
+                              }
+                            )}
+
+                          {todaySchedule.length >
+                            4 && (
+                            <Link
+                              href="/my-schedule"
+                              className="block pt-2 text-center text-[10px] font-black text-slate-500"
+                            >
+                              +{' '}
+                              {todaySchedule.length -
+                                4}{' '}
+                              more classes
+                            </Link>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* WEEKLY PREVIEW */}
+
+                  <div className="mt-6">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-[10px] font-black uppercase tracking-[.16em] text-slate-400">
+                        Weekly Preview
+                      </p>
+
+                      <span className="text-[10px] font-bold text-slate-400">
+                        Monday – Friday
+                      </span>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-5">
+                      {[1, 2, 3, 4, 5].map(
+                        (day) => {
+                          const dayEntries =
+                            scheduleRows
+                              .filter(
+                                (entry) =>
+                                  entry.day_of_week ===
+                                  day
+                              )
+                              .sort(
+                                (a, b) =>
+                                  timeToMinutes(
+                                    a.start_time
+                                  ) -
+                                  timeToMinutes(
+                                    b.start_time
+                                  )
+                              );
+
+                          const isToday =
+                            day ===
+                            todayNumber;
+
+                          return (
+                            <div
+                              key={day}
+                              className={`rounded-2xl border p-3 transition ${
+                                isToday
+                                  ? 'border-slate-900 bg-slate-950 text-white shadow-lg'
+                                  : 'border-slate-100 bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <p
+                                  className={`text-[10px] font-black uppercase tracking-wider ${
+                                    isToday
+                                      ? 'text-white'
+                                      : 'text-slate-500'
+                                  }`}
+                                >
+                                  {DAY_NAMES[day]}
+                                </p>
+
+                                {isToday && (
+                                  <span className="rounded-full bg-white/10 px-2 py-1 text-[8px] font-black uppercase text-white">
+                                    Today
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-3 space-y-2">
+                                {dayEntries.length ===
+                                0 ? (
+                                  <p
+                                    className={`py-4 text-center text-[9px] font-bold ${
+                                      isToday
+                                        ? 'text-slate-500'
+                                        : 'text-slate-300'
+                                    }`}
+                                  >
+                                    No classes
+                                  </p>
+                                ) : (
+                                  dayEntries
+                                    .slice(0, 3)
+                                    .map(
+                                      (
+                                        entry
+                                      ) => {
+                                        const details =
+                                          getScheduleDetails(
+                                            entry
+                                          );
+
+                                        const cancelled =
+                                          entry.status ===
+                                          'cancelled';
+
+                                        return (
+                                          <div
+                                            key={
+                                              entry.id
+                                            }
+                                            className={`rounded-xl p-2.5 ${
+                                              isToday
+                                                ? 'bg-white/10'
+                                                : 'bg-white'
+                                            }`}
+                                          >
+                                            <p
+                                              className={`truncate text-[9px] font-black ${
+                                                cancelled
+                                                  ? 'line-through text-red-400'
+                                                  : isToday
+                                                  ? 'text-white'
+                                                  : 'text-slate-700'
+                                              }`}
+                                            >
+                                              {details
+                                                .subject
+                                                ?.name ??
+                                                'Lesson'}
+                                            </p>
+
+                                            <p
+                                              className={`mt-1 text-[8px] font-semibold ${
+                                                isToday
+                                                  ? 'text-slate-400'
+                                                  : 'text-slate-400'
+                                              }`}
+                                            >
+                                              {formatTime(
+                                                entry.start_time
+                                              )}{' '}
+                                              ·{' '}
+                                              {details
+                                                .classItem
+                                                ?.name ??
+                                                'Class'}
+                                            </p>
+                                          </div>
+                                        );
+                                      }
+                                    )
+                                )}
+
+                                {dayEntries.length >
+                                  3 && (
+                                  <p
+                                    className={`text-center text-[8px] font-black ${
+                                      isToday
+                                        ? 'text-slate-400'
+                                        : 'text-slate-400'
+                                    }`}
+                                  >
+                                    +
+                                    {dayEntries.length -
+                                      3}{' '}
+                                    more
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </section>
 
           {/* GENDER + ASSESSMENT PARTICIPATION */}
