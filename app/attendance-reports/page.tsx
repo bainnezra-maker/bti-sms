@@ -88,52 +88,127 @@ function statusLabel(status: string) {
   }
 }
 
+/*
+ * ============================================================
+ * FORM HELPERS
+ * ============================================================
+ *
+ * We use the existing classes.level field.
+ *
+ * This supports values such as:
+ *   Form 1
+ *   FORM 1
+ *   form 1
+ *   1
+ *   Form 2
+ *   FORM 3
+ *
+ * No new database structure is required.
+ */
+
+function getFormNumber(level: string | null) {
+  if (!level) return '';
+
+  const value = level.trim().toLowerCase();
+
+  if (
+    value === 'form 1' ||
+    value === 'form1' ||
+    value === '1' ||
+    value.includes('form 1')
+  ) {
+    return '1';
+  }
+
+  if (
+    value === 'form 2' ||
+    value === 'form2' ||
+    value === '2' ||
+    value.includes('form 2')
+  ) {
+    return '2';
+  }
+
+  if (
+    value === 'form 3' ||
+    value === 'form3' ||
+    value === '3' ||
+    value.includes('form 3')
+  ) {
+    return '3';
+  }
+
+  return '';
+}
+
+function formLabel(form: string) {
+  if (form === '1') return 'Form 1';
+  if (form === '2') return 'Form 2';
+  if (form === '3') return 'Form 3';
+
+  return '';
+}
+
 export default function AttendanceReportsPage() {
   const supabase = createClient();
 
-  const [schoolId, setSchoolId] = useState<string | null>(null);
+  const [schoolId, setSchoolId] =
+    useState<string | null>(null);
 
-  const [academicYears, setAcademicYears] = useState<
-    AcademicYear[]
-  >([]);
+  const [academicYears, setAcademicYears] =
+    useState<AcademicYear[]>([]);
 
-  const [terms, setTerms] = useState<Term[]>([]);
+  const [terms, setTerms] =
+    useState<Term[]>([]);
 
-  const [programmes, setProgrammes] = useState<
-    Programme[]
-  >([]);
+  const [programmes, setProgrammes] =
+    useState<Programme[]>([]);
 
-  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [classes, setClasses] =
+    useState<ClassItem[]>([]);
 
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] =
+    useState<Student[]>([]);
 
-  const [attendance, setAttendance] = useState<
-    AttendanceRecord[]
-  >([]);
+  const [attendance, setAttendance] =
+    useState<AttendanceRecord[]>([]);
 
-  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedYear, setSelectedYear] =
+    useState('');
 
-  const [selectedTerm, setSelectedTerm] = useState('');
+  const [selectedTerm, setSelectedTerm] =
+    useState('');
 
   const [selectedProgramme, setSelectedProgramme] =
     useState('');
 
-  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedForm, setSelectedForm] =
+    useState('');
 
-  const [search, setSearch] = useState('');
+  const [selectedClass, setSelectedClass] =
+    useState('');
 
-  const [loading, setLoading] = useState(true);
+  const [search, setSearch] =
+    useState('');
+
+  const [loading, setLoading] =
+    useState(true);
 
   const [loadingReport, setLoadingReport] =
     useState(false);
 
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] =
+    useState(false);
 
-  const [message, setMessage] = useState('');
+  const [message, setMessage] =
+    useState('');
 
   /*
+   * ============================================================
    * LOAD SCHOOL SETUP
+   * ============================================================
    */
+
   useEffect(() => {
     async function loadSetup() {
       setLoading(true);
@@ -158,7 +233,10 @@ export default function AttendanceReportsPage() {
         .eq('id', user.id)
         .single();
 
-      if (profileError || !profile?.school_id) {
+      if (
+        profileError ||
+        !profile?.school_id
+      ) {
         setMessage(
           'Could not determine your school.'
         );
@@ -246,7 +324,9 @@ export default function AttendanceReportsPage() {
         ) || years[0];
 
       if (currentYear) {
-        setSelectedYear(currentYear.id);
+        setSelectedYear(
+          currentYear.id
+        );
       }
 
       setLoading(false);
@@ -256,8 +336,11 @@ export default function AttendanceReportsPage() {
   }, []);
 
   /*
+   * ============================================================
    * LOAD TERMS
+   * ============================================================
    */
+
   useEffect(() => {
     async function loadTerms() {
       if (!selectedYear) {
@@ -294,7 +377,8 @@ export default function AttendanceReportsPage() {
         return;
       }
 
-      const loadedTerms = data || [];
+      const loadedTerms =
+        data || [];
 
       setTerms(loadedTerms);
 
@@ -312,34 +396,75 @@ export default function AttendanceReportsPage() {
   }, [selectedYear]);
 
   /*
-   * AVAILABLE CLASSES
+   * ============================================================
+   * AVAILABLE FORMS
+   * ============================================================
+   *
+   * Forms are taken from the existing class.level values.
+   * We present the standard Form 1, Form 2 and Form 3 options.
    */
-  const filteredClasses = useMemo(() => {
-    return classes.filter((item) => {
-      const matchesYear =
-        !item.academic_year_id ||
-        item.academic_year_id ===
-          selectedYear;
 
-      const matchesProgramme =
-        !selectedProgramme ||
-        item.programme_id ===
-          selectedProgramme;
+  const availableForms =
+    useMemo(() => {
+      const forms = new Set<string>();
 
-      return (
-        matchesYear &&
-        matchesProgramme
+      classes.forEach((item) => {
+        const form =
+          getFormNumber(item.level);
+
+        if (form) {
+          forms.add(form);
+        }
+      });
+
+      return ['1', '2', '3'].filter(
+        (form) => forms.has(form)
       );
-    });
-  }, [
-    classes,
-    selectedYear,
-    selectedProgramme,
-  ]);
+    }, [classes]);
 
   /*
-   * CLEAR INVALID PROGRAMME/CLASS
+   * ============================================================
+   * AVAILABLE CLASSES
+   * ============================================================
    */
+
+  const filteredClasses =
+    useMemo(() => {
+      return classes.filter((item) => {
+        const matchesYear =
+          !item.academic_year_id ||
+          item.academic_year_id ===
+            selectedYear;
+
+        const matchesProgramme =
+          !selectedProgramme ||
+          item.programme_id ===
+            selectedProgramme;
+
+        const matchesForm =
+          !selectedForm ||
+          getFormNumber(item.level) ===
+            selectedForm;
+
+        return (
+          matchesYear &&
+          matchesProgramme &&
+          matchesForm
+        );
+      });
+    }, [
+      classes,
+      selectedYear,
+      selectedProgramme,
+      selectedForm,
+    ]);
+
+  /*
+   * ============================================================
+   * CLEAR INVALID PROGRAMME / FORM / CLASS
+   * ============================================================
+   */
+
   useEffect(() => {
     if (!selectedYear) return;
 
@@ -360,17 +485,61 @@ export default function AttendanceReportsPage() {
       )
     ) {
       setSelectedProgramme('');
+      setSelectedForm('');
+      setSelectedClass('');
+      return;
+    }
+
+    if (
+      selectedForm &&
+      !yearClasses.some(
+        (item) =>
+          getFormNumber(item.level) ===
+          selectedForm &&
+          (!selectedProgramme ||
+            item.programme_id ===
+              selectedProgramme)
+      )
+    ) {
+      setSelectedForm('');
       setSelectedClass('');
     }
   }, [
     selectedYear,
     selectedProgramme,
+    selectedForm,
     classes,
   ]);
 
   /*
-   * LOAD ATTENDANCE REPORT
+   * ============================================================
+   * CLEAR CLASS WHEN FORM / PROGRAMME CHANGES
+   * ============================================================
    */
+
+  useEffect(() => {
+    if (!selectedClass) return;
+
+    const classStillValid =
+      filteredClasses.some(
+        (item) =>
+          item.id === selectedClass
+      );
+
+    if (!classStillValid) {
+      setSelectedClass('');
+    }
+  }, [
+    filteredClasses,
+    selectedClass,
+  ]);
+
+  /*
+   * ============================================================
+   * LOAD ATTENDANCE REPORT
+   * ============================================================
+   */
+
   useEffect(() => {
     async function loadReport() {
       if (
@@ -396,6 +565,7 @@ export default function AttendanceReportsPage() {
       /*
        * ACTIVE STUDENTS IN CLASS
        */
+
       const {
         data: enrollmentData,
         error: enrollmentError,
@@ -444,6 +614,7 @@ export default function AttendanceReportsPage() {
       /*
        * STUDENTS
        */
+
       const {
         data: studentData,
         error: studentError,
@@ -464,10 +635,6 @@ export default function AttendanceReportsPage() {
           'school_id',
           schoolId
         )
-        .eq(
-          'status',
-          'active'
-        )
         .order('full_name');
 
       if (studentError) {
@@ -486,6 +653,7 @@ export default function AttendanceReportsPage() {
       /*
        * ATTENDANCE RECORDS
        */
+
       let attendanceQuery =
         supabase
           .from('attendance')
@@ -560,78 +728,85 @@ export default function AttendanceReportsPage() {
   ]);
 
   /*
+   * ============================================================
    * STUDENT REPORTS
+   * ============================================================
    */
-  const reports = useMemo(() => {
-    return students.map(
-      (student): StudentReport => {
-        const records =
-          attendance.filter(
-            (record) =>
-              record.student_id ===
-              student.id
-          );
 
-        const present =
-          records.filter(
-            (record) =>
-              record.status ===
-              'present'
-          ).length;
+  const reports =
+    useMemo(() => {
+      return students.map(
+        (student): StudentReport => {
+          const records =
+            attendance.filter(
+              (record) =>
+                record.student_id ===
+                student.id
+            );
 
-        const absent =
-          records.filter(
-            (record) =>
-              record.status ===
-              'absent'
-          ).length;
+          const present =
+            records.filter(
+              (record) =>
+                record.status ===
+                'present'
+            ).length;
 
-        const late =
-          records.filter(
-            (record) =>
-              record.status ===
-              'late'
-          ).length;
+          const absent =
+            records.filter(
+              (record) =>
+                record.status ===
+                'absent'
+            ).length;
 
-        const excused =
-          records.filter(
-            (record) =>
-              record.status ===
-              'excused'
-          ).length;
+          const late =
+            records.filter(
+              (record) =>
+                record.status ===
+                'late'
+            ).length;
 
-        const total =
-          records.length;
+          const excused =
+            records.filter(
+              (record) =>
+                record.status ===
+                'excused'
+            ).length;
 
-        const attended =
-          present + late;
+          const total =
+            records.length;
 
-        const attendancePercentage =
-          total > 0
-            ? (attended / total) * 100
-            : 0;
+          const attended =
+            present + late;
 
-        return {
-          student,
-          total,
-          present,
-          absent,
-          late,
-          excused,
-          attended,
-          percentage:
-            attendancePercentage,
-        };
-      }
-    );
-  }, [
-    students,
-    attendance,
-  ]);
+          const attendancePercentage =
+            total > 0
+              ? (attended / total) * 100
+              : 0;
+
+          return {
+            student,
+            total,
+            present,
+            absent,
+            late,
+            excused,
+            attended,
+            percentage:
+              attendancePercentage,
+          };
+        }
+      );
+    }, [
+      students,
+      attendance,
+    ]);
 
   /*
+   * ============================================================
    * SEARCH
+   * ============================================================
    */
+
   const filteredReports =
     useMemo(() => {
       const query =
@@ -658,8 +833,11 @@ export default function AttendanceReportsPage() {
     ]);
 
   /*
+   * ============================================================
    * CLASS STATISTICS
+   * ============================================================
    */
+
   const classSummary =
     useMemo(() => {
       const totalStudents =
@@ -748,8 +926,11 @@ export default function AttendanceReportsPage() {
     }, [reports]);
 
   /*
+   * ============================================================
    * SELECTED DATA
+   * ============================================================
    */
+
   const selectedYearData =
     academicYears.find(
       (year) =>
@@ -780,25 +961,32 @@ export default function AttendanceReportsPage() {
     );
 
   /*
+   * ============================================================
    * TOP STUDENTS
+   * ============================================================
    */
-  const topStudents = useMemo(() => {
-    return [...reports]
-      .filter(
-        (report) =>
-          report.total > 0
-      )
-      .sort(
-        (a, b) =>
-          b.percentage -
-          a.percentage
-      )
-      .slice(0, 5);
-  }, [reports]);
+
+  const topStudents =
+    useMemo(() => {
+      return [...reports]
+        .filter(
+          (report) =>
+            report.total > 0
+        )
+        .sort(
+          (a, b) =>
+            b.percentage -
+            a.percentage
+        )
+        .slice(0, 5);
+    }, [reports]);
 
   /*
+   * ============================================================
    * EXCEL EXPORT
+   * ============================================================
    */
+
   async function exportToExcel() {
     if (
       !selectedClass ||
@@ -831,6 +1019,18 @@ export default function AttendanceReportsPage() {
         selectedProgrammeData?.name ||
         'All Programmes';
 
+      const formName =
+        formLabel(
+          selectedForm
+        ) ||
+        formLabel(
+          getFormNumber(
+            selectedClassData?.level ||
+              null
+          )
+        ) ||
+        'All Forms';
+
       const summaryRows =
         reports.map(
           (report, index) => ({
@@ -839,6 +1039,8 @@ export default function AttendanceReportsPage() {
               report.student.full_name,
             'Admission Number':
               report.student.admission_number,
+            Form:
+              formName,
             'Days Recorded':
               report.total,
             Present:
@@ -887,6 +1089,8 @@ export default function AttendanceReportsPage() {
               'Admission Number':
                 student?.admission_number ||
                 '',
+              Form:
+                formName,
               Status:
                 statusLabel(
                   record.status
@@ -909,14 +1113,31 @@ export default function AttendanceReportsPage() {
       /*
        * SUMMARY SHEET
        */
+
       const summarySheetData = [
         ['BTI SCHOOL MANAGEMENT SYSTEM'],
         ['CLASS ATTENDANCE REPORT'],
         [],
-        ['Academic Year', yearName],
-        ['Term', termName],
-        ['Programme', programmeName],
-        ['Class', className],
+        [
+          'Academic Year',
+          yearName,
+        ],
+        [
+          'Term',
+          termName,
+        ],
+        [
+          'Programme',
+          programmeName,
+        ],
+        [
+          'Form',
+          formName,
+        ],
+        [
+          'Class',
+          className,
+        ],
         [
           'Term Start',
           selectedTermData?.start_date ||
@@ -971,6 +1192,7 @@ export default function AttendanceReportsPage() {
           'No',
           'Student Name',
           'Admission Number',
+          'Form',
           'Days Recorded',
           'Present',
           'Late',
@@ -984,6 +1206,7 @@ export default function AttendanceReportsPage() {
             row.No,
             row['Student Name'],
             row['Admission Number'],
+            row.Form,
             row['Days Recorded'],
             row.Present,
             row.Late,
@@ -1004,6 +1227,7 @@ export default function AttendanceReportsPage() {
         { wch: 8 },
         { wch: 30 },
         { wch: 20 },
+        { wch: 12 },
         { wch: 15 },
         { wch: 10 },
         { wch: 10 },
@@ -1022,6 +1246,7 @@ export default function AttendanceReportsPage() {
       /*
        * DETAILED RECORDS SHEET
        */
+
       const recordsSheet =
         XLSX.utils.json_to_sheet(
           recordRows
@@ -1032,6 +1257,7 @@ export default function AttendanceReportsPage() {
         { wch: 15 },
         { wch: 30 },
         { wch: 20 },
+        { wch: 12 },
         { wch: 15 },
         { wch: 18 },
         { wch: 18 },
@@ -1048,6 +1274,7 @@ export default function AttendanceReportsPage() {
       /*
        * SAFE FILE NAME
        */
+
       const safeClassName =
         className
           .replace(
@@ -1103,34 +1330,27 @@ export default function AttendanceReportsPage() {
   }
 
   /*
+   * ============================================================
    * LOADING SCREEN
+   * ============================================================
    */
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
-
         <div className="mx-auto max-w-7xl">
-
           <div className="mb-6 animate-pulse rounded-3xl bg-white p-6 shadow-sm">
-
             <div className="flex items-center gap-4">
-
               <div className="h-14 w-14 rounded-2xl bg-slate-200" />
 
               <div className="flex-1">
-
                 <div className="h-5 w-56 rounded bg-slate-200" />
-
                 <div className="mt-2 h-4 w-80 rounded bg-slate-100" />
-
               </div>
-
             </div>
-
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
             {[1, 2, 3, 4].map(
               (item) => (
                 <div
@@ -1139,13 +1359,10 @@ export default function AttendanceReportsPage() {
                 />
               )
             )}
-
           </div>
 
           <div className="mt-6 h-80 animate-pulse rounded-2xl bg-white shadow-sm" />
-
         </div>
-
       </div>
     );
   }
@@ -1153,7 +1370,6 @@ export default function AttendanceReportsPage() {
   return (
     <>
       <div className="min-h-screen bg-slate-50 p-4 sm:p-6 print:bg-white print:p-0">
-
         <div className="mx-auto max-w-7xl">
 
           {/* =======================================================
@@ -1277,14 +1493,15 @@ export default function AttendanceReportsPage() {
                 </h2>
 
                 <p className="text-xs text-slate-500">
-                  Choose the academic period and class to analyse.
+                  Choose the academic period, programme,
+                  form and class to analyse.
                 </p>
 
               </div>
 
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
 
               {/* Academic Year */}
               <div>
@@ -1304,6 +1521,7 @@ export default function AttendanceReportsPage() {
                         e.target.value
                       );
                       setSelectedClass('');
+                      setSelectedForm('');
                     }}
                     className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-9 text-sm font-medium text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
                   >
@@ -1402,6 +1620,7 @@ export default function AttendanceReportsPage() {
                         e.target.value
                       );
                       setSelectedClass('');
+                      setSelectedForm('');
                     }}
                     className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-9 text-sm font-medium text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
                   >
@@ -1419,6 +1638,55 @@ export default function AttendanceReportsPage() {
                           {programme.code
                             ? ` (${programme.code})`
                             : ''}
+                        </option>
+                      )
+                    )}
+
+                  </select>
+
+                  <i className="fa-solid fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400" />
+
+                </div>
+
+              </div>
+
+              {/* FORM */}
+              <div>
+
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Form
+                </label>
+
+                <div className="relative">
+
+                  <i className="fa-solid fa-layer-group pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+
+                  <select
+                    value={selectedForm}
+                    onChange={(e) => {
+                      setSelectedForm(
+                        e.target.value
+                      );
+                      setSelectedClass('');
+                    }}
+                    disabled={
+                      !selectedYear ||
+                      availableForms.length === 0
+                    }
+                    className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-9 text-sm font-medium text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+
+                    <option value="">
+                      All Forms
+                    </option>
+
+                    {availableForms.map(
+                      (form) => (
+                        <option
+                          key={form}
+                          value={form}
+                        >
+                          {formLabel(form)}
                         </option>
                       )
                     )}
@@ -1454,6 +1722,7 @@ export default function AttendanceReportsPage() {
                     }
                     className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-9 text-sm font-medium text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
+
                     <option value="">
                       Select class
                     </option>
@@ -1492,9 +1761,7 @@ export default function AttendanceReportsPage() {
 
             <div className="space-y-6">
 
-              {/* ===================================================
-                  STATISTIC CARDS
-              =================================================== */}
+              {/* STATISTIC CARDS */}
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
@@ -1686,13 +1953,10 @@ export default function AttendanceReportsPage() {
 
               </div>
 
-              {/* ===================================================
-                  MAIN ANALYTICS
-              =================================================== */}
+              {/* MAIN ANALYTICS */}
 
               <div className="grid gap-6 lg:grid-cols-3">
 
-                {/* Attendance performance */}
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
 
                   <div className="mb-6 flex items-center justify-between">
@@ -1728,208 +1992,137 @@ export default function AttendanceReportsPage() {
 
                   <div className="space-y-5">
 
-                    {/* Present */}
-                    <div>
+                    {[
+                      {
+                        label: 'Present',
+                        value:
+                          classSummary.totalPresent,
+                        percentage:
+                          classSummary.totalRecorded > 0
+                            ? (classSummary.totalPresent /
+                                classSummary.totalRecorded) *
+                              100
+                            : 0,
+                        dot: 'bg-emerald-500',
+                        bar: 'bg-emerald-500',
+                        text: 'text-emerald-700',
+                        bg: 'bg-emerald-50',
+                      },
+                      {
+                        label: 'Late',
+                        value:
+                          classSummary.totalLate,
+                        percentage:
+                          classSummary.latePercentage,
+                        dot: 'bg-amber-500',
+                        bar: 'bg-amber-500',
+                        text: 'text-amber-700',
+                        bg: 'bg-amber-50',
+                      },
+                      {
+                        label: 'Absent',
+                        value:
+                          classSummary.totalAbsent,
+                        percentage:
+                          classSummary.absentPercentage,
+                        dot: 'bg-rose-500',
+                        bar: 'bg-rose-500',
+                        text: 'text-rose-700',
+                        bg: 'bg-rose-50',
+                      },
+                      {
+                        label: 'Excused',
+                        value:
+                          classSummary.totalExcused,
+                        percentage:
+                          classSummary.excusedPercentage,
+                        dot: 'bg-sky-500',
+                        bar: 'bg-sky-500',
+                        text: 'text-sky-700',
+                        bg: 'bg-sky-50',
+                      },
+                    ].map(
+                      (item) => (
+                        <div
+                          key={item.label}
+                        >
 
-                      <div className="mb-2 flex items-center justify-between">
+                          <div className="mb-2 flex items-center justify-between">
 
-                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
 
-                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                              <span
+                                className={`h-2.5 w-2.5 rounded-full ${item.dot}`}
+                              />
 
-                          <span className="text-sm font-semibold text-slate-700">
-                            Present
-                          </span>
+                              <span className="text-sm font-semibold text-slate-700">
+                                {item.label}
+                              </span>
+
+                            </div>
+
+                            <span className="text-sm font-bold text-slate-900">
+                              {item.value}
+                            </span>
+
+                          </div>
+
+                          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+
+                            <div
+                              className={`h-full rounded-full ${item.bar} transition-all duration-1000`}
+                              style={{
+                                width: `${Math.min(
+                                  100,
+                                  item.percentage
+                                )}%`,
+                              }}
+                            />
+
+                          </div>
 
                         </div>
-
-                        <span className="text-sm font-bold text-slate-900">
-                          {classSummary.totalPresent}
-                        </span>
-
-                      </div>
-
-                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-
-                        <div
-                          className="h-full rounded-full bg-emerald-500 transition-all duration-1000"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              classSummary.totalRecorded > 0
-                                ? (classSummary.totalPresent /
-                                    classSummary.totalRecorded) *
-                                    100
-                                : 0
-                            )}%`,
-                          }}
-                        />
-
-                      </div>
-
-                    </div>
-
-                    {/* Late */}
-                    <div>
-
-                      <div className="mb-2 flex items-center justify-between">
-
-                        <div className="flex items-center gap-2">
-
-                          <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-
-                          <span className="text-sm font-semibold text-slate-700">
-                            Late
-                          </span>
-
-                        </div>
-
-                        <span className="text-sm font-bold text-slate-900">
-                          {classSummary.totalLate}
-                        </span>
-
-                      </div>
-
-                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-
-                        <div
-                          className="h-full rounded-full bg-amber-500 transition-all duration-1000"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              classSummary.latePercentage
-                            )}%`,
-                          }}
-                        />
-
-                      </div>
-
-                    </div>
-
-                    {/* Absent */}
-                    <div>
-
-                      <div className="mb-2 flex items-center justify-between">
-
-                        <div className="flex items-center gap-2">
-
-                          <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
-
-                          <span className="text-sm font-semibold text-slate-700">
-                            Absent
-                          </span>
-
-                        </div>
-
-                        <span className="text-sm font-bold text-slate-900">
-                          {classSummary.totalAbsent}
-                        </span>
-
-                      </div>
-
-                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-
-                        <div
-                          className="h-full rounded-full bg-rose-500 transition-all duration-1000"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              classSummary.absentPercentage
-                            )}%`,
-                          }}
-                        />
-
-                      </div>
-
-                    </div>
-
-                    {/* Excused */}
-                    <div>
-
-                      <div className="mb-2 flex items-center justify-between">
-
-                        <div className="flex items-center gap-2">
-
-                          <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
-
-                          <span className="text-sm font-semibold text-slate-700">
-                            Excused
-                          </span>
-
-                        </div>
-
-                        <span className="text-sm font-bold text-slate-900">
-                          {classSummary.totalExcused}
-                        </span>
-
-                      </div>
-
-                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-
-                        <div
-                          className="h-full rounded-full bg-sky-500 transition-all duration-1000"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              classSummary.excusedPercentage
-                            )}%`,
-                          }}
-                        />
-
-                      </div>
-
-                    </div>
+                      )
+                    )}
 
                   </div>
 
                   <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
 
                     <div className="rounded-xl bg-emerald-50 p-3">
-
                       <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">
                         Present
                       </p>
-
                       <p className="mt-1 text-lg font-black text-emerald-700">
                         {classSummary.totalPresent}
                       </p>
-
                     </div>
 
                     <div className="rounded-xl bg-amber-50 p-3">
-
                       <p className="text-[10px] font-bold uppercase tracking-wide text-amber-600">
                         Late
                       </p>
-
                       <p className="mt-1 text-lg font-black text-amber-700">
                         {classSummary.totalLate}
                       </p>
-
                     </div>
 
                     <div className="rounded-xl bg-rose-50 p-3">
-
                       <p className="text-[10px] font-bold uppercase tracking-wide text-rose-600">
                         Absent
                       </p>
-
                       <p className="mt-1 text-lg font-black text-rose-700">
                         {classSummary.totalAbsent}
                       </p>
-
                     </div>
 
                     <div className="rounded-xl bg-sky-50 p-3">
-
                       <p className="text-[10px] font-bold uppercase tracking-wide text-sky-600">
                         Excused
                       </p>
-
                       <p className="mt-1 text-lg font-black text-sky-700">
                         {classSummary.totalExcused}
                       </p>
-
                     </div>
 
                   </div>
@@ -1937,18 +2130,16 @@ export default function AttendanceReportsPage() {
                 </div>
 
                 {/* Overall attendance gauge */}
+
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
 
                   <div className="flex items-center gap-3">
 
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
-
                       <i className="fa-solid fa-gauge-high" />
-
                     </div>
 
                     <div>
-
                       <h2 className="font-bold text-slate-900">
                         Overall Attendance
                       </h2>
@@ -1956,7 +2147,6 @@ export default function AttendanceReportsPage() {
                       <p className="text-xs text-slate-500">
                         Class performance
                       </p>
-
                     </div>
 
                   </div>
@@ -1968,10 +2158,12 @@ export default function AttendanceReportsPage() {
                       style={{
                         background: `conic-gradient(
                           rgb(124 58 237)
-                          ${Math.min(
-                            100,
-                            classSummary.overallPercentage
-                          ) * 3.6}deg,
+                          ${
+                            Math.min(
+                              100,
+                              classSummary.overallPercentage
+                            ) * 3.6
+                          }deg,
                           rgb(241 245 249)
                           0deg
                         )`,
@@ -2018,25 +2210,19 @@ export default function AttendanceReportsPage() {
 
               </div>
 
-              {/* ===================================================
-                  CLASS INFORMATION + TOP ATTENDANCE
-              =================================================== */}
+              {/* CLASS INFORMATION + TOP ATTENDANCE */}
 
               <div className="grid gap-6 lg:grid-cols-3">
 
-                {/* Class information */}
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
 
                   <div className="flex items-center gap-3">
 
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-
                       <i className="fa-solid fa-school" />
-
                     </div>
 
                     <div>
-
                       <h2 className="font-bold text-slate-900">
                         Report Information
                       </h2>
@@ -2044,7 +2230,6 @@ export default function AttendanceReportsPage() {
                       <p className="text-xs text-slate-500">
                         Current report scope
                       </p>
-
                     </div>
 
                   </div>
@@ -2052,7 +2237,6 @@ export default function AttendanceReportsPage() {
                   <div className="mt-6 space-y-4">
 
                     <div className="flex items-start justify-between gap-4">
-
                       <span className="text-xs font-medium text-slate-400">
                         Academic Year
                       </span>
@@ -2061,11 +2245,9 @@ export default function AttendanceReportsPage() {
                         {selectedYearData?.name ||
                           '—'}
                       </span>
-
                     </div>
 
                     <div className="flex items-start justify-between gap-4">
-
                       <span className="text-xs font-medium text-slate-400">
                         Term
                       </span>
@@ -2074,11 +2256,9 @@ export default function AttendanceReportsPage() {
                         {selectedTermData?.name ||
                           '—'}
                       </span>
-
                     </div>
 
                     <div className="flex items-start justify-between gap-4">
-
                       <span className="text-xs font-medium text-slate-400">
                         Programme
                       </span>
@@ -2087,11 +2267,28 @@ export default function AttendanceReportsPage() {
                         {selectedProgrammeData?.name ||
                           'All Programmes'}
                       </span>
-
                     </div>
 
                     <div className="flex items-start justify-between gap-4">
+                      <span className="text-xs font-medium text-slate-400">
+                        Form
+                      </span>
 
+                      <span className="text-right text-sm font-bold text-slate-800">
+                        {formLabel(
+                          selectedForm
+                        ) ||
+                          formLabel(
+                            getFormNumber(
+                              selectedClassData?.level ||
+                                null
+                            )
+                          ) ||
+                          'All Forms'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4">
                       <span className="text-xs font-medium text-slate-400">
                         Class
                       </span>
@@ -2100,11 +2297,9 @@ export default function AttendanceReportsPage() {
                         {selectedClassData?.name ||
                           '—'}
                       </span>
-
                     </div>
 
                     <div className="flex items-start justify-between gap-4">
-
                       <span className="text-xs font-medium text-slate-400">
                         Term Period
                       </span>
@@ -2120,14 +2315,14 @@ export default function AttendanceReportsPage() {
                             null
                         )}
                       </span>
-
                     </div>
 
                   </div>
 
                 </div>
 
-                {/* Top students */}
+                {/* TOP STUDENTS */}
+
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
 
                   <div className="flex items-center justify-between">
@@ -2135,9 +2330,7 @@ export default function AttendanceReportsPage() {
                     <div className="flex items-center gap-3">
 
                       <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-
                         <i className="fa-solid fa-trophy" />
-
                       </div>
 
                       <div>
@@ -2262,9 +2455,7 @@ export default function AttendanceReportsPage() {
 
               </div>
 
-              {/* ===================================================
-                  STUDENT SEARCH + TABLE
-              =================================================== */}
+              {/* STUDENT SEARCH + TABLE */}
 
               <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
 
@@ -2275,9 +2466,7 @@ export default function AttendanceReportsPage() {
                     <div className="flex items-center gap-3">
 
                       <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
-
                         <i className="fa-solid fa-list-check" />
-
                       </div>
 
                       <div>
@@ -2321,9 +2510,7 @@ export default function AttendanceReportsPage() {
                   <div className="p-12 text-center">
 
                     <div className="mx-auto flex h-14 w-14 animate-pulse items-center justify-center rounded-2xl bg-blue-50 text-blue-500">
-
                       <i className="fa-solid fa-chart-line text-xl" />
-
                     </div>
 
                     <p className="mt-4 text-sm font-semibold text-slate-700">
@@ -2341,9 +2528,7 @@ export default function AttendanceReportsPage() {
                   <div className="p-12 text-center">
 
                     <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-
                       <i className="fa-solid fa-chart-simple text-2xl" />
-
                     </div>
 
                     <p className="mt-4 font-bold text-slate-700">
@@ -2361,9 +2546,7 @@ export default function AttendanceReportsPage() {
                   <div className="p-12 text-center">
 
                     <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-
                       <i className="fa-solid fa-user-slash text-xl" />
-
                     </div>
 
                     <p className="mt-4 font-bold text-slate-700">
@@ -2496,35 +2679,27 @@ export default function AttendanceReportsPage() {
                               </td>
 
                               <td className="px-4 py-4 text-center">
-
                                 <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg bg-emerald-50 px-2 py-1 font-bold text-emerald-700">
                                   {report.present}
                                 </span>
-
                               </td>
 
                               <td className="px-4 py-4 text-center">
-
                                 <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg bg-amber-50 px-2 py-1 font-bold text-amber-700">
                                   {report.late}
                                 </span>
-
                               </td>
 
                               <td className="px-4 py-4 text-center">
-
                                 <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg bg-rose-50 px-2 py-1 font-bold text-rose-700">
                                   {report.absent}
                                 </span>
-
                               </td>
 
                               <td className="px-4 py-4 text-center">
-
                                 <span className="inline-flex min-w-[36px] items-center justify-center rounded-lg bg-sky-50 px-2 py-1 font-bold text-sky-700">
                                   {report.excused}
                                 </span>
-
                               </td>
 
                               <td className="px-4 py-4 text-center font-black text-slate-800">
@@ -2638,9 +2813,7 @@ export default function AttendanceReportsPage() {
 
               </div>
 
-              {/* ===================================================
-                  REPORT FOOTER
-              =================================================== */}
+              {/* REPORT FOOTER */}
 
               <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
 
@@ -2651,9 +2824,7 @@ export default function AttendanceReportsPage() {
                     <div className="flex items-center gap-3">
 
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-
                         <i className="fa-solid fa-calendar-check" />
-
                       </div>
 
                       <div>
@@ -2678,9 +2849,7 @@ export default function AttendanceReportsPage() {
                     <div className="flex items-center gap-3">
 
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-
                         <i className="fa-solid fa-database" />
-
                       </div>
 
                       <div>
@@ -2704,9 +2873,7 @@ export default function AttendanceReportsPage() {
                     <div className="flex items-center gap-3">
 
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
-
                         <i className="fa-solid fa-chart-line" />
-
                       </div>
 
                       <div>
@@ -2752,9 +2919,7 @@ export default function AttendanceReportsPage() {
 
           ) : (
 
-            /* =====================================================
-               NO CLASS SELECTED
-            ===================================================== */
+            /* NO CLASS SELECTED */
 
             <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
 
@@ -2775,7 +2940,9 @@ export default function AttendanceReportsPage() {
                   </h2>
 
                   <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-                    Select an academic year, term, programme and class above to view detailed attendance statistics and student performance.
+                    Select an academic year, term, programme,
+                    form and class above to view detailed
+                    attendance statistics and student performance.
                   </p>
 
                   <div className="mx-auto mt-7 flex max-w-xl flex-wrap justify-center gap-2">
@@ -2811,6 +2978,7 @@ export default function AttendanceReportsPage() {
           )}
 
           {/* ERROR / MESSAGE */}
+
           {message && (
 
             <div className="mt-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 print:hidden">
@@ -2826,7 +2994,6 @@ export default function AttendanceReportsPage() {
           )}
 
         </div>
-
       </div>
 
       {/* =========================================================
@@ -2883,7 +3050,7 @@ export default function AttendanceReportsPage() {
             background: white !important;
           }
 
-          .print\\:hidden {
+          .print\\\\:hidden {
             display: none !important;
           }
 
