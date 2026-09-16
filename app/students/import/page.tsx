@@ -129,7 +129,7 @@ function excelDateToString(value: unknown): string {
   if (!text) return '';
 
   const slashMatch = text.match(
-    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+    /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/
   );
 
   if (slashMatch) {
@@ -191,18 +191,17 @@ export default function StudentImportPage() {
   const supabase = createClient();
 
   const [rows, setRows] = useState<ImportRow[]>([]);
-  const [programmes, setProgrammes] = useState<
-    Programme[]
-  >([]);
+  const [programmes, setProgrammes] =
+    useState<Programme[]>([]);
   const [academicYears, setAcademicYears] =
     useState<AcademicYear[]>([]);
-  const [classes, setClasses] = useState<
-    SchoolClass[]
-  >([]);
+  const [classes, setClasses] =
+    useState<SchoolClass[]>([]);
 
   const [academicYearId, setAcademicYearId] =
     useState('');
-  const [schoolId, setSchoolId] = useState('');
+  const [schoolId, setSchoolId] =
+    useState('');
 
   const [loadingData, setLoadingData] =
     useState(true);
@@ -211,9 +210,8 @@ export default function StudentImportPage() {
 
   const [message, setMessage] =
     useState('');
-  const [errors, setErrors] = useState<
-    ResultMessage[]
-  >([]);
+  const [errors, setErrors] =
+    useState<ResultMessage[]>([]);
   const [fileName, setFileName] =
     useState('');
 
@@ -222,17 +220,18 @@ export default function StudentImportPage() {
   const [progressPercent, setProgressPercent] =
     useState(0);
 
-  const selectedAcademicYear = useMemo(
-    () =>
-      academicYears.find(
-        (year) =>
-          year.id === academicYearId
-      ),
-    [
-      academicYears,
-      academicYearId,
-    ]
-  );
+  const selectedAcademicYear =
+    useMemo(
+      () =>
+        academicYears.find(
+          (year) =>
+            year.id === academicYearId
+        ),
+      [
+        academicYears,
+        academicYearId,
+      ]
+    );
 
   const successResults = useMemo(
     () =>
@@ -386,11 +385,9 @@ export default function StudentImportPage() {
     setProgrammes(
       loadedProgrammes
     );
-
     setAcademicYears(
       loadedYears
     );
-
     setClasses(
       loadedClasses
     );
@@ -421,13 +418,15 @@ export default function StudentImportPage() {
   function downloadTemplate() {
     const sample = [
       {
-        'FULL NAME': 'John Mensah',
+        'FULL NAME':
+          'John Mensah',
         FORM: 'Form 1',
         PROGRAMME:
           'Electrical Engineering',
         CLASS: 'A Class',
         GENDER: 'Male',
-        RESIDENCE: 'Boarding',
+        RESIDENCE:
+          'Boarding',
         'DATE OF BIRTH':
           '2010-05-12',
         'GUARDIAN NAME':
@@ -437,7 +436,8 @@ export default function StudentImportPage() {
         ADDRESS: 'Accra',
         'ADMISSION DATE':
           '2026-09-01',
-        'JHS AGGREGATE': '18',
+        'JHS AGGREGATE':
+          '18',
       },
     ];
 
@@ -593,8 +593,8 @@ export default function StudentImportPage() {
       );
       setProgressPercent(10);
 
-      const validationResults: ResultMessage[] =
-        [];
+      const validationResults:
+        ResultMessage[] = [];
 
       const validRows: Array<
         ImportRow & {
@@ -618,12 +618,14 @@ export default function StudentImportPage() {
             );
 
           if (!fullName) {
-            validationResults.push({
-              row: rowNumber,
-              type: 'error',
-              message:
-                'FULL NAME is required.',
-            });
+            validationResults.push(
+              {
+                row: rowNumber,
+                type: 'error',
+                message:
+                  'FULL NAME is required.',
+              }
+            );
 
             return;
           }
@@ -632,12 +634,14 @@ export default function StudentImportPage() {
             row.resident &&
             !residence
           ) {
-            validationResults.push({
-              row: rowNumber,
-              type: 'error',
-              message:
-                'RESIDENCE must be Day or Boarding.',
-            });
+            validationResults.push(
+              {
+                row: rowNumber,
+                type: 'error',
+                message:
+                  'RESIDENCE must be Day or Boarding.',
+              }
+            );
 
             return;
           }
@@ -662,12 +666,14 @@ export default function StudentImportPage() {
                 aggregate
               )
             ) {
-              validationResults.push({
-                row: rowNumber,
-                type: 'error',
-                message:
-                  'JHS AGGREGATE must be a valid number.',
-              });
+              validationResults.push(
+                {
+                  row: rowNumber,
+                  type: 'error',
+                  message:
+                    'JHS AGGREGATE must be a valid number.',
+                }
+              );
 
               return;
             }
@@ -754,15 +760,17 @@ export default function StudentImportPage() {
               )?.full_name ||
               'Unknown student';
 
-            validationResults.push({
-              row:
-                rowNumbers[0],
-              type: 'warning',
-              message:
-                `Duplicate student name detected: "${duplicateName}". Excel rows ${rowNumbers.join(
-                  ', '
-                )} contain the same name. These rows were not imported automatically because the system cannot safely determine whether they represent one student or different students.`,
-            });
+            validationResults.push(
+              {
+                row:
+                  rowNumbers[0],
+                type: 'warning',
+                message:
+                  `Duplicate student name detected: "${duplicateName}". Excel rows ${rowNumbers.join(
+                    ', '
+                  )} contain the same name. These rows were not imported automatically because the system cannot safely determine whether they represent one student or different students.`,
+              }
+            );
           }
         }
       );
@@ -853,170 +861,57 @@ export default function StudentImportPage() {
         );
 
       // -------------------------------------------------------
-      // STEP 4 — BATCHED BULK SUPABASE IMPORT
+      // STEP 4 — BULK SUPABASE IMPORT
       // -------------------------------------------------------
 
-      /*
-       * IMPORTANT:
-       * We keep using the existing secure
-       * bulk_import_students RPC.
-       *
-       * Instead of sending hundreds of records
-       * in one request, we send 50 at a time.
-       */
-      const BATCH_SIZE = 50;
+      setImportProgress(
+        `Importing and assigning ${payload.length} student record(s)...`
+      );
+      setProgressPercent(45);
 
-      const totalBatches =
-        Math.ceil(
-          payload.length /
-            BATCH_SIZE
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
+        'bulk_import_students',
+        {
+          p_school_id:
+            schoolId,
+          p_academic_year_id:
+            academicYearId,
+          p_rows:
+            payload,
+        }
+      );
+
+      if (error) {
+        console.error(
+          'Bulk student import error:',
+          error
         );
 
-      const allDatabaseResults: BulkResult[] =
-        [];
+        setImportProgress('');
+        setProgressPercent(0);
 
-      const batchErrors: ResultMessage[] =
-        [];
-
-      for (
-        let batchIndex = 0;
-        batchIndex < totalBatches;
-        batchIndex++
-      ) {
-        const start =
-          batchIndex *
-          BATCH_SIZE;
-
-        const end =
-          Math.min(
-            start +
-              BATCH_SIZE,
-            payload.length
-          );
-
-        const batch =
-          payload.slice(
-            start,
-            end
-          );
-
-        const batchNumber =
-          batchIndex + 1;
-
-        const completedBefore =
-          start;
-
-        const batchProgress =
-          completedBefore /
-          payload.length;
-
-        const progress =
-          Math.round(
-            30 +
-              batchProgress *
-                60
-          );
-
-        setImportProgress(
-          `Processing batch ${batchNumber} of ${totalBatches} (${batch.length} student record(s))...`
+        setMessage(
+          `Bulk import failed: ${
+            error.message ||
+            'Unknown Supabase error.'
+          }`
         );
 
-        setProgressPercent(
-          progress
-        );
-
-        try {
-          const {
-            data,
-            error,
-          } =
-            await supabase.rpc(
-              'bulk_import_students',
-              {
-                p_school_id:
-                  schoolId,
-                p_academic_year_id:
-                  academicYearId,
-                p_rows:
-                  batch,
-              }
-            );
-
-          if (error) {
-            console.error(
-              `Bulk student import error in batch ${batchNumber}:`,
-              error
-            );
-
-            batchErrors.push({
-              row: 0,
-              type: 'error',
-              message:
-                `Batch ${batchNumber} failed: ${
-                  error.message ||
-                  'Unknown Supabase error.'
-                }`,
-            });
-
-            /*
-             * Continue with the next batch.
-             * This means one failed batch does not
-             * stop the entire import unnecessarily.
-             */
-            continue;
-          }
-
-          const databaseResults: BulkResult[] =
-            Array.isArray(data)
-              ? data
-              : [];
-
-          allDatabaseResults.push(
-            ...databaseResults
-          );
-        } catch (batchError: any) {
-          console.error(
-            `Unexpected error in batch ${batchNumber}:`,
-            batchError
-          );
-
-          batchErrors.push({
+        setErrors([
+          ...validationResults,
+          {
             row: 0,
             type: 'error',
             message:
-              `Batch ${batchNumber} failed unexpectedly: ${
-                batchError?.message ||
-                'Please try again.'
-              }`,
-          });
+              error.message ||
+              'The bulk student import could not be completed.',
+          },
+        ]);
 
-          continue;
-        }
-
-        /*
-         * Update progress after the batch finishes.
-         */
-        const completed =
-          Math.min(
-            end,
-            payload.length
-          );
-
-        const completionPercent =
-          Math.round(
-            30 +
-              (completed /
-                payload.length) *
-                60
-          );
-
-        setProgressPercent(
-          completionPercent
-        );
-
-        setImportProgress(
-          `Completed ${completed} of ${payload.length} student record(s)...`
-        );
+        return;
       }
 
       // -------------------------------------------------------
@@ -1026,15 +921,20 @@ export default function StudentImportPage() {
       setImportProgress(
         'Processing import and assignment results...'
       );
-      setProgressPercent(92);
+      setProgressPercent(75);
 
-      const resultMessages: ResultMessage[] =
-        [
-          ...validationResults,
-          ...batchErrors,
-        ];
+      const databaseResults:
+        BulkResult[] =
+        Array.isArray(data)
+          ? data
+          : [];
 
-      allDatabaseResults.forEach(
+      const resultMessages:
+        ResultMessage[] = [
+        ...validationResults,
+      ];
+
+      databaseResults.forEach(
         (result) => {
           let resultType:
             | 'success'
@@ -1049,9 +949,9 @@ export default function StudentImportPage() {
               'success';
           } else if (
             result.status ===
-              'partial' ||
+            'partial' ||
             result.status ===
-              'skipped'
+            'skipped'
           ) {
             resultType =
               'warning';
@@ -1085,24 +985,6 @@ export default function StudentImportPage() {
         }
       );
 
-      /*
-       * Sort row results so the Excel rows remain
-       * in their natural order.
-       */
-      resultMessages.sort(
-        (a, b) => {
-          if (a.row === 0) {
-            return 1;
-          }
-
-          if (b.row === 0) {
-            return -1;
-          }
-
-          return a.row - b.row;
-        }
-      );
-
       setErrors(
         resultMessages
       );
@@ -1112,21 +994,21 @@ export default function StudentImportPage() {
       // -------------------------------------------------------
 
       const successful =
-        allDatabaseResults.filter(
+        databaseResults.filter(
           (item) =>
             item.status ===
             'success'
         );
 
       const partial =
-        allDatabaseResults.filter(
+        databaseResults.filter(
           (item) =>
             item.status ===
             'partial'
         );
 
       const skipped =
-        allDatabaseResults.filter(
+        databaseResults.filter(
           (item) =>
             item.status ===
               'skipped' ||
@@ -1183,7 +1065,7 @@ export default function StudentImportPage() {
       setImportProgress(
         'Refreshing BTI-SMS student and class data...'
       );
-      setProgressPercent(96);
+      setProgressPercent(90);
 
       await loadData();
 
@@ -1193,22 +1075,12 @@ export default function StudentImportPage() {
 
       setProgressPercent(100);
 
-      const failedBatches =
-        batchErrors.length;
-
-      if (
-        failedBatches > 0
-      ) {
-        setMessage(
-          `Import completed with some batch errors: ${newStudents} new student(s), ${existingStudents} existing student(s) updated, ${assignedStudents} student(s) assigned, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) processed, ${newClasses} class(es) created, ${partial.length} partial record(s), ${skipped.length} skipped/failed row(s), and ${failedBatches} batch(es) requiring attention.`
-        );
-      } else {
-        setMessage(
-          `Import complete: ${newStudents} new student(s), ${existingStudents} existing student(s) updated, ${assignedStudents} student(s) assigned, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) processed, ${newClasses} class(es) created, ${partial.length} partial record(s), and ${skipped.length} skipped/failed row(s).`
-        );
-      }
+      setMessage(
+        `Import complete: ${newStudents} new student(s), ${existingStudents} existing student(s) updated, ${assignedStudents} student(s) assigned, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) processed, ${newClasses} class(es) created, ${partial.length} partial record(s), and ${skipped.length} skipped/failed row(s).`
+      );
 
       setImportProgress('');
+
     } catch (error: any) {
       console.error(
         'Unexpected bulk import error:',
@@ -1243,768 +1115,1108 @@ export default function StudentImportPage() {
   }
 
   return (
-    <main>
-      <div className="mb-8">
-        <a
-          href="/students"
-          className="group inline-flex items-center gap-2 text-sm font-bold text-blue-600 transition-all duration-200 hover:-translate-x-1 hover:text-blue-700"
-        >
-          <i className="fa-solid fa-arrow-left transition-transform duration-200 group-hover:-translate-x-1" />
-          Back to Students
-        </a>
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-4 md:p-8">
+      <div className="mx-auto max-w-7xl">
 
-        <div className="mt-5 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="mb-3 inline-flex animate-pulse items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-blue-700">
-              <i className="fa-solid fa-bolt" />
-              Fast Bulk Processing
-            </div>
+        {/* =====================================================
+            HEADER
+        ====================================================== */}
 
-            <h1 className="text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
-              Bulk Student Import
-            </h1>
+        <div className="mb-8">
 
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 md:text-base">
-              Import, register and assign large
-              numbers of students into BTI-SMS
-              through one fast, secure bulk process.
-            </p>
-          </div>
+          <a
+            href="/students"
+            className="group inline-flex items-center gap-2 text-sm font-bold text-blue-600 transition-all duration-200 hover:-translate-x-1 hover:text-blue-700"
+          >
+            <i className="fa-solid fa-arrow-left transition-transform duration-200 group-hover:-translate-x-1" />
+            Back to Students
+          </a>
 
-          <div className="rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-slate-200 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 animate-[pulse_2s_ease-in-out_infinite] items-center justify-center rounded-xl bg-blue-100 text-blue-600">
-                <i className="fa-solid fa-users-rectangle text-lg" />
+          <div className="mt-5 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+
+            <div>
+
+              <div className="mb-3 inline-flex animate-pulse items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-blue-700">
+                <i className="fa-solid fa-bolt" />
+                Fast Bulk Processing
               </div>
 
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                  Import fields
-                </p>
+              <h1 className="text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+                Bulk Student Import
+              </h1>
 
-                <p className="text-xl font-black text-slate-900">
-                  {headers.length}
-                </p>
-              </div>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 md:text-base">
+                Import, register and assign large
+                numbers of students into BTI-SMS
+                through one fast, secure bulk process.
+              </p>
+
             </div>
+
+            <div className="rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-slate-200 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+
+              <div className="flex items-center gap-3">
+
+                <div className="flex h-12 w-12 animate-[pulse_2s_ease-in-out_infinite] items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                  <i className="fa-solid fa-users-rectangle text-lg" />
+                </div>
+
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                    Import fields
+                  </p>
+
+                  <p className="text-xl font-black text-slate-900">
+                    {headers.length}
+                  </p>
+                </div>
+
+              </div>
+
+            </div>
+
           </div>
+
         </div>
-      </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200 transition duration-300 hover:shadow-xl lg:col-span-1">
-          <div className="bg-gradient-to-r from-slate-950 to-slate-800 p-5 text-white">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
-                <i className="fa-solid fa-file-excel text-lg" />
-              </div>
+        {/* =====================================================
+            MAIN GRID
+        ====================================================== */}
 
-              <div>
-                <p className="text-xs font-black uppercase tracking-wider text-slate-300">
-                  Step 1
-                </p>
+        <div className="grid gap-6 lg:grid-cols-3">
 
-                <h2 className="text-lg font-black">
-                  Download Template
-                </h2>
-              </div>
-            </div>
-          </div>
+          {/* ===================================================
+              TEMPLATE CARD
+          ==================================================== */}
 
-          <div className="p-5">
-            <p className="text-sm leading-6 text-slate-600">
-              Use the official BTI-SMS template
-              so that your Excel columns match the
-              importer correctly.
-            </p>
+          <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200 transition duration-300 hover:shadow-xl lg:col-span-1">
 
-            <button
-              type="button"
-              onClick={downloadTemplate}
-              disabled={importing}
-              className="group mt-5 flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-900 px-4 py-3.5 text-sm font-black text-white shadow-sm transition duration-300 hover:-translate-y-1 hover:bg-slate-800 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <i className="fa-solid fa-download transition-transform duration-300 group-hover:translate-y-0.5" />
-              Download Excel Template
-            </button>
+            <div className="bg-gradient-to-r from-slate-950 to-slate-800 p-5 text-white">
 
-            <div className="mt-7">
-              <div className="flex items-center justify-between">
-                <h3 className="font-black text-slate-900">
-                  Excel fields
-                </h3>
+              <div className="flex items-center gap-3">
 
-                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">
-                  {headers.length} columns
-                </span>
-              </div>
-
-              <div className="mt-3 space-y-1.5">
-                {headers.map(
-                  (
-                    header,
-                    index
-                  ) => (
-                    <div
-                      key={header}
-                      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition duration-200 hover:translate-x-1 ${
-                        header ===
-                        'RESIDENCE'
-                          ? 'bg-blue-50 font-bold text-blue-800 ring-1 ring-blue-200'
-                          : 'text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black text-slate-500">
-                        {index + 1}
-                      </span>
-
-                      <span className="flex-1">
-                        {header}
-                      </span>
-
-                      {header ===
-                        'RESIDENCE' && (
-                        <i className="fa-solid fa-circle-check text-blue-600" />
-                      )}
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-md">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
-                  <i className="fa-solid fa-house-user" />
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
+                  <i className="fa-solid fa-file-excel text-lg" />
                 </div>
 
                 <div>
-                  <p className="font-black text-blue-900">
-                    Residence is included
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-300">
+                    Step 1
                   </p>
 
-                  <p className="mt-1 text-xs leading-5 text-blue-800">
-                    Enter either{' '}
-                    <strong>Day</strong>{' '}
-                    or{' '}
-                    <strong>Boarding</strong>.
-                  </p>
+                  <h2 className="text-lg font-black">
+                    Download Template
+                  </h2>
                 </div>
+
               </div>
+
             </div>
 
-            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="flex gap-3">
-                <i className="fa-solid fa-gauge-high mt-0.5 text-emerald-600" />
+            <div className="p-5">
+
+              <p className="text-sm leading-6 text-slate-600">
+                Use the official BTI-SMS template
+                so that your Excel columns match the
+                importer correctly.
+              </p>
+
+              <button
+                type="button"
+                onClick={
+                  downloadTemplate
+                }
+                disabled={
+                  importing
+                }
+                className="group mt-5 flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-900 px-4 py-3.5 text-sm font-black text-white shadow-sm transition duration-300 hover:-translate-y-1 hover:bg-slate-800 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <i className="fa-solid fa-download transition-transform duration-300 group-hover:translate-y-0.5" />
+                Download Excel Template
+              </button>
+
+              {/* FIELD LIST */}
+
+              <div className="mt-7">
+
+                <div className="flex items-center justify-between">
+
+                  <h3 className="font-black text-slate-900">
+                    Excel fields
+                  </h3>
+
+                  <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">
+                    {headers.length} columns
+                  </span>
+
+                </div>
+
+                <div className="mt-3 space-y-1.5">
+
+                  {headers.map(
+                    (
+                      header,
+                      index
+                    ) => (
+                      <div
+                        key={
+                          header
+                        }
+                        className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition duration-200 hover:translate-x-1 ${
+                          header ===
+                          'RESIDENCE'
+                            ? 'bg-blue-50 font-bold text-blue-800 ring-1 ring-blue-200'
+                            : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black text-slate-500">
+                          {index +
+                            1}
+                        </span>
+
+                        <span className="flex-1">
+                          {header}
+                        </span>
+
+                        {header ===
+                          'RESIDENCE' && (
+                          <i className="fa-solid fa-circle-check text-blue-600" />
+                        )}
+
+                      </div>
+                    )
+                  )}
+
+                </div>
+
+              </div>
+
+              {/* RESIDENCE */}
+
+              <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-md">
+
+                <div className="flex items-start gap-3">
+
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+                    <i className="fa-solid fa-house-user" />
+                  </div>
+
+                  <div>
+
+                    <p className="font-black text-blue-900">
+                      Residence is included
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-blue-800">
+                      Enter either{' '}
+                      <strong>
+                        Day
+                      </strong>{' '}
+                      or{' '}
+                      <strong>
+                        Boarding
+                      </strong>
+                      .
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* SPEED NOTICE */}
+
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+
+                <div className="flex gap-3">
+
+                  <i className="fa-solid fa-gauge-high mt-0.5 text-emerald-600" />
+
+                  <div>
+
+                    <p className="font-black text-emerald-900">
+                      Faster bulk processing
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-emerald-800">
+                      BTI-SMS processes the import as
+                      a bulk operation instead of making
+                      separate database requests for
+                      every student.
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* ASSIGNMENT NOTICE */}
+
+              <div className="mt-4 rounded-2xl border border-purple-200 bg-purple-50 p-4">
+
+                <div className="flex gap-3">
+
+                  <i className="fa-solid fa-user-check mt-0.5 text-purple-600" />
+
+                  <div>
+
+                    <p className="font-black text-purple-900">
+                      Automatic class assignment
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-purple-800">
+                      FORM + PROGRAMME + CLASS are
+                      used to place the student into the
+                      correct class and create/update the
+                      enrollment automatically.
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* ===================================================
+              UPLOAD CARD
+          ==================================================== */}
+
+          <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200 transition duration-300 hover:shadow-xl lg:col-span-2">
+
+            <div className="border-b border-slate-200 bg-white p-5">
+
+              <div className="flex items-center gap-3">
+
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                  <i className="fa-solid fa-cloud-arrow-up text-lg" />
+                </div>
 
                 <div>
-                  <p className="font-black text-emerald-900">
-                    Faster bulk processing
-                  </p>
 
-                  <p className="mt-1 text-xs leading-5 text-emerald-800">
-                    BTI-SMS processes the import in
-                    secure batches instead of making
-                    separate database requests for
-                    every student.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-purple-200 bg-purple-50 p-4">
-              <div className="flex gap-3">
-                <i className="fa-solid fa-user-check mt-0.5 text-purple-600" />
-
-                <div>
-                  <p className="font-black text-purple-900">
-                    Automatic class assignment
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-purple-800">
-                    FORM + PROGRAMME + CLASS are
-                    used to place the student into the
-                    correct class and create/update the
-                    enrollment automatically.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200 transition duration-300 hover:shadow-xl lg:col-span-2">
-          <div className="border-b border-slate-200 bg-white p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
-                <i className="fa-solid fa-cloud-arrow-up text-lg" />
-              </div>
-
-              <div>
-                <p className="text-xs font-black uppercase tracking-wider text-blue-600">
-                  Step 2
-                </p>
-
-                <h2 className="text-lg font-black text-slate-900">
-                  Select Academic Year
-                </h2>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-5">
-            <select
-              value={academicYearId}
-              onChange={(event) =>
-                setAcademicYearId(
-                  event.target.value
-                )
-              }
-              disabled={
-                loadingData ||
-                importing
-              }
-              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-bold text-slate-800 outline-none transition duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100"
-            >
-              <option value="">
-                {loadingData
-                  ? 'Loading academic years...'
-                  : 'Select academic year'}
-              </option>
-
-              {academicYears.map(
-                (year) => (
-                  <option
-                    key={year.id}
-                    value={year.id}
-                  >
-                    {year.name}
-                  </option>
-                )
-              )}
-            </select>
-
-            {selectedAcademicYear && (
-              <div className="mt-3 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
-                <i className="fa-solid fa-calendar-check text-blue-600" />
-
-                Students will be enrolled against{' '}
-
-                <strong className="text-slate-900">
-                  {selectedAcademicYear.name}
-                </strong>
-              </div>
-            )}
-
-            <div className="mt-8">
-              <div className="mb-3 flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
-                  <i className="fa-solid fa-file-arrow-up" />
-                </div>
-
-                <div>
                   <p className="text-xs font-black uppercase tracking-wider text-blue-600">
-                    Step 3
+                    Step 2
                   </p>
 
                   <h2 className="text-lg font-black text-slate-900">
-                    Upload Excel File
+                    Select Academic Year
                   </h2>
+
                 </div>
+
               </div>
 
-              <label className="group relative flex min-h-[210px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-slate-300 bg-gradient-to-br from-slate-50 to-blue-50/40 p-8 text-center transition duration-300 hover:-translate-y-1 hover:border-blue-400 hover:bg-blue-50 hover:shadow-xl">
-                <div className="absolute inset-0 bg-blue-400/5 opacity-0 transition duration-500 group-hover:opacity-100" />
-
-                <div className="relative flex h-16 w-16 animate-[bounce_3s_ease-in-out_infinite] items-center justify-center rounded-2xl bg-white text-blue-600 shadow-sm ring-1 ring-blue-100 transition duration-300 group-hover:scale-110 group-hover:shadow-xl">
-                  <i className="fa-solid fa-file-excel text-2xl" />
-                </div>
-
-                <span className="relative mt-5 text-base font-black text-slate-800">
-                  Choose Excel or CSV file
-                </span>
-
-                <span className="relative mt-1 text-xs text-slate-500">
-                  .xlsx, .xls or .csv
-                </span>
-
-                <span className="relative mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-black text-blue-700 shadow-sm ring-1 ring-slate-200 transition duration-300 group-hover:scale-105">
-                  <i className="fa-solid fa-arrow-up-from-bracket" />
-                  Select file
-                </span>
-
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={handleFile}
-                  disabled={importing}
-                  className="hidden"
-                />
-              </label>
             </div>
 
-            {fileName && (
-              <div className="mt-4 flex animate-[fadeIn_0.4s_ease-out] items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="flex h-10 w-10 shrink-0 animate-pulse items-center justify-center rounded-xl bg-emerald-600 text-white">
-                  <i className="fa-solid fa-file-circle-check" />
+            <div className="p-5">
+
+              {/* ACADEMIC YEAR */}
+
+              <select
+                value={
+                  academicYearId
+                }
+                onChange={(
+                  event
+                ) =>
+                  setAcademicYearId(
+                    event.target
+                      .value
+                  )
+                }
+                disabled={
+                  loadingData ||
+                  importing
+                }
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-bold text-slate-800 outline-none transition duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100"
+              >
+
+                <option value="">
+                  {loadingData
+                    ? 'Loading academic years...'
+                    : 'Select academic year'}
+                </option>
+
+                {academicYears.map(
+                  (
+                    year
+                  ) => (
+                    <option
+                      key={
+                        year.id
+                      }
+                      value={
+                        year.id
+                      }
+                    >
+                      {
+                        year.name
+                      }
+                    </option>
+                  )
+                )}
+
+              </select>
+
+              {selectedAcademicYear && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+
+                  <i className="fa-solid fa-calendar-check text-blue-600" />
+
+                  Students will be enrolled against{' '}
+
+                  <strong className="text-slate-900">
+                    {
+                      selectedAcademicYear.name
+                    }
+                  </strong>
+
                 </div>
+              )}
 
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
-                    File selected
-                  </p>
+              {/* UPLOAD */}
 
-                  <p className="truncate text-sm font-black text-emerald-900">
-                    {fileName}
-                  </p>
-                </div>
-              </div>
-            )}
+              <div className="mt-8">
 
-            {importing && (
-              <div className="mt-5 animate-[fadeIn_0.4s_ease-out] rounded-3xl border border-blue-200 bg-blue-50 p-5">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
-                    <i className="fa-solid fa-spinner fa-spin text-lg" />
+                <div className="mb-3 flex items-center gap-3">
+
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                    <i className="fa-solid fa-file-arrow-up" />
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-                      <div>
-                        <p className="font-black text-blue-950">
-                          Import in progress
-                        </p>
+                  <div>
 
-                        <p className="mt-1 text-xs text-blue-700">
-                          {importProgress}
-                        </p>
+                    <p className="text-xs font-black uppercase tracking-wider text-blue-600">
+                      Step 3
+                    </p>
+
+                    <h2 className="text-lg font-black text-slate-900">
+                      Upload Excel File
+                    </h2>
+
+                  </div>
+
+                </div>
+
+                <label className="group relative flex min-h-[210px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-slate-300 bg-gradient-to-br from-slate-50 to-blue-50/40 p-8 text-center transition duration-300 hover:-translate-y-1 hover:border-blue-400 hover:bg-blue-50 hover:shadow-xl">
+
+                  <div className="absolute inset-0 bg-blue-400/5 opacity-0 transition duration-500 group-hover:opacity-100" />
+
+                  <div className="relative flex h-16 w-16 animate-[bounce_3s_ease-in-out_infinite] items-center justify-center rounded-2xl bg-white text-blue-600 shadow-sm ring-1 ring-blue-100 transition duration-300 group-hover:scale-110 group-hover:shadow-xl">
+
+                    <i className="fa-solid fa-file-excel text-2xl" />
+
+                  </div>
+
+                  <span className="relative mt-5 text-base font-black text-slate-800">
+                    Choose Excel or CSV file
+                  </span>
+
+                  <span className="relative mt-1 text-xs text-slate-500">
+                    .xlsx, .xls or .csv
+                  </span>
+
+                  <span className="relative mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-black text-blue-700 shadow-sm ring-1 ring-slate-200 transition duration-300 group-hover:scale-105">
+                    <i className="fa-solid fa-arrow-up-from-bracket" />
+                    Select file
+                  </span>
+
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={
+                      handleFile
+                    }
+                    disabled={
+                      importing
+                    }
+                    className="hidden"
+                  />
+
+                </label>
+
+              </div>
+
+              {/* FILE SELECTED */}
+
+              {fileName && (
+                <div className="mt-4 flex animate-[fadeIn_0.4s_ease-out] items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+
+                  <div className="flex h-10 w-10 shrink-0 animate-pulse items-center justify-center rounded-xl bg-emerald-600 text-white">
+                    <i className="fa-solid fa-file-circle-check" />
+                  </div>
+
+                  <div className="min-w-0">
+
+                    <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                      File selected
+                    </p>
+
+                    <p className="truncate text-sm font-black text-emerald-900">
+                      {fileName}
+                    </p>
+
+                  </div>
+
+                </div>
+              )}
+
+              {/* =================================================
+                  LIVE PROGRESS
+              ================================================== */}
+
+              {importing && (
+                <div className="mt-5 animate-[fadeIn_0.4s_ease-out] rounded-3xl border border-blue-200 bg-blue-50 p-5">
+
+                  <div className="flex items-start gap-4">
+
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
+
+                      <i className="fa-solid fa-spinner fa-spin text-lg" />
+
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+
+                      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+
+                        <div>
+
+                          <p className="font-black text-blue-950">
+                            Import in progress
+                          </p>
+
+                          <p className="mt-1 text-xs text-blue-700">
+                            {
+                              importProgress
+                            }
+                          </p>
+
+                        </div>
+
+                        <span className="font-black text-blue-700">
+                          {
+                            progressPercent
+                          }%
+                        </span>
+
                       </div>
 
-                      <span className="font-black text-blue-700">
-                        {progressPercent}%
-                      </span>
+                      <div className="mt-4 h-3 overflow-hidden rounded-full bg-blue-100">
+
+                        <div
+                          className="h-full rounded-full bg-blue-600 transition-all duration-700 ease-out"
+                          style={{
+                            width: `${progressPercent}%`,
+                          }}
+                        />
+
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-blue-700">
+
+                        <i className="fa-solid fa-shield-halved" />
+
+                        Students, classes and
+                        enrollments are being processed
+                        together.
+
+                      </div>
+
                     </div>
 
-                    <div className="mt-4 h-3 overflow-hidden rounded-full bg-blue-100">
-                      <div
-                        className="h-full rounded-full bg-blue-600 transition-all duration-700 ease-out"
-                        style={{
-                          width: `${progressPercent}%`,
-                        }}
-                      />
-                    </div>
-
-                    <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-blue-700">
-                      <i className="fa-solid fa-shield-halved" />
-                      Students, classes and
-                      enrollments are being processed
-                      together.
-                    </div>
                   </div>
+
                 </div>
-              </div>
-            )}
+              )}
 
-            {message && !importing && (
-              <div className="mt-4 flex animate-[fadeIn_0.4s_ease-out] items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                <i className="fa-solid fa-circle-info mt-0.5 shrink-0 text-blue-600" />
+              {/* MESSAGE */}
 
-                <span>{message}</span>
-              </div>
-            )}
+              {message && !importing && (
+                <div className="mt-4 flex animate-[fadeIn_0.4s_ease-out] items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
 
-            {rows.length > 0 && (
-              <div className="mt-8">
-                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-black text-slate-900">
-                        Preview
-                      </h2>
+                  <i className="fa-solid fa-circle-info mt-0.5 shrink-0 text-blue-600" />
 
-                      <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">
-                        {rows.length}
-                      </span>
+                  <span>
+                    {message}
+                  </span>
+
+                </div>
+              )}
+
+              {/* =================================================
+                  PREVIEW
+              ================================================== */}
+
+              {rows.length > 0 && (
+                <div className="mt-8">
+
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+
+                    <div>
+
+                      <div className="flex items-center gap-2">
+
+                        <h2 className="text-xl font-black text-slate-900">
+                          Preview
+                        </h2>
+
+                        <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">
+                          {
+                            rows.length
+                          }
+                        </span>
+
+                      </div>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Review the student records before
+                        starting the bulk operation.
+                      </p>
+
                     </div>
 
-                    <p className="mt-1 text-sm text-slate-500">
-                      Review the student records before
-                      starting the bulk operation.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={importStudents}
-                    disabled={
-                      importing ||
-                      !academicYearId ||
-                      !schoolId
-                    }
-                    className="group inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-sm transition duration-300 hover:-translate-y-1 hover:bg-blue-700 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <i
-                      className={
-                        importing
-                          ? 'fa-solid fa-spinner fa-spin'
-                          : 'fa-solid fa-cloud-arrow-up'
+                    <button
+                      type="button"
+                      onClick={
+                        importStudents
                       }
-                    />
+                      disabled={
+                        importing ||
+                        !academicYearId ||
+                        !schoolId
+                      }
+                      className="group inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-sm transition duration-300 hover:-translate-y-1 hover:bg-blue-700 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                    >
 
-                    {importing
-                      ? 'Processing...'
-                      : 'Import & Assign Students'}
-                  </button>
-                </div>
+                      <i
+                        className={
+                          importing
+                            ? 'fa-solid fa-spinner fa-spin'
+                            : 'fa-solid fa-cloud-arrow-up'
+                        }
+                      />
 
-                <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 shadow-sm">
-                  <table className="min-w-[1250px] text-left text-xs">
-                    <thead className="bg-slate-100">
-                      <tr>
-                        {headers.map(
-                          (header) => (
-                            <th
-                              key={header}
-                              className={`whitespace-nowrap px-3 py-3.5 font-black ${
-                                header ===
-                                'RESIDENCE'
-                                  ? 'bg-blue-50 text-blue-800'
-                                  : 'text-slate-700'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                {header}
+                      {importing
+                        ? 'Processing...'
+                        : 'Import & Assign Students'}
 
-                                {header ===
-                                  'RESIDENCE' && (
-                                  <i className="fa-solid fa-house-user text-blue-600" />
-                                )}
-                              </div>
-                            </th>
+                    </button>
+
+                  </div>
+
+                  {/* TABLE */}
+
+                  <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 shadow-sm">
+
+                    <table className="min-w-[1250px] text-left text-xs">
+
+                      <thead className="bg-slate-100">
+
+                        <tr>
+
+                          {headers.map(
+                            (
+                              header
+                            ) => (
+                              <th
+                                key={
+                                  header
+                                }
+                                className={`whitespace-nowrap px-3 py-3.5 font-black ${
+                                  header ===
+                                  'RESIDENCE'
+                                    ? 'bg-blue-50 text-blue-800'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+
+                                <div className="flex items-center gap-2">
+
+                                  {
+                                    header
+                                  }
+
+                                  {header ===
+                                    'RESIDENCE' && (
+                                    <i className="fa-solid fa-house-user text-blue-600" />
+                                  )}
+
+                                </div>
+
+                              </th>
+                            )
+                          )}
+
+                        </tr>
+
+                      </thead>
+
+                      <tbody>
+
+                        {rows
+                          .slice(
+                            0,
+                            50
                           )
-                        )}
-                      </tr>
-                    </thead>
+                          .map(
+                            (
+                              row,
+                              index
+                            ) => (
+                              <tr
+                                key={
+                                  index
+                                }
+                                className="border-t border-slate-200 transition duration-200 hover:bg-blue-50/40"
+                              >
 
-                    <tbody>
-                      {rows
-                        .slice(0, 50)
-                        .map(
-                          (
-                            row,
-                            index
-                          ) => (
-                            <tr
-                              key={index}
-                              className="border-t border-slate-200 transition duration-200 hover:bg-blue-50/40"
-                            >
-                              <td className="px-3 py-3 font-bold text-slate-800">
-                                {row.full_name}
-                              </td>
+                                <td className="px-3 py-3 font-bold text-slate-800">
+                                  {
+                                    row.full_name
+                                  }
+                                </td>
 
-                              <td className="px-3 py-3">
-                                {row.form}
-                              </td>
+                                <td className="px-3 py-3">
+                                  {
+                                    row.form
+                                  }
+                                </td>
 
-                              <td className="px-3 py-3">
-                                {row.programme}
-                              </td>
+                                <td className="px-3 py-3">
+                                  {
+                                    row.programme
+                                  }
+                                </td>
 
-                              <td className="px-3 py-3">
-                                {row.class_name}
-                              </td>
+                                <td className="px-3 py-3">
+                                  {
+                                    row.class_name
+                                  }
+                                </td>
 
-                              <td className="px-3 py-3">
-                                {row.gender}
-                              </td>
+                                <td className="px-3 py-3">
+                                  {
+                                    row.gender
+                                  }
+                                </td>
 
-                              <td className="bg-blue-50/40 px-3 py-3">
-                                {row.resident ? (
-                                  <span
-                                    className={
-                                      normalizeResidence(
-                                        row.resident
-                                      ) ===
-                                      'Boarding'
-                                        ? 'inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-2.5 py-1 font-black text-purple-700'
-                                        : 'inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 font-black text-blue-700'
-                                    }
-                                  >
-                                    <i
+                                <td className="bg-blue-50/40 px-3 py-3">
+
+                                  {row.resident ? (
+                                    <span
                                       className={
                                         normalizeResidence(
                                           row.resident
                                         ) ===
                                         'Boarding'
-                                          ? 'fa-solid fa-building'
-                                          : 'fa-solid fa-house'
+                                          ? 'inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-2.5 py-1 font-black text-purple-700'
+                                          : 'inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 font-black text-blue-700'
                                       }
-                                    />
+                                    >
 
-                                    {normalizeResidence(
-                                      row.resident
-                                    )}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400">
-                                    —
-                                  </span>
-                                )}
-                              </td>
+                                      <i
+                                        className={
+                                          normalizeResidence(
+                                            row.resident
+                                          ) ===
+                                          'Boarding'
+                                            ? 'fa-solid fa-building'
+                                            : 'fa-solid fa-house'
+                                        }
+                                      />
 
-                              <td className="px-3 py-3">
-                                {row.date_of_birth}
-                              </td>
+                                      {
+                                        normalizeResidence(
+                                          row.resident
+                                        )
+                                      }
 
-                              <td className="px-3 py-3">
-                                {row.guardian_name}
-                              </td>
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">
+                                      —
+                                    </span>
+                                  )}
 
-                              <td className="px-3 py-3">
-                                {row.guardian_phone}
-                              </td>
+                                </td>
 
-                              <td className="px-3 py-3">
-                                {row.address}
-                              </td>
+                                <td className="px-3 py-3">
+                                  {
+                                    row.date_of_birth
+                                  }
+                                </td>
 
-                              <td className="px-3 py-3">
-                                {row.admission_date}
-                              </td>
+                                <td className="px-3 py-3">
+                                  {
+                                    row.guardian_name
+                                  }
+                                </td>
 
-                              <td className="px-3 py-3">
-                                {row.jhs_aggregate}
-                              </td>
-                            </tr>
-                          )
-                        )}
-                    </tbody>
-                  </table>
+                                <td className="px-3 py-3">
+                                  {
+                                    row.guardian_phone
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.address
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.admission_date
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.jhs_aggregate
+                                  }
+                                </td>
+
+                              </tr>
+                            )
+                          )}
+
+                      </tbody>
+
+                    </table>
+
+                  </div>
+
+                  {rows.length >
+                    50 && (
+                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+
+                      <i className="fa-solid fa-eye" />
+
+                      Showing the first 50 rows
+                      in the preview. All{' '}
+                      {
+                        rows.length
+                      } rows will be processed.
+
+                    </div>
+                  )}
+
                 </div>
+              )}
 
-                {rows.length > 50 && (
-                  <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                    <i className="fa-solid fa-eye" />
-                    Showing the first 50 rows
-                    in the preview. All{' '}
-                    {rows.length} rows will be processed.
+              {/* =================================================
+                  RESULTS SUMMARY
+              ================================================== */}
+
+              {errors.length >
+                0 && (
+                <div className="mt-8 animate-[fadeIn_0.5s_ease-out]">
+
+                  <div className="mb-4">
+
+                    <h2 className="text-xl font-black text-slate-900">
+                      Import Results
+                    </h2>
+
+                    <p className="mt-1 text-sm text-slate-500">
+                      Review exactly what happened to
+                      each Excel row.
+                    </p>
+
                   </div>
-                )}
-              </div>
-            )}
 
-            {errors.length > 0 && (
-              <div className="mt-8 animate-[fadeIn_0.5s_ease-out]">
-                <div className="mb-4">
-                  <h2 className="text-xl font-black text-slate-900">
-                    Import Results
-                  </h2>
+                  <div className="grid gap-3 sm:grid-cols-3">
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    Review exactly what happened to
-                    each Excel row.
-                  </p>
-                </div>
+                    {/* SUCCESS */}
 
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="group rounded-2xl border border-emerald-200 bg-emerald-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white transition duration-300 group-hover:scale-110">
-                        <i className="fa-solid fa-circle-check" />
+                    <div className="group rounded-2xl border border-emerald-200 bg-emerald-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+
+                      <div className="flex items-center gap-3">
+
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white transition duration-300 group-hover:scale-110">
+
+                          <i className="fa-solid fa-circle-check" />
+
+                        </div>
+
+                        <div>
+
+                          <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                            Successful
+                          </p>
+
+                          <p className="text-2xl font-black text-emerald-900">
+                            {
+                              successResults.length
+                            }
+                          </p>
+
+                        </div>
+
                       </div>
 
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
-                          Successful
-                        </p>
-
-                        <p className="text-2xl font-black text-emerald-900">
-                          {successResults.length}
-                        </p>
-                      </div>
                     </div>
-                  </div>
 
-                  <div className="group rounded-2xl border border-amber-200 bg-amber-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white transition duration-300 group-hover:scale-110">
-                        <i className="fa-solid fa-triangle-exclamation" />
+                    {/* WARNING */}
+
+                    <div className="group rounded-2xl border border-amber-200 bg-amber-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+
+                      <div className="flex items-center gap-3">
+
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white transition duration-300 group-hover:scale-110">
+
+                          <i className="fa-solid fa-triangle-exclamation" />
+
+                        </div>
+
+                        <div>
+
+                          <p className="text-xs font-black uppercase tracking-wide text-amber-700">
+                            Warnings
+                          </p>
+
+                          <p className="text-2xl font-black text-amber-900">
+                            {
+                              warningResults.length
+                            }
+                          </p>
+
+                        </div>
+
                       </div>
 
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-amber-700">
-                          Warnings
-                        </p>
-
-                        <p className="text-2xl font-black text-amber-900">
-                          {warningResults.length}
-                        </p>
-                      </div>
                     </div>
-                  </div>
 
-                  <div className="group rounded-2xl border border-red-200 bg-red-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white transition duration-300 group-hover:scale-110">
-                        <i className="fa-solid fa-circle-xmark" />
+                    {/* ERRORS */}
+
+                    <div className="group rounded-2xl border border-red-200 bg-red-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+
+                      <div className="flex items-center gap-3">
+
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white transition duration-300 group-hover:scale-110">
+
+                          <i className="fa-solid fa-circle-xmark" />
+
+                        </div>
+
+                        <div>
+
+                          <p className="text-xs font-black uppercase tracking-wide text-red-700">
+                            Errors
+                          </p>
+
+                          <p className="text-2xl font-black text-red-900">
+                            {
+                              errorResults.length
+                            }
+                          </p>
+
+                        </div>
+
                       </div>
 
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-red-700">
-                          Errors
-                        </p>
-
-                        <p className="text-2xl font-black text-red-900">
-                          {errorResults.length}
-                        </p>
-                      </div>
                     </div>
+
                   </div>
-                </div>
 
-                <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white">
-                        <i className="fa-solid fa-list-check" />
+                  {/* DETAILED RESULTS */}
+
+                  <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+
+                    <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+
+                      <div className="flex items-center gap-3">
+
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white">
+
+                          <i className="fa-solid fa-list-check" />
+
+                        </div>
+
+                        <div>
+
+                          <h3 className="font-black text-slate-900">
+                            Detailed row results
+                          </h3>
+
+                          <p className="text-xs text-slate-500">
+                            Student assignment and
+                            import status by Excel row.
+                          </p>
+
+                        </div>
+
                       </div>
 
-                      <div>
-                        <h3 className="font-black text-slate-900">
-                          Detailed row results
-                        </h3>
-
-                        <p className="text-xs text-slate-500">
-                          Student assignment and
-                          import status by Excel row.
-                        </p>
-                      </div>
                     </div>
-                  </div>
 
-                  <div className="max-h-[500px] overflow-y-auto">
-                    {errors.map(
-                      (
-                        result,
-                        index
-                      ) => {
-                        const isSuccess =
-                          result.type ===
-                          'success';
+                    <div className="max-h-[500px] overflow-y-auto">
 
-                        const isError =
-                          result.type ===
-                          'error';
+                      {errors.map(
+                        (
+                          result,
+                          index
+                        ) => {
 
-                        return (
-                          <div
-                            key={`${result.row}-${index}`}
-                            className={`flex gap-3 border-b px-5 py-3 transition duration-200 last:border-b-0 hover:bg-slate-50 ${
-                              isSuccess
-                                ? 'border-emerald-100'
-                                : isError
+                          const isSuccess =
+                            result.type ===
+                            'success';
+
+                          const isError =
+                            result.type ===
+                            'error';
+
+                          return (
+                            <div
+                              key={`${result.row}-${index}`}
+                              className={`flex gap-3 border-b px-5 py-3 transition duration-200 last:border-b-0 hover:bg-slate-50 ${
+                                isSuccess
+                                  ? 'border-emerald-100'
+                                  : isError
                                   ? 'border-red-100'
                                   : 'border-amber-100'
-                            }`}
-                          >
-                            <div
-                              className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black ${
-                                isSuccess
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : isError
-                                    ? 'bg-red-100 text-red-700'
-                                    : 'bg-amber-100 text-amber-700'
                               }`}
                             >
-                              <i
-                                className={
+
+                              <div
+                                className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black ${
                                   isSuccess
-                                    ? 'fa-solid fa-check'
+                                    ? 'bg-emerald-100 text-emerald-700'
                                     : isError
-                                      ? 'fa-solid fa-xmark'
-                                      : 'fa-solid fa-exclamation'
-                                }
-                              />
-                            </div>
-
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs font-black uppercase tracking-wide text-slate-400">
-                                  {result.row > 0
-                                    ? `Excel Row ${result.row}`
-                                    : 'Import System'}
-                                </span>
-
-                                {isSuccess && (
-                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700">
-                                    Assigned
-                                  </span>
-                                )}
-                              </div>
-
-                              <p
-                                className={`mt-1 text-sm leading-6 ${
-                                  isSuccess
-                                    ? 'text-emerald-800'
-                                    : isError
-                                      ? 'text-red-800'
-                                      : 'text-amber-800'
+                                    ? 'bg-red-100 text-red-700'
+                                    : 'bg-amber-100 text-amber-700'
                                 }`}
                               >
-                                {result.message}
-                              </p>
+
+                                <i
+                                  className={
+                                    isSuccess
+                                      ? 'fa-solid fa-check'
+                                      : isError
+                                      ? 'fa-solid fa-xmark'
+                                      : 'fa-solid fa-exclamation'
+                                  }
+                                />
+
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+
+                                <div className="flex flex-wrap items-center gap-2">
+
+                                  <span className="text-xs font-black uppercase tracking-wide text-slate-400">
+                                    {result.row >
+                                    0
+                                      ? `Excel Row ${result.row}`
+                                      : 'Import System'}
+                                  </span>
+
+                                  {isSuccess && (
+                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700">
+                                      Assigned
+                                    </span>
+                                  )}
+
+                                </div>
+
+                                <p
+                                  className={`mt-1 text-sm leading-6 ${
+                                    isSuccess
+                                      ? 'text-emerald-800'
+                                      : isError
+                                      ? 'text-red-800'
+                                      : 'text-amber-800'
+                                  }`}
+                                >
+                                  {
+                                    result.message
+                                  }
+                                </p>
+
+                              </div>
+
                             </div>
-                          </div>
-                        );
-                      }
-                    )}
+                          );
+                        }
+                      )}
+
+                    </div>
+
                   </div>
+
                 </div>
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
+              )}
 
-      <section className="mt-6 overflow-hidden rounded-3xl bg-slate-950 p-5 text-white shadow-sm transition duration-300 hover:shadow-xl md:p-6">
-        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 animate-pulse items-center justify-center rounded-2xl bg-blue-600">
-              <i className="fa-solid fa-house-user text-lg" />
             </div>
 
-            <div>
-              <h2 className="font-black">
-                Residence & assignment guide
-              </h2>
+          </section>
 
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">
-                Enter Day or Boarding under
-                RESIDENCE. FORM, PROGRAMME and CLASS
-                are then used to automatically place the
-                student in the correct academic class.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-4 py-2 text-xs font-black text-blue-200 ring-1 ring-blue-400/30">
-              <i className="fa-solid fa-house" />
-              Day
-            </span>
-
-            <span className="inline-flex items-center gap-2 rounded-full bg-purple-500/20 px-4 py-2 text-xs font-black text-purple-200 ring-1 ring-purple-400/30">
-              <i className="fa-solid fa-building" />
-              Boarding
-            </span>
-
-            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-xs font-black text-emerald-200 ring-1 ring-emerald-400/30">
-              <i className="fa-solid fa-user-check" />
-              Auto Assign
-            </span>
-          </div>
         </div>
-      </section>
+
+        {/* =====================================================
+            QUICK GUIDE
+        ====================================================== */}
+
+        <section className="mt-6 overflow-hidden rounded-3xl bg-slate-950 p-5 text-white shadow-sm transition duration-300 hover:shadow-xl md:p-6">
+
+          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+
+            <div className="flex items-start gap-4">
+
+              <div className="flex h-12 w-12 shrink-0 animate-pulse items-center justify-center rounded-2xl bg-blue-600">
+
+                <i className="fa-solid fa-house-user text-lg" />
+
+              </div>
+
+              <div>
+
+                <h2 className="font-black">
+                  Residence & assignment guide
+                </h2>
+
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">
+                  Enter Day or Boarding under
+                  RESIDENCE. FORM, PROGRAMME and CLASS
+                  are then used to automatically place the
+                  student in the correct academic class.
+                </p>
+
+              </div>
+
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-4 py-2 text-xs font-black text-blue-200 ring-1 ring-blue-400/30">
+                <i className="fa-solid fa-house" />
+                Day
+              </span>
+
+              <span className="inline-flex items-center gap-2 rounded-full bg-purple-500/20 px-4 py-2 text-xs font-black text-purple-200 ring-1 ring-purple-400/30">
+                <i className="fa-solid fa-building" />
+                Boarding
+              </span>
+
+              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-xs font-black text-emerald-200 ring-1 ring-emerald-400/30">
+                <i className="fa-solid fa-user-check" />
+                Auto Assign
+              </span>
+
+            </div>
+
+          </div>
+
+        </section>
+
+      </div>
     </main>
   );
 }
