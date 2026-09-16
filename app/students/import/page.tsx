@@ -306,106 +306,560 @@ export default function StudentImportPage() {
     loadData();
   }, []);
 
-  async function loadData() {
-    try {
-      setLoading(true);
-      setError('');
+async function importStudents() {
+  if (importing) return;
+
+  setErrors([]);
+  setMessage('');
+  setImportProgress('');
+  setProgressPercent(0);
+
+  // ---------------------------------------------------------
+  // BASIC CHECKS
+  // ---------------------------------------------------------
+
+  if (!rows.length) {
+    setMessage(
+      'Please select an Excel file containing student records.'
+    );
+    return;
+  }
+
+  if (!academicYearId) {
+    setMessage(
+      'Please select the academic year for this import.'
+    );
+    return;
+  }
+
+  if (!schoolId) {
+    setMessage(
+      'Your school could not be determined. Please refresh the page and try again.'
+    );
+    return;
+  }
+
+  setImporting(true);
+
+  try {
+    // -------------------------------------------------------
+    // STEP 1 — LOCAL VALIDATION
+    // -------------------------------------------------------
+
+    setImportProgress(
+      `Validating ${rows.length} student record(s)...`
+    );
+    setProgressPercent(5);
+
+    const validationResults: ResultMessage[] = [];
+
+    const validRows: Array<
+      ImportRow & {
+        row_number: number;
+      }
+    > = [];
+
+    rows.forEach((row, index) => {
+      const rowNumber = index + 2;
+
+      const fullName = clean(row.full_name);
+
+      const residence = normalizeResidence(
+        row.resident
+      );
+
+      if (!fullName) {
+        validationResults.push({
+          row: rowNumber,
+          type: 'error',
+          message: 'FULL NAME is required.',
+        });
+
+        return;
+      }
+
+      if (row.resident && !residence) {
+        validationResults.push({
+          row: rowNumber,
+          type: 'error',
+          message:
+            'RESIDENCE must be Day or Boarding.',
+        });
+
+        return;
+      }
+
+      if (row.jhs_aggregate) {
+        const aggregate = Number(
+          String(row.jhs_aggregate)
+            .replace(/,/g, '')
+            .trim()
+        );
+
+        if (!Number.isFinite(aggregate)) {
+          validationResults.push({
+            row: rowNumber,
+            type: 'error',
+            message:
+              'JHS AGGREGATE must be a valid number.',
+          });
+
+          return;
+        }
+      }
+
+      validRows.push({
+        ...row,
+        full_name: fullName,
+        resident: residence,
+        row_number: rowNumber,
+      });
+    });
+
+    // -------------------------------------------------------
+    // STEP 2 — DUPLICATE NAMES INSIDE THIS EXCEL
+    // -------------------------------------------------------
+
+    setImportProgress(
+      `Checking ${validRows.length} valid record(s) for duplicate names...`
+    );
+    setProgressPercent(10);
+
+    const nameOccurrences = new Map<
+      string,
+      number[]
+    >();
+
+    validRows.forEach((row) => {
+      const key = normalize(row.full_name);
+
+      if (!nameOccurrences.has(key)) {
+        nameOccurrences.set(key, []);
+      }
+
+      nameOccurrences
+        .get(key)!
+        .push(row.row_number);
+    });
+
+    const duplicateRows = new Set<number>();
+
+    nameOccurrences.forEach(
+      (rowNumbers, key) => {
+        if (rowNumbers.length > 1) {
+          rowNumbers.forEach((number) =>
+            duplicateRows.add(number)
+          );
+
+          const duplicateName =
+            validRows.find(
+              (row) =>
+                normalize(row.full_name) === key
+            )?.full_name || 'Unknown student';
+
+          validationResults.push({
+            row: rowNumbers[0],
+            type: 'warning',
+            message:
+              `Duplicate student name detected: "${duplicateName}". Excel rows ${rowNumbers.join(
+                ', '
+              )} contain the same name. These rows were not imported automatically because the system cannot safely determine whether they represent one student or different students.`,
+          });
+        }
+      }
+    );
+
+    const rowsToImport = validRows.filter(
+      (row) =>
+        !duplicateRows.has(row.row_number)
+    );
+
+    setErrors(validationResults);
+
+    if (!rowsToImport.length) {
+      setProgressPercent(100);
+      setImportProgress('');
+
+      setMessage(
+        'Import stopped. No unambiguous student records were available for import.'
+      );
+
+      return;
+    }
+
+    // -------------------------------------------------------
+    // STEP 3 — PREPARE PAYLOAD
+    // -------------------------------------------------------
+
+    setImportProgress(
+      `Preparing ${rowsToImport.length} student record(s) for secure bulk processing...`
+    );
+    setProgressPercent(15);
+
+    const payload = rowsToImport.map(
+      (row) => ({
+        row_number: row.row_number,
+        full_name: clean(row.full_name),
+        form: clean(row.form),
+        programme: clean(row.programme),
+        class_name: clean(row.class_name),
+        gender: clean(row.gender),
+        resident: normalizeResidence(
+          row.resident
+        ),
+        date_of_birth: clean(
+          row.date_of_birth
+        ),
+        guardian_name: clean(
+          row.guardian_name
+        ),
+        guardian_phone: clean(
+          row.guardian_phone
+        ),
+        address: clean(row.address),
+        admission_date: clean(
+          row.admission_date
+        ),
+        jhs_aggregate: clean(
+          row.jhs_aggregate
+        ),
+      })
+    );
+
+    // -------------------------------------------------------
+    // STEP 4 — BATCHED BULK SUPABASE IMPORT
+    // -------------------------------------------------------
+
+    const BATCH_SIZE = 50;
+
+    const totalRecords = payload.length;
+
+    const totalBatches = Math.ceil(
+      totalRecords / BATCH_SIZE
+    );
+
+    const allDatabaseResults: BulkResult[] = [];
+
+    let processedRecords = 0;
+
+    for (
+      let batchIndex = 0;
+      batchIndex < totalBatches;
+      batchIndex++
+    ) {
+      const start =
+        batchIndex * BATCH_SIZE;
+
+      const end = Math.min(
+        start + BATCH_SIZE,
+        totalRecords
+      );
+
+      const batch = payload.slice(
+        start,
+        end
+      );
+
+      const batchNumber = batchIndex + 1;
+
+      setImportProgress(
+        `Importing batch ${batchNumber} of ${totalBatches} (${start + 1}-${end} of ${totalRecords})...`
+      );
+
+      const batchStartPercent = 20;
+
+      const batchEndPercent = 85;
+
+      const currentPercent =
+        batchStartPercent +
+        Math.round(
+          (processedRecords /
+            totalRecords) *
+            (batchEndPercent -
+              batchStartPercent)
+        );
+
+      setProgressPercent(
+        Math.max(
+          20,
+          Math.min(85, currentPercent)
+        )
+      );
 
       const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError) {
-        throw authError;
-      }
-
-      if (!user) {
-        throw new Error('You must be logged in to import students.');
-      }
-
-      const { data: userRecord, error: userError } = await supabase
-        .from('users')
-        .select('school_id')
-        .eq('id', user.id)
-        .single();
-
-      if (userError) {
-        throw userError;
-      }
-
-      if (!userRecord?.school_id) {
-        throw new Error('Your account is not linked to a school.');
-      }
-
-      const currentSchoolId = userRecord.school_id;
-
-      setSchoolId(currentSchoolId);
-
-      const [
-        programmesResponse,
-        academicYearsResponse,
-        classesResponse,
-      ] = await Promise.all([
-        supabase
-          .from('programmes')
-          .select('id, name')
-          .eq('school_id', currentSchoolId)
-          .order('name'),
-
-        supabase
-          .from('academic_years')
-          .select('id, name, start_date')
-          .eq('school_id', currentSchoolId)
-          .order('start_date', { ascending: false }),
-
-        supabase
-          .from('classes')
-          .select(
-            'id, name, level, programme_id, academic_year_id'
-          )
-          .eq('school_id', currentSchoolId)
-          .order('name'),
-      ]);
-
-      if (programmesResponse.error) {
-        throw programmesResponse.error;
-      }
-
-      if (academicYearsResponse.error) {
-        throw academicYearsResponse.error;
-      }
-
-      if (classesResponse.error) {
-        throw classesResponse.error;
-      }
-
-      setProgrammes(programmesResponse.data || []);
-      setAcademicYears(academicYearsResponse.data || []);
-      setClasses(classesResponse.data || []);
-
-      const years = academicYearsResponse.data || [];
-
-      const preferredYear =
-        years.find((year) =>
-          normalize(year.name).includes('current')
-        ) || years[0];
-
-      if (preferredYear) {
-        setAcademicYearId(preferredYear.id);
-      }
-    } catch (err) {
-      console.error(err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Unable to load student import data.'
+        data,
+        error,
+      } = await supabase.rpc(
+        'bulk_import_students',
+        {
+          p_school_id: schoolId,
+          p_academic_year_id:
+            academicYearId,
+          p_rows: batch,
+        }
       );
-    } finally {
-      setLoading(false);
+
+      if (error) {
+        console.error(
+          `Bulk student import error in batch ${batchNumber}:`,
+          error
+        );
+
+        // Keep results from batches that
+        // already completed.
+        setErrors([
+          ...validationResults,
+          ...allDatabaseResults.map(
+            (result) => ({
+              row: Number(
+                result.row || 0
+              ),
+              message:
+                result.message ||
+                'Import processing completed.',
+              type:
+                result.status ===
+                'success'
+                  ? 'success'
+                  : result.status ===
+                      'failed'
+                    ? 'error'
+                    : 'warning',
+            })
+          ),
+          {
+            row: 0,
+            type: 'error',
+            message:
+              `Batch ${batchNumber} of ${totalBatches} could not be completed: ${
+                error.message ||
+                'Unknown Supabase error.'
+              }`,
+          },
+        ]);
+
+        setProgressPercent(0);
+        setImportProgress('');
+
+        setMessage(
+          `Import stopped at batch ${batchNumber} of ${totalBatches}. The completed batches were saved safely. You can upload the same file again to process the remaining records.`
+        );
+
+        return;
+      }
+
+      const batchResults: BulkResult[] =
+        Array.isArray(data)
+          ? data
+          : [];
+
+      allDatabaseResults.push(
+        ...batchResults
+      );
+
+      processedRecords = end;
+
+      const actualProgress =
+        20 +
+        Math.round(
+          (processedRecords /
+            totalRecords) *
+            65
+        );
+
+      setProgressPercent(
+        Math.min(85, actualProgress)
+      );
     }
+
+    // -------------------------------------------------------
+    // STEP 5 — PROCESS DATABASE RESULTS
+    // -------------------------------------------------------
+
+    setImportProgress(
+      'Processing import and assignment results...'
+    );
+
+    setProgressPercent(90);
+
+    const databaseResults =
+      allDatabaseResults;
+
+    const resultMessages: ResultMessage[] =
+      [...validationResults];
+
+    databaseResults.forEach(
+      (result) => {
+        let resultType:
+          | 'success'
+          | 'warning'
+          | 'error';
+
+        if (
+          result.status ===
+          'success'
+        ) {
+          resultType = 'success';
+        } else if (
+          result.status ===
+            'partial' ||
+          result.status ===
+            'skipped'
+        ) {
+          resultType = 'warning';
+        } else {
+          resultType = 'error';
+        }
+
+        let resultMessage =
+          result.message ||
+          'Import processing completed.';
+
+        if (
+          result.status ===
+            'success' &&
+          result.assigned
+        ) {
+          resultMessage +=
+            ' Student assigned successfully.';
+        }
+
+        resultMessages.push({
+          row: Number(
+            result.row || 0
+          ),
+          message: resultMessage,
+          type: resultType,
+        });
+      }
+    );
+
+    setErrors(resultMessages);
+
+    // -------------------------------------------------------
+    // STEP 6 — ACCURATE COUNTS
+    // -------------------------------------------------------
+
+    const successful =
+      databaseResults.filter(
+        (item) =>
+          item.status ===
+          'success'
+      );
+
+    const partial =
+      databaseResults.filter(
+        (item) =>
+          item.status ===
+          'partial'
+      );
+
+    const skipped =
+      databaseResults.filter(
+        (item) =>
+          item.status ===
+            'skipped' ||
+          item.status ===
+            'failed'
+      );
+
+    const newStudents =
+      successful.filter(
+        (item) =>
+          item.student_created ===
+          true
+      ).length;
+
+    const existingStudents =
+      successful.filter(
+        (item) =>
+          item.student_existing ===
+          true
+      ).length;
+
+    const assignedStudents =
+      successful.filter(
+        (item) =>
+          item.assigned ===
+          true
+      ).length;
+
+    const newClasses =
+      successful.filter(
+        (item) =>
+          item.class_created ===
+          true
+      ).length;
+
+    const enrollmentsCreated =
+      successful.filter(
+        (item) =>
+          item.enrollment_created ===
+          true
+      ).length;
+
+    const enrollmentsUpdated =
+      successful.filter(
+        (item) =>
+          item.enrollment_updated ===
+          true
+      ).length;
+
+    // -------------------------------------------------------
+    // STEP 7 — REFRESH
+    // -------------------------------------------------------
+
+    setImportProgress(
+      'Refreshing BTI-SMS student and class data...'
+    );
+
+    setProgressPercent(95);
+
+    await loadData();
+
+    // -------------------------------------------------------
+    // STEP 8 — COMPLETE
+    // -------------------------------------------------------
+
+    setProgressPercent(100);
+
+    setMessage(
+      `Import complete: ${newStudents} new student(s), ${existingStudents} existing student(s) updated, ${assignedStudents} student(s) assigned, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) processed, ${newClasses} class(es) created, ${partial.length} partial record(s), and ${skipped.length} skipped/failed row(s).`
+    );
+
+    setImportProgress('');
+  } catch (error: any) {
+    console.error(
+      'Unexpected bulk import error:',
+      error
+    );
+
+    setProgressPercent(0);
+    setImportProgress('');
+
+    setMessage(
+      `Import failed unexpectedly: ${
+        error?.message ||
+        'Please try again.'
+      }`
+    );
+
+    setErrors(
+      (previous) => [
+        ...previous,
+        {
+          row: 0,
+          type: 'error',
+          message:
+            error?.message ||
+            'An unexpected error occurred during the import.',
+        },
+      ]
+    );
+  } finally {
+    setImporting(false);
   }
+}
 
   function validateRows(inputRows: ImportRow[]) {
     const messages: ResultMessage[] = [];
