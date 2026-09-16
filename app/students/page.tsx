@@ -1,16 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import Link from 'next/link';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowDown,
-  faArrowRight,
   faBookOpen,
   faGraduationCap,
   faLayerGroup,
   faMagnifyingGlass,
-  faPenToSquare,
   faPlus,
   faTrash,
   faUserGraduate,
@@ -24,6 +28,9 @@ import {
   faFileArrowDown,
   faUserPlus,
   faUserEdit,
+  faBed,
+  faHouse,
+  faRotate,
 } from '@fortawesome/free-solid-svg-icons';
 import { createClient } from '@/lib/supabase/client';
 
@@ -107,8 +114,10 @@ export default function StudentsPage() {
   const [programmeFilter, setProgrammeFilter] = useState('all');
   const [classFilter, setClassFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [residenceFilter, setResidenceFilter] = useState('all');
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -116,8 +125,13 @@ export default function StudentsPage() {
   const [openProgrammes, setOpenProgrammes] = useState<string[]>([]);
   const [openClasses, setOpenClasses] = useState<string[]>([]);
 
-  async function loadStudents() {
-    setLoading(true);
+  async function loadStudents(showRefresh = false) {
+    if (showRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     setError('');
 
     const {
@@ -138,6 +152,7 @@ export default function StudentsPage() {
     if (profileError || !profile) {
       setError('School profile could not be found.');
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
@@ -176,12 +191,6 @@ export default function StudentsPage() {
         .eq('school_id', schoolId)
         .order('start_date', { ascending: false }),
 
-      /*
-       * IMPORTANT:
-       * programme_id comes from the student's enrollment.
-       * This allows a class to belong to a programme even when
-       * classes.programme_id is NULL.
-       */
       supabase
         .from('enrollments')
         .select(
@@ -193,30 +202,35 @@ export default function StudentsPage() {
     if (studentsResult.error) {
       setError(studentsResult.error.message);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
     if (programmesResult.error) {
       setError(programmesResult.error.message);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
     if (classesResult.error) {
       setError(classesResult.error.message);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
     if (academicYearsResult.error) {
       setError(academicYearsResult.error.message);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
     if (enrollmentsResult.error) {
       setError(enrollmentsResult.error.message);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
@@ -227,6 +241,7 @@ export default function StudentsPage() {
     setEnrollments(enrollmentsResult.data ?? []);
 
     setLoading(false);
+    setRefreshing(false);
   }
 
   useEffect(() => {
@@ -251,13 +266,6 @@ export default function StudentsPage() {
     );
   }, [academicYears]);
 
-  /*
-   * Determine each student's current academic information.
-   *
-   * Priority:
-   * 1. enrollment.programme_id
-   * 2. classes.programme_id
-   */
   const currentAcademicInfo = useMemo(() => {
     const infoMap = new Map<string, StudentAcademicInfo>();
 
@@ -278,10 +286,6 @@ export default function StudentsPage() {
 
       const schoolClass = classMap.get(enrollment.class_id);
 
-      /*
-       * Enrollment programme is the primary source.
-       * Class programme is only the fallback.
-       */
       const programmeId =
         enrollment.programme_id ??
         schoolClass?.programme_id ??
@@ -315,10 +319,6 @@ export default function StudentsPage() {
     programmeMap,
   ]);
 
-  /*
-   * Build a map of classes connected to each programme through
-   * student enrollments.
-   */
   const enrollmentClassProgrammeMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
 
@@ -339,9 +339,6 @@ export default function StudentsPage() {
     return map;
   }, [enrollments]);
 
-  /*
-   * Classes available in the Class filter.
-   */
   const availableClasses = useMemo(() => {
     if (programmeFilter === 'all') {
       return classes;
@@ -390,11 +387,16 @@ export default function StudentsPage() {
         statusFilter === 'all' ||
         student.status === statusFilter;
 
+      const matchesResidence =
+        residenceFilter === 'all' ||
+        student.resident === residenceFilter;
+
       return (
         matchesSearch &&
         matchesProgramme &&
         matchesClass &&
-        matchesStatus
+        matchesStatus &&
+        matchesResidence
       );
     });
   }, [
@@ -403,17 +405,10 @@ export default function StudentsPage() {
     programmeFilter,
     classFilter,
     statusFilter,
+    residenceFilter,
     currentAcademicInfo,
   ]);
 
-  /*
-   * Build the hierarchy:
-   *
-   * Form
-   *   └── Programme / Department
-   *         └── Class
-   *               └── Students
-   */
   const formGroups = useMemo<FormGroup[]>(() => {
     const formMap = new Map<string, FormGroup>();
 
@@ -552,6 +547,22 @@ export default function StudentsPage() {
     activeCount -
     graduatedCount;
 
+  const dayStudentCount = students.filter(
+    (student) =>
+      student.resident === 'Day'
+  ).length;
+
+  const boardingStudentCount = students.filter(
+    (student) =>
+      student.resident === 'Boarding'
+  ).length;
+
+  const residenceNotProvidedCount =
+    students.filter(
+      (student) =>
+        !student.resident
+    ).length;
+
   function toggleItem(
     id: string,
     setter: Dispatch<
@@ -610,21 +621,9 @@ export default function StudentsPage() {
     setProgrammeFilter('all');
     setClassFilter('all');
     setStatusFilter('all');
+    setResidenceFilter('all');
   }
 
-  /*
-   * Delete a student and all dependent records.
-   *
-   * Order:
-   * 1. Assessments
-   * 2. Attendance
-   * 3. Fees
-   * 4. Enrollments
-   * 5. Student
-   *
-   * The database policies added in Supabase now allow
-   * administrators to perform these deletions.
-   */
   async function deleteStudent(
     id: string,
     name: string
@@ -645,7 +644,6 @@ export default function StudentsPage() {
     setError('');
 
     try {
-      // Delete assessments
       const { error: assessmentsError } =
         await supabase
           .from('assessments')
@@ -658,7 +656,6 @@ export default function StudentsPage() {
         );
       }
 
-      // Delete attendance
       const { error: attendanceError } =
         await supabase
           .from('attendance')
@@ -671,7 +668,6 @@ export default function StudentsPage() {
         );
       }
 
-      // Delete fees
       const { error: feesError } =
         await supabase
           .from('fees')
@@ -684,7 +680,6 @@ export default function StudentsPage() {
         );
       }
 
-      // Delete enrollments
       const { error: enrollmentsError } =
         await supabase
           .from('enrollments')
@@ -697,7 +692,6 @@ export default function StudentsPage() {
         );
       }
 
-      // Finally delete the student
       const { error: studentError } =
         await supabase
           .from('students')
@@ -710,7 +704,6 @@ export default function StudentsPage() {
         );
       }
 
-      // Remove from the page immediately
       setStudents((current) =>
         current.filter(
           (student) =>
@@ -718,7 +711,6 @@ export default function StudentsPage() {
         )
       );
 
-      // Remove any related enrollment records from local state
       setEnrollments((current) =>
         current.filter(
           (enrollment) =>
@@ -740,14 +732,21 @@ export default function StudentsPage() {
 
   if (loading) {
     return (
-      <div className="p-6 lg:p-10">
+      <div className="min-h-screen bg-slate-50 p-6 lg:p-10">
         <div className="mx-auto max-w-7xl">
-          <div className="flex items-center gap-3 text-slate-500">
-            <FontAwesomeIcon
-              icon={faGraduationCap}
-              className="animate-bounce text-blue-600"
-            />
-            <p>Loading students...</p>
+          <div className="flex min-h-[60vh] items-center justify-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
+                <FontAwesomeIcon
+                  icon={faGraduationCap}
+                  className="animate-bounce text-2xl"
+                />
+              </div>
+
+              <p className="font-medium text-slate-500">
+                Loading students...
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -759,7 +758,7 @@ export default function StudentsPage() {
       <div className="mx-auto max-w-7xl">
 
         {/* Header */}
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="mb-1 flex items-center gap-2 text-sm font-medium text-blue-600">
               <FontAwesomeIcon
@@ -778,10 +777,10 @@ export default function StudentsPage() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
             <Link
               href="/students/student-account"
-              className="group inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 font-semibold text-blue-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-100"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 font-semibold text-blue-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:bg-blue-100"
             >
               <FontAwesomeIcon
                 icon={faUserShield}
@@ -792,7 +791,7 @@ export default function StudentsPage() {
 
             <Link
               href="/students/import"
-              className="group inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 font-semibold text-emerald-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 font-semibold text-emerald-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:bg-emerald-100"
             >
               <FontAwesomeIcon
                 icon={faFileArrowDown}
@@ -803,7 +802,7 @@ export default function StudentsPage() {
 
             <Link
               href="/students/add"
-              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-700"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white shadow-sm transition duration-300 hover:-translate-y-0.5 hover:bg-blue-700"
             >
               <FontAwesomeIcon
                 icon={faPlus}
@@ -815,9 +814,10 @@ export default function StudentsPage() {
         </div>
 
         {/* Statistics */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
 
-          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+          {/* Total */}
+          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md">
             <div className="flex items-center justify-between">
               <p className="text-sm text-slate-500">
                 Total Students
@@ -834,10 +834,11 @@ export default function StudentsPage() {
             </p>
           </div>
 
-          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+          {/* Active */}
+          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md">
             <div className="flex items-center justify-between">
               <p className="text-sm text-slate-500">
-                Active Students
+                Active
               </p>
 
               <FontAwesomeIcon
@@ -851,7 +852,44 @@ export default function StudentsPage() {
             </p>
           </div>
 
-          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+          {/* Day */}
+          <div className="group rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-emerald-700">
+                Day Students
+              </p>
+
+              <FontAwesomeIcon
+                icon={faHouse}
+                className="text-emerald-600 transition-transform duration-300 group-hover:scale-110"
+              />
+            </div>
+
+            <p className="mt-2 text-3xl font-bold text-emerald-700">
+              {dayStudentCount}
+            </p>
+          </div>
+
+          {/* Boarding */}
+          <div className="group rounded-2xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-indigo-700">
+                Boarding
+              </p>
+
+              <FontAwesomeIcon
+                icon={faBed}
+                className="text-indigo-600 transition-transform duration-300 group-hover:scale-110"
+              />
+            </div>
+
+            <p className="mt-2 text-3xl font-bold text-indigo-700">
+              {boardingStudentCount}
+            </p>
+          </div>
+
+          {/* Other */}
+          <div className="group col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md lg:col-span-1">
             <div className="flex items-center justify-between">
               <p className="text-sm text-slate-500">
                 Other Status
@@ -870,11 +908,45 @@ export default function StudentsPage() {
 
         </div>
 
+        {/* Residence Information Notice */}
+        {residenceNotProvidedCount > 0 && (
+          <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+                <FontAwesomeIcon icon={faHouse} />
+              </div>
+
+              <div>
+                <p className="font-semibold text-amber-800">
+                  Residence information
+                </p>
+
+                <p className="text-sm text-amber-700">
+                  {residenceNotProvidedCount}{' '}
+                  {residenceNotProvidedCount === 1
+                    ? 'student does'
+                    : 'students do'}{' '}
+                  not have Day or Boarding recorded.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              href="/students/import"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100"
+            >
+              <FontAwesomeIcon icon={faFileArrowDown} />
+              Update by Import
+            </Link>
+          </div>
+        )}
+
         {/* Search and Filters */}
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
 
+            {/* Search */}
             <div className="lg:col-span-2">
               <label className="mb-1 block text-xs font-semibold text-slate-500">
                 Search Student
@@ -900,6 +972,7 @@ export default function StudentsPage() {
               </div>
             </div>
 
+            {/* Programme */}
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-500">
                 Programme
@@ -913,7 +986,7 @@ export default function StudentsPage() {
                   );
                   setClassFilter('all');
                 }}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="all">
                   All Programmes
@@ -932,6 +1005,7 @@ export default function StudentsPage() {
               </select>
             </div>
 
+            {/* Class */}
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-500">
                 Class
@@ -944,7 +1018,7 @@ export default function StudentsPage() {
                     event.target.value
                   )
                 }
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="all">
                   All Classes
@@ -963,6 +1037,7 @@ export default function StudentsPage() {
               </select>
             </div>
 
+            {/* Status */}
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-500">
                 Status
@@ -975,7 +1050,7 @@ export default function StudentsPage() {
                     event.target.value
                   )
                 }
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="all">
                   All Students
@@ -1003,7 +1078,41 @@ export default function StudentsPage() {
               </select>
             </div>
 
-            <div className="flex items-end">
+            {/* Residence */}
+            <div>
+              <label className="mb-1 flex items-center gap-2 text-xs font-semibold text-slate-500">
+                <FontAwesomeIcon
+                  icon={faHouse}
+                  className="text-emerald-600"
+                />
+                Residence
+              </label>
+
+              <select
+                value={residenceFilter}
+                onChange={(event) =>
+                  setResidenceFilter(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              >
+                <option value="all">
+                  All Residences
+                </option>
+
+                <option value="Day">
+                  Day Students
+                </option>
+
+                <option value="Boarding">
+                  Boarding Students
+                </option>
+              </select>
+            </div>
+
+            {/* Clear */}
+            <div className="flex items-end md:col-span-2 lg:col-span-1">
               <button
                 type="button"
                 onClick={clearFilters}
@@ -1015,6 +1124,7 @@ export default function StudentsPage() {
 
           </div>
 
+          {/* Filter summary */}
           <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
 
             <span>
@@ -1033,7 +1143,8 @@ export default function StudentsPage() {
               {search ||
               programmeFilter !== 'all' ||
               classFilter !== 'all' ||
-              statusFilter !== 'all'
+              statusFilter !== 'all' ||
+              residenceFilter !== 'all'
                 ? 'Filters are active'
                 : 'No filters applied'}
             </span>
@@ -1043,19 +1154,23 @@ export default function StudentsPage() {
 
         {/* Error */}
         {error && (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
+          <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <FontAwesomeIcon
+              icon={faCircleCheck}
+              className="mt-0.5 text-red-500"
+            />
+            <span>{error}</span>
           </div>
         )}
 
-        {/* Hierarchical Student Directory */}
+        {/* No Students */}
         {filteredStudents.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
 
             <div className="mb-4 text-blue-500">
               <FontAwesomeIcon
                 icon={faUserGraduate}
-                className="text-5xl animate-bounce"
+                className="animate-bounce text-5xl"
               />
             </div>
 
@@ -1080,7 +1195,7 @@ export default function StudentsPage() {
           <div>
 
             {/* Directory Controls */}
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <FontAwesomeIcon
@@ -1090,7 +1205,28 @@ export default function StudentsPage() {
                 Student Directory
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    loadStudents(true)
+                  }
+                  disabled={refreshing}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <FontAwesomeIcon
+                    icon={faRotate}
+                    className={
+                      refreshing
+                        ? 'animate-spin'
+                        : ''
+                    }
+                  />
+                  {refreshing
+                    ? 'Refreshing...'
+                    : 'Refresh'}
+                </button>
+
                 <button
                   type="button"
                   onClick={expandAll}
@@ -1206,7 +1342,7 @@ export default function StudentsPage() {
                                     className="overflow-hidden rounded-xl border border-slate-200 bg-white"
                                   >
 
-                                    {/* PROGRAMME / DEPARTMENT */}
+                                    {/* PROGRAMME */}
                                     <button
                                       type="button"
                                       onClick={() =>
@@ -1380,12 +1516,20 @@ export default function StudentsPage() {
                                                               deletingId ===
                                                               student.id;
 
+                                                            const isBoarding =
+                                                              student.resident ===
+                                                              'Boarding';
+
+                                                            const isDay =
+                                                              student.resident ===
+                                                              'Day';
+
                                                             return (
                                                               <div
                                                                 key={
                                                                   student.id
                                                                 }
-                                                                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                                                                className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-md"
                                                               >
 
                                                                 {/* Student Header */}
@@ -1393,12 +1537,11 @@ export default function StudentsPage() {
 
                                                                   <div className="flex min-w-0 items-center gap-3">
 
-                                                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                                                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 transition-transform duration-300 group-hover:scale-105">
                                                                       <FontAwesomeIcon
                                                                         icon={
                                                                           faUserGraduate
                                                                         }
-                                                                        className="transition-transform duration-300 hover:scale-110"
                                                                       />
                                                                     </div>
 
@@ -1419,7 +1562,7 @@ export default function StudentsPage() {
                                                                   </div>
 
                                                                   <span
-                                                                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                                                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
                                                                       student.status ===
                                                                       'active'
                                                                         ? 'bg-green-100 text-green-700'
@@ -1434,6 +1577,38 @@ export default function StudentsPage() {
                                                                     }
                                                                   </span>
 
+                                                                </div>
+
+                                                                {/* Residence Badge */}
+                                                                <div className="mt-4">
+                                                                  {isBoarding ? (
+                                                                    <div className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">
+                                                                      <FontAwesomeIcon
+                                                                        icon={
+                                                                          faBed
+                                                                        }
+                                                                      />
+                                                                      Boarding Student
+                                                                    </div>
+                                                                  ) : isDay ? (
+                                                                    <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                                                                      <FontAwesomeIcon
+                                                                        icon={
+                                                                          faHouse
+                                                                        }
+                                                                      />
+                                                                      Day Student
+                                                                    </div>
+                                                                  ) : (
+                                                                    <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+                                                                      <FontAwesomeIcon
+                                                                        icon={
+                                                                          faHouse
+                                                                        }
+                                                                      />
+                                                                      Residence Not Provided
+                                                                    </div>
+                                                                  )}
                                                                 </div>
 
                                                                 {/* Student Information */}
@@ -1452,20 +1627,27 @@ export default function StudentsPage() {
 
                                                                   <div>
                                                                     <p className="text-[11px] text-slate-400">
-                                                                      Resident
+                                                                      Residence
                                                                     </p>
 
                                                                     <p
-                                                                      className={`mt-1 text-xs font-semibold ${
-                                                                        student.resident ===
-                                                                        'Boarding'
+                                                                      className={`mt-1 flex items-center gap-1.5 text-xs font-bold ${
+                                                                        isBoarding
                                                                           ? 'text-indigo-700'
-                                                                          : student.resident ===
-                                                                            'Day'
+                                                                          : isDay
                                                                           ? 'text-emerald-700'
                                                                           : 'text-slate-500'
                                                                       }`}
                                                                     >
+                                                                      <FontAwesomeIcon
+                                                                        icon={
+                                                                          isBoarding
+                                                                            ? faBed
+                                                                            : faHouse
+                                                                        }
+                                                                        className="text-[10px]"
+                                                                      />
+
                                                                       {student.resident ||
                                                                         'Not provided'}
                                                                     </p>
@@ -1605,6 +1787,7 @@ export default function StudentsPage() {
                                                                       }
                                                                       className="text-green-500"
                                                                     />
+
                                                                     {
                                                                       academicInfo.academicYearName
                                                                     }
