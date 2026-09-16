@@ -1,6 +1,11 @@
 'use client';
 
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import {
+  ChangeEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import * as XLSX from 'xlsx';
 import { createClient } from '@/lib/supabase/client';
 
@@ -59,8 +64,6 @@ type BulkResult = {
   enrollment_id?: string;
 };
 
-const BATCH_SIZE = 50;
-
 const headers = [
   'FULL NAME',
   'FORM',
@@ -76,121 +79,86 @@ const headers = [
   'JHS AGGREGATE',
 ];
 
-function clean(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  return String(value).trim();
+function clean(value: unknown) {
+  return String(value ?? '').trim();
 }
 
-function normalize(value: string): string {
-  return value
-    .trim()
+function normalize(value: unknown) {
+  return clean(value)
     .toLowerCase()
     .replace(/\s+/g, ' ');
 }
 
-function normalizeResidence(value: string): string {
-  const v = normalize(value);
+function normalizeResidence(value: unknown) {
+  const normalized = clean(value).toLowerCase();
 
-  if (v === 'day' || v === 'day student' || v === 'day students') {
+  if (normalized === 'day') {
     return 'Day';
   }
 
-  if (
-    v === 'boarding' ||
-    v === 'boarder' ||
-    v === 'boarders' ||
-    v === 'boarding student' ||
-    v === 'boarding students'
-  ) {
+  if (normalized === 'boarding') {
     return 'Boarding';
-  }
-
-  return clean(value);
-}
-
-function excelDateToString(value: unknown): string {
-  if (value === null || value === undefined || value === '') {
-    return '';
-  }
-
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, '0');
-    const day = String(value.getDate()).padStart(2, '0');
-
-    return `${year}-${month}-${day}`;
-  }
-
-  if (typeof value === 'number') {
-    const parsed = XLSX.SSF.parse_date_code(value);
-
-    if (parsed) {
-      const year = parsed.y;
-      const month = String(parsed.m).padStart(2, '0');
-      const day = String(parsed.d).padStart(2, '0');
-
-      return `${year}-${month}-${day}`;
-    }
-  }
-
-  const raw = clean(value);
-
-  if (!raw) return '';
-
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(raw)) {
-    const [year, month, day] = raw.split('-');
-
-    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-  }
-
-  const slashMatch = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-
-  if (slashMatch) {
-    const first = Number(slashMatch[1]);
-    const second = Number(slashMatch[2]);
-    const year = slashMatch[3];
-
-    /*
-     * Prefer DD/MM/YYYY when the first value is > 12.
-     * Otherwise use DD/MM/YYYY as the normal school-data convention.
-     */
-    const day = first;
-    const month = second;
-
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(
-        2,
-        '0'
-      )}`;
-    }
-  }
-
-  const parsedDate = new Date(raw);
-
-  if (!Number.isNaN(parsedDate.getTime())) {
-    const year = parsedDate.getFullYear();
-    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
-    const day = String(parsedDate.getDate()).padStart(2, '0');
-
-    return `${year}-${month}-${day}`;
   }
 
   return '';
 }
 
-function mapRow(row: Record<string, unknown>): ImportRow {
+function excelDateToString(value: unknown): string {
+  if (!value) return '';
+
+  if (
+    value instanceof Date &&
+    !Number.isNaN(value.getTime())
+  ) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value === 'number') {
+    const date = XLSX.SSF.parse_date_code(value);
+
+    if (date) {
+      const month = String(date.m).padStart(2, '0');
+      const day = String(date.d).padStart(2, '0');
+
+      return `${date.y}-${month}-${day}`;
+    }
+  }
+
+  const text = clean(value);
+
+  if (!text) return '';
+
+  const slashMatch = text.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+  );
+
+  if (slashMatch) {
+    const day = slashMatch[1].padStart(2, '0');
+    const month = slashMatch[2].padStart(2, '0');
+    const year = slashMatch[3];
+
+    return `${year}-${month}-${day}`;
+  }
+
+  const parsed = new Date(text);
+
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return text;
+}
+
+function mapRow(
+  row: Record<string, unknown>
+): ImportRow {
   const get = (name: string) => {
-    const direct = row[name];
-
-    if (direct !== undefined) return direct;
-
-    const normalizedKey = normalize(name);
-
-    const foundKey = Object.keys(row).find(
-      (key) => normalize(key) === normalizedKey
+    const key = Object.keys(row).find(
+      (item) =>
+        normalize(item) === normalize(name)
     );
 
-    return foundKey ? row[foundKey] : '';
+    return key ? row[key] : '';
   };
 
   return {
@@ -199,2053 +167,1844 @@ function mapRow(row: Record<string, unknown>): ImportRow {
     programme: clean(get('PROGRAMME')),
     class_name: clean(get('CLASS')),
     gender: clean(get('GENDER')),
-    resident: normalizeResidence(clean(get('RESIDENCE'))),
-    date_of_birth: excelDateToString(get('DATE OF BIRTH')),
-    guardian_name: clean(get('GUARDIAN NAME')),
-    guardian_phone: clean(get('GUARDIAN PHONE')),
+    resident: clean(get('RESIDENCE')),
+    date_of_birth: excelDateToString(
+      get('DATE OF BIRTH')
+    ),
+    guardian_name: clean(
+      get('GUARDIAN NAME')
+    ),
+    guardian_phone: clean(
+      get('GUARDIAN PHONE')
+    ),
     address: clean(get('ADDRESS')),
-    admission_date: excelDateToString(get('ADMISSION DATE')),
-    jhs_aggregate: clean(get('JHS AGGREGATE')),
+    admission_date: excelDateToString(
+      get('ADMISSION DATE')
+    ),
+    jhs_aggregate: clean(
+      get('JHS AGGREGATE')
+    ),
   };
-}
-
-function downloadWorkbook(
-  rows: ImportRow[] = [
-    {
-      full_name: 'John Mensah',
-      form: 'Form 1',
-      programme: 'Electrical Engineering',
-      class_name: 'A Class',
-      gender: 'Male',
-      resident: 'Boarding',
-      date_of_birth: '2010-05-12',
-      guardian_name: 'Kwame Mensah',
-      guardian_phone: '0240000000',
-      address: 'Accra',
-      admission_date: '2026-09-01',
-      jhs_aggregate: '18',
-    },
-  ]
-) {
-  const worksheetRows = rows.map((row) => ({
-    'FULL NAME': row.full_name,
-    FORM: row.form,
-    PROGRAMME: row.programme,
-    CLASS: row.class_name,
-    GENDER: row.gender,
-    RESIDENCE: row.resident,
-    'DATE OF BIRTH': row.date_of_birth,
-    'GUARDIAN NAME': row.guardian_name,
-    'GUARDIAN PHONE': row.guardian_phone,
-    ADDRESS: row.address,
-    'ADMISSION DATE': row.admission_date,
-    'JHS AGGREGATE': row.jhs_aggregate,
-  }));
-
-  const worksheet = XLSX.utils.json_to_sheet(worksheetRows, {
-    header: headers,
-  });
-
-  worksheet['!cols'] = [
-    { wch: 28 },
-    { wch: 12 },
-    { wch: 28 },
-    { wch: 18 },
-    { wch: 12 },
-    { wch: 14 },
-    { wch: 18 },
-    { wch: 24 },
-    { wch: 20 },
-    { wch: 28 },
-    { wch: 18 },
-    { wch: 18 },
-  ];
-
-  const workbook = XLSX.utils.book_new();
-
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Students');
-
-  XLSX.writeFile(
-    workbook,
-    'BTI-SMS-Student-Import-Template.xlsx'
-  );
 }
 
 export default function StudentImportPage() {
   const supabase = createClient();
 
-  const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
-  const [classes, setClasses] = useState<SchoolClass[]>([]);
-
-  const [schoolId, setSchoolId] = useState('');
-  const [academicYearId, setAcademicYearId] = useState('');
-
   const [rows, setRows] = useState<ImportRow[]>([]);
-  const [fileName, setFileName] = useState('');
+  const [programmes, setProgrammes] = useState<
+    Programme[]
+  >([]);
+  const [academicYears, setAcademicYears] =
+    useState<AcademicYear[]>([]);
+  const [classes, setClasses] = useState<
+    SchoolClass[]
+  >([]);
 
-  const [loading, setLoading] = useState(true);
-  const [readingFile, setReadingFile] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [academicYearId, setAcademicYearId] =
+    useState('');
+  const [schoolId, setSchoolId] = useState('');
 
-  const [progress, setProgress] = useState(0);
-  const [processed, setProcessed] = useState(0);
-  const [currentBatch, setCurrentBatch] = useState(0);
-  const [totalBatches, setTotalBatches] = useState(0);
+  const [loadingData, setLoadingData] =
+    useState(true);
+  const [importing, setImporting] =
+    useState(false);
 
-  const [message, setMessage] = useState('');
+  const [message, setMessage] =
+    useState('');
+  const [errors, setErrors] = useState<
+    ResultMessage[]
+  >([]);
+  const [fileName, setFileName] =
+    useState('');
 
-  const [resultMessages, setResultMessages] = useState<ResultMessage[]>([]);
-  const [bulkResults, setBulkResults] = useState<BulkResult[]>([]);
+  const [importProgress, setImportProgress] =
+    useState('');
+  const [progressPercent, setProgressPercent] =
+    useState(0);
 
-  const [error, setError] = useState('');
+  const selectedAcademicYear = useMemo(
+    () =>
+      academicYears.find(
+        (year) =>
+          year.id === academicYearId
+      ),
+    [
+      academicYears,
+      academicYearId,
+    ]
+  );
 
-  const [importStarted, setImportStarted] = useState(false);
+  const successResults = useMemo(
+    () =>
+      errors.filter(
+        (item) =>
+          item.type === 'success'
+      ),
+    [errors]
+  );
+
+  const warningResults = useMemo(
+    () =>
+      errors.filter(
+        (item) =>
+          item.type === 'warning'
+      ),
+    [errors]
+  );
+
+  const errorResults = useMemo(
+    () =>
+      errors.filter(
+        (item) =>
+          item.type === 'error'
+      ),
+    [errors]
+  );
 
   useEffect(() => {
     loadData();
   }, []);
 
-async function importStudents() {
-  if (importing) return;
+  async function loadData() {
+    setLoadingData(true);
+    setMessage('');
 
-  setErrors([]);
-  setMessage('');
-  setImportProgress('');
-  setProgressPercent(0);
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-  // ---------------------------------------------------------
-  // BASIC CHECKS
-  // ---------------------------------------------------------
-
-  if (!rows.length) {
-    setMessage(
-      'Please select an Excel file containing student records.'
-    );
-    return;
-  }
-
-  if (!academicYearId) {
-    setMessage(
-      'Please select the academic year for this import.'
-    );
-    return;
-  }
-
-  if (!schoolId) {
-    setMessage(
-      'Your school could not be determined. Please refresh the page and try again.'
-    );
-    return;
-  }
-
-  setImporting(true);
-
-  try {
-    // -------------------------------------------------------
-    // STEP 1 — LOCAL VALIDATION
-    // -------------------------------------------------------
-
-    setImportProgress(
-      `Validating ${rows.length} student record(s)...`
-    );
-    setProgressPercent(5);
-
-    const validationResults: ResultMessage[] = [];
-
-    const validRows: Array<
-      ImportRow & {
-        row_number: number;
-      }
-    > = [];
-
-    rows.forEach((row, index) => {
-      const rowNumber = index + 2;
-
-      const fullName = clean(row.full_name);
-
-      const residence = normalizeResidence(
-        row.resident
-      );
-
-      if (!fullName) {
-        validationResults.push({
-          row: rowNumber,
-          type: 'error',
-          message: 'FULL NAME is required.',
-        });
-
-        return;
-      }
-
-      if (row.resident && !residence) {
-        validationResults.push({
-          row: rowNumber,
-          type: 'error',
-          message:
-            'RESIDENCE must be Day or Boarding.',
-        });
-
-        return;
-      }
-
-      if (row.jhs_aggregate) {
-        const aggregate = Number(
-          String(row.jhs_aggregate)
-            .replace(/,/g, '')
-            .trim()
-        );
-
-        if (!Number.isFinite(aggregate)) {
-          validationResults.push({
-            row: rowNumber,
-            type: 'error',
-            message:
-              'JHS AGGREGATE must be a valid number.',
-          });
-
-          return;
-        }
-      }
-
-      validRows.push({
-        ...row,
-        full_name: fullName,
-        resident: residence,
-        row_number: rowNumber,
-      });
-    });
-
-    // -------------------------------------------------------
-    // STEP 2 — DUPLICATE NAMES INSIDE THIS EXCEL
-    // -------------------------------------------------------
-
-    setImportProgress(
-      `Checking ${validRows.length} valid record(s) for duplicate names...`
-    );
-    setProgressPercent(10);
-
-    const nameOccurrences = new Map<
-      string,
-      number[]
-    >();
-
-    validRows.forEach((row) => {
-      const key = normalize(row.full_name);
-
-      if (!nameOccurrences.has(key)) {
-        nameOccurrences.set(key, []);
-      }
-
-      nameOccurrences
-        .get(key)!
-        .push(row.row_number);
-    });
-
-    const duplicateRows = new Set<number>();
-
-    nameOccurrences.forEach(
-      (rowNumbers, key) => {
-        if (rowNumbers.length > 1) {
-          rowNumbers.forEach((number) =>
-            duplicateRows.add(number)
-          );
-
-          const duplicateName =
-            validRows.find(
-              (row) =>
-                normalize(row.full_name) === key
-            )?.full_name || 'Unknown student';
-
-          validationResults.push({
-            row: rowNumbers[0],
-            type: 'warning',
-            message:
-              `Duplicate student name detected: "${duplicateName}". Excel rows ${rowNumbers.join(
-                ', '
-              )} contain the same name. These rows were not imported automatically because the system cannot safely determine whether they represent one student or different students.`,
-          });
-        }
-      }
-    );
-
-    const rowsToImport = validRows.filter(
-      (row) =>
-        !duplicateRows.has(row.row_number)
-    );
-
-    setErrors(validationResults);
-
-    if (!rowsToImport.length) {
-      setProgressPercent(100);
-      setImportProgress('');
-
+    if (userError || !user) {
       setMessage(
-        'Import stopped. No unambiguous student records were available for import.'
+        'You must be logged in to use the student importer.'
       );
-
+      setLoadingData(false);
       return;
     }
 
-    // -------------------------------------------------------
-    // STEP 3 — PREPARE PAYLOAD
-    // -------------------------------------------------------
+    const {
+      data: profile,
+      error: profileError,
+    } = await supabase
+      .from('users')
+      .select('school_id')
+      .eq('id', user.id)
+      .maybeSingle();
 
-    setImportProgress(
-      `Preparing ${rowsToImport.length} student record(s) for secure bulk processing...`
-    );
-    setProgressPercent(15);
-
-    const payload = rowsToImport.map(
-      (row) => ({
-        row_number: row.row_number,
-        full_name: clean(row.full_name),
-        form: clean(row.form),
-        programme: clean(row.programme),
-        class_name: clean(row.class_name),
-        gender: clean(row.gender),
-        resident: normalizeResidence(
-          row.resident
-        ),
-        date_of_birth: clean(
-          row.date_of_birth
-        ),
-        guardian_name: clean(
-          row.guardian_name
-        ),
-        guardian_phone: clean(
-          row.guardian_phone
-        ),
-        address: clean(row.address),
-        admission_date: clean(
-          row.admission_date
-        ),
-        jhs_aggregate: clean(
-          row.jhs_aggregate
-        ),
-      })
-    );
-
-    // -------------------------------------------------------
-    // STEP 4 — BATCHED BULK SUPABASE IMPORT
-    // -------------------------------------------------------
-
-    const BATCH_SIZE = 50;
-
-    const totalRecords = payload.length;
-
-    const totalBatches = Math.ceil(
-      totalRecords / BATCH_SIZE
-    );
-
-    const allDatabaseResults: BulkResult[] = [];
-
-    let processedRecords = 0;
-
-    for (
-      let batchIndex = 0;
-      batchIndex < totalBatches;
-      batchIndex++
-    ) {
-      const start =
-        batchIndex * BATCH_SIZE;
-
-      const end = Math.min(
-        start + BATCH_SIZE,
-        totalRecords
+    if (profileError) {
+      setMessage(
+        `Unable to determine your school: ${profileError.message}`
       );
+      setLoadingData(false);
+      return;
+    }
 
-      const batch = payload.slice(
-        start,
-        end
+    if (!profile?.school_id) {
+      setMessage(
+        'Your BTI-SMS account is not linked to a school.'
       );
+      setLoadingData(false);
+      return;
+    }
 
-      const batchNumber = batchIndex + 1;
+    const currentSchoolId =
+      profile.school_id;
 
-      setImportProgress(
-        `Importing batch ${batchNumber} of ${totalBatches} (${start + 1}-${end} of ${totalRecords})...`
-      );
+    setSchoolId(currentSchoolId);
 
-      const batchStartPercent = 20;
-
-      const batchEndPercent = 85;
-
-      const currentPercent =
-        batchStartPercent +
-        Math.round(
-          (processedRecords /
-            totalRecords) *
-            (batchEndPercent -
-              batchStartPercent)
-        );
-
-      setProgressPercent(
-        Math.max(
-          20,
-          Math.min(85, currentPercent)
+    const [
+      {
+        data: programmeData,
+        error: programmeError,
+      },
+      {
+        data: yearData,
+        error: yearError,
+      },
+      {
+        data: classData,
+        error: classError,
+      },
+    ] = await Promise.all([
+      supabase
+        .from('programmes')
+        .select('id, name')
+        .eq(
+          'school_id',
+          currentSchoolId
         )
+        .order('name'),
+
+      supabase
+        .from('academic_years')
+        .select(
+          'id, name, start_date'
+        )
+        .eq(
+          'school_id',
+          currentSchoolId
+        )
+        .order('start_date', {
+          ascending: false,
+        }),
+
+      supabase
+        .from('classes')
+        .select(
+          'id, name, level, programme_id, academic_year_id'
+        )
+        .eq(
+          'school_id',
+          currentSchoolId
+        )
+        .order('name'),
+    ]);
+
+    if (
+      programmeError ||
+      yearError ||
+      classError
+    ) {
+      setMessage(
+        programmeError?.message ||
+          yearError?.message ||
+          classError?.message ||
+          'Unable to load school data.'
       );
 
-      const {
-        data,
-        error,
-      } = await supabase.rpc(
-        'bulk_import_students',
-        {
-          p_school_id: schoolId,
-          p_academic_year_id:
-            academicYearId,
-          p_rows: batch,
-        }
+      setLoadingData(false);
+      return;
+    }
+
+    const loadedProgrammes =
+      programmeData || [];
+    const loadedYears =
+      yearData || [];
+    const loadedClasses =
+      classData || [];
+
+    setProgrammes(
+      loadedProgrammes
+    );
+
+    setAcademicYears(
+      loadedYears
+    );
+
+    setClasses(
+      loadedClasses
+    );
+
+    const currentYear =
+      loadedYears.find(
+        (year) =>
+          normalize(
+            year.name
+          ).includes('current')
       );
 
-      if (error) {
-        console.error(
-          `Bulk student import error in batch ${batchNumber}:`,
-          error
-        );
-
-        // Keep results from batches that
-        // already completed.
-        setErrors([
-          ...validationResults,
-          ...allDatabaseResults.map(
-            (result) => ({
-              row: Number(
-                result.row || 0
-              ),
-              message:
-                result.message ||
-                'Import processing completed.',
-              type:
-                result.status ===
-                'success'
-                  ? 'success'
-                  : result.status ===
-                      'failed'
-                    ? 'error'
-                    : 'warning',
-            })
-          ),
-          {
-            row: 0,
-            type: 'error',
-            message:
-              `Batch ${batchNumber} of ${totalBatches} could not be completed: ${
-                error.message ||
-                'Unknown Supabase error.'
-              }`,
-          },
-        ]);
-
-        setProgressPercent(0);
-        setImportProgress('');
-
-        setMessage(
-          `Import stopped at batch ${batchNumber} of ${totalBatches}. The completed batches were saved safely. You can upload the same file again to process the remaining records.`
-        );
-
-        return;
-      }
-
-      const batchResults: BulkResult[] =
-        Array.isArray(data)
-          ? data
-          : [];
-
-      allDatabaseResults.push(
-        ...batchResults
+    if (currentYear) {
+      setAcademicYearId(
+        currentYear.id
       );
-
-      processedRecords = end;
-
-      const actualProgress =
-        20 +
-        Math.round(
-          (processedRecords /
-            totalRecords) *
-            65
-        );
-
-      setProgressPercent(
-        Math.min(85, actualProgress)
+    } else if (
+      loadedYears[0]
+    ) {
+      setAcademicYearId(
+        loadedYears[0].id
       );
     }
 
-    // -------------------------------------------------------
-    // STEP 5 — PROCESS DATABASE RESULTS
-    // -------------------------------------------------------
-
-    setImportProgress(
-      'Processing import and assignment results...'
-    );
-
-    setProgressPercent(90);
-
-    const databaseResults =
-      allDatabaseResults;
-
-    const resultMessages: ResultMessage[] =
-      [...validationResults];
-
-    databaseResults.forEach(
-      (result) => {
-        let resultType:
-          | 'success'
-          | 'warning'
-          | 'error';
-
-        if (
-          result.status ===
-          'success'
-        ) {
-          resultType = 'success';
-        } else if (
-          result.status ===
-            'partial' ||
-          result.status ===
-            'skipped'
-        ) {
-          resultType = 'warning';
-        } else {
-          resultType = 'error';
-        }
-
-        let resultMessage =
-          result.message ||
-          'Import processing completed.';
-
-        if (
-          result.status ===
-            'success' &&
-          result.assigned
-        ) {
-          resultMessage +=
-            ' Student assigned successfully.';
-        }
-
-        resultMessages.push({
-          row: Number(
-            result.row || 0
-          ),
-          message: resultMessage,
-          type: resultType,
-        });
-      }
-    );
-
-    setErrors(resultMessages);
-
-    // -------------------------------------------------------
-    // STEP 6 — ACCURATE COUNTS
-    // -------------------------------------------------------
-
-    const successful =
-      databaseResults.filter(
-        (item) =>
-          item.status ===
-          'success'
-      );
-
-    const partial =
-      databaseResults.filter(
-        (item) =>
-          item.status ===
-          'partial'
-      );
-
-    const skipped =
-      databaseResults.filter(
-        (item) =>
-          item.status ===
-            'skipped' ||
-          item.status ===
-            'failed'
-      );
-
-    const newStudents =
-      successful.filter(
-        (item) =>
-          item.student_created ===
-          true
-      ).length;
-
-    const existingStudents =
-      successful.filter(
-        (item) =>
-          item.student_existing ===
-          true
-      ).length;
-
-    const assignedStudents =
-      successful.filter(
-        (item) =>
-          item.assigned ===
-          true
-      ).length;
-
-    const newClasses =
-      successful.filter(
-        (item) =>
-          item.class_created ===
-          true
-      ).length;
-
-    const enrollmentsCreated =
-      successful.filter(
-        (item) =>
-          item.enrollment_created ===
-          true
-      ).length;
-
-    const enrollmentsUpdated =
-      successful.filter(
-        (item) =>
-          item.enrollment_updated ===
-          true
-      ).length;
-
-    // -------------------------------------------------------
-    // STEP 7 — REFRESH
-    // -------------------------------------------------------
-
-    setImportProgress(
-      'Refreshing BTI-SMS student and class data...'
-    );
-
-    setProgressPercent(95);
-
-    await loadData();
-
-    // -------------------------------------------------------
-    // STEP 8 — COMPLETE
-    // -------------------------------------------------------
-
-    setProgressPercent(100);
-
-    setMessage(
-      `Import complete: ${newStudents} new student(s), ${existingStudents} existing student(s) updated, ${assignedStudents} student(s) assigned, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) processed, ${newClasses} class(es) created, ${partial.length} partial record(s), and ${skipped.length} skipped/failed row(s).`
-    );
-
-    setImportProgress('');
-  } catch (error: any) {
-    console.error(
-      'Unexpected bulk import error:',
-      error
-    );
-
-    setProgressPercent(0);
-    setImportProgress('');
-
-    setMessage(
-      `Import failed unexpectedly: ${
-        error?.message ||
-        'Please try again.'
-      }`
-    );
-
-    setErrors(
-      (previous) => [
-        ...previous,
-        {
-          row: 0,
-          type: 'error',
-          message:
-            error?.message ||
-            'An unexpected error occurred during the import.',
-        },
-      ]
-    );
-  } finally {
-    setImporting(false);
+    setLoadingData(false);
   }
-}
 
-  function validateRows(inputRows: ImportRow[]) {
-    const messages: ResultMessage[] = [];
-    const seenNames = new Map<string, number[]>();
+  function downloadTemplate() {
+    const sample = [
+      {
+        'FULL NAME': 'John Mensah',
+        FORM: 'Form 1',
+        PROGRAMME:
+          'Electrical Engineering',
+        CLASS: 'A Class',
+        GENDER: 'Male',
+        RESIDENCE: 'Boarding',
+        'DATE OF BIRTH':
+          '2010-05-12',
+        'GUARDIAN NAME':
+          'Kwame Mensah',
+        'GUARDIAN PHONE':
+          '0240000000',
+        ADDRESS: 'Accra',
+        'ADMISSION DATE':
+          '2026-09-01',
+        'JHS AGGREGATE': '18',
+      },
+    ];
 
-    inputRows.forEach((row, index) => {
-      const rowNumber = index + 2;
-      const name = normalize(row.full_name);
-
-      if (name) {
-        const existing = seenNames.get(name) || [];
-        existing.push(rowNumber);
-        seenNames.set(name, existing);
-      }
-    });
-
-    inputRows.forEach((row, index) => {
-      const rowNumber = index + 2;
-
-      if (!row.full_name) {
-        messages.push({
-          row: rowNumber,
-          message: 'FULL NAME is required.',
-          type: 'error',
-        });
-      }
-
-      if (
-        row.resident &&
-        row.resident !== 'Day' &&
-        row.resident !== 'Boarding'
-      ) {
-        messages.push({
-          row: rowNumber,
-          message: 'RESIDENCE must be Day or Boarding.',
-          type: 'error',
-        });
-      }
-
-      if (row.jhs_aggregate) {
-        const aggregate = Number(row.jhs_aggregate);
-
-        if (
-          Number.isNaN(aggregate) ||
-          aggregate < 1 ||
-          aggregate > 99
-        ) {
-          messages.push({
-            row: rowNumber,
-            message: 'JHS AGGREGATE must be a valid number.',
-            type: 'error',
-          });
+    const worksheet =
+      XLSX.utils.json_to_sheet(
+        sample,
+        {
+          header: headers,
         }
-      }
-
-      const duplicateRows = seenNames.get(
-        normalize(row.full_name)
       );
 
-      if (
-        duplicateRows &&
-        duplicateRows.length > 1
-      ) {
-        messages.push({
-          row: rowNumber,
-          message: `Duplicate student name in this Excel file. The name appears on rows ${duplicateRows.join(
-            ', '
-          )}.`,
-          type: 'warning',
-        });
-      }
-    });
+    worksheet['!cols'] = [
+      { wch: 25 },
+      { wch: 14 },
+      { wch: 30 },
+      { wch: 28 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 25 },
+      { wch: 20 },
+      { wch: 30 },
+      { wch: 18 },
+      { wch: 18 },
+    ];
 
-    return messages;
+    const workbook =
+      XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      'Students'
+    );
+
+    XLSX.writeFile(
+      workbook,
+      'BTI-SMS-Student-Import-Template.xlsx'
+    );
   }
 
   async function handleFile(
     event: ChangeEvent<HTMLInputElement>
   ) {
-    const file = event.target.files?.[0];
+    const file =
+      event.target.files?.[0];
 
     if (!file) return;
 
-    setReadingFile(true);
-    setError('');
+    setFileName(file.name);
     setMessage('');
-    setResultMessages([]);
-    setBulkResults([]);
-    setImportStarted(false);
-    setProgress(0);
-    setProcessed(0);
-    setCurrentBatch(0);
-    setTotalBatches(0);
+    setErrors([]);
+    setRows([]);
+    setImportProgress('');
+    setProgressPercent(0);
 
     try {
-      const buffer = await file.arrayBuffer();
+      const buffer =
+        await file.arrayBuffer();
 
-      const workbook = XLSX.read(buffer, {
-        type: 'array',
-        cellDates: true,
-      });
+      const workbook =
+        XLSX.read(buffer, {
+          type: 'array',
+          cellDates: true,
+        });
 
-      const firstSheetName = workbook.SheetNames[0];
-
-      if (!firstSheetName) {
-        throw new Error(
-          'The workbook does not contain a worksheet.'
+      if (
+        !workbook.SheetNames.length
+      ) {
+        setMessage(
+          'The selected Excel file does not contain a worksheet.'
         );
+        return;
       }
 
-      const worksheet = workbook.Sheets[firstSheetName];
+      const firstSheet =
+        workbook.Sheets[
+          workbook.SheetNames[0]
+        ];
 
-      const rawRows = XLSX.utils.sheet_to_json<
-        Record<string, unknown>
-      >(worksheet, {
-        defval: '',
-        raw: true,
-      });
+      const json =
+        XLSX.utils.sheet_to_json<
+          Record<string, unknown>
+        >(firstSheet, {
+          defval: '',
+        });
 
-      if (!rawRows.length) {
-        throw new Error(
-          'The selected Excel file does not contain any student records.'
-        );
-      }
-
-      const mappedRows = rawRows.map(mapRow);
-
-      const validationMessages = validateRows(mappedRows);
+      const mappedRows =
+        json.map(mapRow);
 
       setRows(mappedRows);
-      setFileName(file.name);
-      setResultMessages(validationMessages);
 
+      if (!mappedRows.length) {
+        setMessage(
+          'The selected Excel file contains no student records.'
+        );
+      } else {
+        setMessage(
+          `${mappedRows.length} student record(s) loaded and ready for import.`
+        );
+      }
+    } catch {
       setMessage(
-        `${mappedRows.length.toLocaleString()} student records loaded and ready for import.`
+        'Unable to read this file. Please use an Excel (.xlsx/.xls) or CSV file.'
       );
-    } catch (err) {
-      console.error(err);
-
-      setRows([]);
-      setFileName('');
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Unable to read the Excel file.'
-      );
-    } finally {
-      setReadingFile(false);
-
-      event.target.value = '';
     }
+
+    event.target.value = '';
   }
 
-  const duplicateRows = useMemo(() => {
-    const map = new Map<string, number[]>();
-
-    rows.forEach((row, index) => {
-      const name = normalize(row.full_name);
-
-      if (!name) return;
-
-      const existing = map.get(name) || [];
-      existing.push(index);
-
-      map.set(name, existing);
-    });
-
-    return new Set(
-      Array.from(map.values())
-        .filter((indexes) => indexes.length > 1)
-        .flat()
-    );
-  }, [rows]);
-
-  const importableRows = useMemo(() => {
-    return rows.filter(
-      (_, index) => !duplicateRows.has(index)
-    );
-  }, [rows, duplicateRows]);
-
-  const summary = useMemo(() => {
-    return {
-      newStudents: bulkResults.filter(
-        (item) => item.student_created
-      ).length,
-
-      existingStudents: bulkResults.filter(
-        (item) => item.student_existing
-      ).length,
-
-      assigned: bulkResults.filter(
-        (item) => item.assigned
-      ).length,
-
-      classesCreated: bulkResults.filter(
-        (item) => item.class_created
-      ).length,
-
-      enrollmentsCreated: bulkResults.filter(
-        (item) => item.enrollment_created
-      ).length,
-
-      enrollmentsUpdated: bulkResults.filter(
-        (item) => item.enrollment_updated
-      ).length,
-
-      partial: bulkResults.filter(
-        (item) => item.status === 'partial'
-      ).length,
-
-      skipped: bulkResults.filter(
-        (item) => item.status === 'skipped'
-      ).length,
-
-      failed: bulkResults.filter(
-        (item) => item.status === 'failed'
-      ).length,
-
-      success: bulkResults.filter(
-        (item) => item.status === 'success'
-      ).length,
-    };
-  }, [bulkResults]);
-
   async function importStudents() {
-    if (!schoolId) {
-      setError('School information is not available.');
+    if (importing) return;
+
+    setErrors([]);
+    setMessage('');
+    setImportProgress('');
+    setProgressPercent(0);
+
+    // ---------------------------------------------------------
+    // BASIC CHECKS
+    // ---------------------------------------------------------
+
+    if (!rows.length) {
+      setMessage(
+        'Please select an Excel file containing student records.'
+      );
       return;
     }
 
     if (!academicYearId) {
-      setError('Please select an academic year.');
-      return;
-    }
-
-    if (!rows.length) {
-      setError('Please select an Excel file first.');
-      return;
-    }
-
-    if (!importableRows.length) {
-      setError(
-        'There are no importable rows. Please remove duplicate names from the Excel file.'
+      setMessage(
+        'Please select the academic year for this import.'
       );
       return;
     }
 
-    const validationErrors = resultMessages.filter(
-      (item) => item.type === 'error'
-    );
-
-    if (validationErrors.length) {
-      setError(
-        `Please correct ${validationErrors.length} validation issue${
-          validationErrors.length === 1 ? '' : 's'
-        } before importing.`
+    if (!schoolId) {
+      setMessage(
+        'Your school could not be determined. Please refresh the page and try again.'
       );
       return;
     }
 
     setImporting(true);
-    setImportStarted(true);
-    setError('');
-    setMessage('');
-    setBulkResults([]);
-    setProgress(0);
-    setProcessed(0);
-    setCurrentBatch(0);
-
-    const total = importableRows.length;
-    const batches = Math.ceil(total / BATCH_SIZE);
-
-    setTotalBatches(batches);
-
-    const allResults: BulkResult[] = [];
 
     try {
+      // -------------------------------------------------------
+      // STEP 1 — LOCAL VALIDATION
+      // -------------------------------------------------------
+
+      setImportProgress(
+        `Validating ${rows.length} student record(s)...`
+      );
+      setProgressPercent(10);
+
+      const validationResults: ResultMessage[] =
+        [];
+
+      const validRows: Array<
+        ImportRow & {
+          row_number: number;
+        }
+      > = [];
+
+      rows.forEach(
+        (row, index) => {
+          const rowNumber =
+            index + 2;
+
+          const fullName =
+            clean(
+              row.full_name
+            );
+
+          const residence =
+            normalizeResidence(
+              row.resident
+            );
+
+          if (!fullName) {
+            validationResults.push({
+              row: rowNumber,
+              type: 'error',
+              message:
+                'FULL NAME is required.',
+            });
+
+            return;
+          }
+
+          if (
+            row.resident &&
+            !residence
+          ) {
+            validationResults.push({
+              row: rowNumber,
+              type: 'error',
+              message:
+                'RESIDENCE must be Day or Boarding.',
+            });
+
+            return;
+          }
+
+          if (
+            row.jhs_aggregate
+          ) {
+            const aggregate =
+              Number(
+                String(
+                  row.jhs_aggregate
+                )
+                  .replace(
+                    /,/g,
+                    ''
+                  )
+                  .trim()
+              );
+
+            if (
+              !Number.isFinite(
+                aggregate
+              )
+            ) {
+              validationResults.push({
+                row: rowNumber,
+                type: 'error',
+                message:
+                  'JHS AGGREGATE must be a valid number.',
+              });
+
+              return;
+            }
+          }
+
+          validRows.push({
+            ...row,
+            full_name:
+              fullName,
+            resident:
+              residence,
+            row_number:
+              rowNumber,
+          });
+        }
+      );
+
+      // -------------------------------------------------------
+      // STEP 2 — DUPLICATE NAMES INSIDE THIS EXCEL
+      // -------------------------------------------------------
+
+      setImportProgress(
+        `Checking ${validRows.length} valid record(s) for duplicate names...`
+      );
+      setProgressPercent(20);
+
+      const nameOccurrences =
+        new Map<
+          string,
+          number[]
+        >();
+
+      validRows.forEach(
+        (row) => {
+          const key =
+            normalize(
+              row.full_name
+            );
+
+          if (
+            !nameOccurrences.has(
+              key
+            )
+          ) {
+            nameOccurrences.set(
+              key,
+              []
+            );
+          }
+
+          nameOccurrences
+            .get(key)!
+            .push(
+              row.row_number
+            );
+        }
+      );
+
+      const duplicateRows =
+        new Set<number>();
+
+      nameOccurrences.forEach(
+        (
+          rowNumbers,
+          key
+        ) => {
+          if (
+            rowNumbers.length >
+            1
+          ) {
+            rowNumbers.forEach(
+              (number) =>
+                duplicateRows.add(
+                  number
+                )
+            );
+
+            const duplicateName =
+              validRows.find(
+                (row) =>
+                  normalize(
+                    row.full_name
+                  ) === key
+              )?.full_name ||
+              'Unknown student';
+
+            validationResults.push({
+              row:
+                rowNumbers[0],
+              type: 'warning',
+              message:
+                `Duplicate student name detected: "${duplicateName}". Excel rows ${rowNumbers.join(
+                  ', '
+                )} contain the same name. These rows were not imported automatically because the system cannot safely determine whether they represent one student or different students.`,
+            });
+          }
+        }
+      );
+
+      const rowsToImport =
+        validRows.filter(
+          (row) =>
+            !duplicateRows.has(
+              row.row_number
+            )
+        );
+
+      setErrors(
+        validationResults
+      );
+
+      if (
+        !rowsToImport.length
+      ) {
+        setProgressPercent(100);
+        setImportProgress('');
+        setMessage(
+          'Import stopped. No unambiguous student records were available for import.'
+        );
+        return;
+      }
+
+      // -------------------------------------------------------
+      // STEP 3 — PREPARE BULK PAYLOAD
+      // -------------------------------------------------------
+
+      setImportProgress(
+        `Preparing ${rowsToImport.length} record(s) for secure bulk processing...`
+      );
+      setProgressPercent(30);
+
+      const payload =
+        rowsToImport.map(
+          (row) => ({
+            row_number:
+              row.row_number,
+            full_name:
+              clean(
+                row.full_name
+              ),
+            form: clean(
+              row.form
+            ),
+            programme:
+              clean(
+                row.programme
+              ),
+            class_name:
+              clean(
+                row.class_name
+              ),
+            gender: clean(
+              row.gender
+            ),
+            resident:
+              normalizeResidence(
+                row.resident
+              ),
+            date_of_birth:
+              clean(
+                row.date_of_birth
+              ),
+            guardian_name:
+              clean(
+                row.guardian_name
+              ),
+            guardian_phone:
+              clean(
+                row.guardian_phone
+              ),
+            address: clean(
+              row.address
+            ),
+            admission_date:
+              clean(
+                row.admission_date
+              ),
+            jhs_aggregate:
+              clean(
+                row.jhs_aggregate
+              ),
+          })
+        );
+
+      // -------------------------------------------------------
+      // STEP 4 — BATCHED BULK SUPABASE IMPORT
+      // -------------------------------------------------------
+
+      /*
+       * IMPORTANT:
+       * We keep using the existing secure
+       * bulk_import_students RPC.
+       *
+       * Instead of sending hundreds of records
+       * in one request, we send 50 at a time.
+       */
+      const BATCH_SIZE = 50;
+
+      const totalBatches =
+        Math.ceil(
+          payload.length /
+            BATCH_SIZE
+        );
+
+      const allDatabaseResults: BulkResult[] =
+        [];
+
+      const batchErrors: ResultMessage[] =
+        [];
+
       for (
         let batchIndex = 0;
-        batchIndex < batches;
+        batchIndex < totalBatches;
         batchIndex++
       ) {
-        const start = batchIndex * BATCH_SIZE;
-        const end = Math.min(
-          start + BATCH_SIZE,
-          total
-        );
+        const start =
+          batchIndex *
+          BATCH_SIZE;
 
-        const batch = importableRows.slice(start, end);
-
-        setCurrentBatch(batchIndex + 1);
-
-        setMessage(
-          `Processing batch ${batchIndex + 1} of ${batches} — students ${start + 1}–${end}...`
-        );
-
-        const payload = batch.map((row, index) => ({
-          full_name: row.full_name,
-          form: row.form,
-          programme: row.programme,
-          class_name: row.class_name,
-          gender: row.gender,
-          resident: row.resident,
-          date_of_birth: row.date_of_birth,
-          guardian_name: row.guardian_name,
-          guardian_phone: row.guardian_phone,
-          address: row.address,
-          admission_date: row.admission_date,
-          jhs_aggregate: row.jhs_aggregate,
-          row_number: start + index + 2,
-        }));
-
-        const { data, error: rpcError } =
-          await supabase.rpc(
-            'bulk_import_students',
-            {
-              p_school_id: schoolId,
-              p_academic_year_id: academicYearId,
-              p_rows: payload,
-            }
+        const end =
+          Math.min(
+            start +
+              BATCH_SIZE,
+            payload.length
           );
 
-        if (rpcError) {
-          throw rpcError;
-        }
+        const batch =
+          payload.slice(
+            start,
+            end
+          );
 
-        const batchResults = Array.isArray(data)
-          ? (data as BulkResult[])
-          : [];
+        const batchNumber =
+          batchIndex + 1;
 
-        allResults.push(...batchResults);
+        const completedBefore =
+          start;
 
-        const completed = end;
+        const batchProgress =
+          completedBefore /
+          payload.length;
 
-        setProcessed(completed);
+        const progress =
+          Math.round(
+            30 +
+              batchProgress *
+                60
+          );
 
-        setProgress(
-          Math.round((completed / total) * 100)
+        setImportProgress(
+          `Processing batch ${batchNumber} of ${totalBatches} (${batch.length} student record(s))...`
         );
 
-        setBulkResults([...allResults]);
+        setProgressPercent(
+          progress
+        );
+
+        try {
+          const {
+            data,
+            error,
+          } =
+            await supabase.rpc(
+              'bulk_import_students',
+              {
+                p_school_id:
+                  schoolId,
+                p_academic_year_id:
+                  academicYearId,
+                p_rows:
+                  batch,
+              }
+            );
+
+          if (error) {
+            console.error(
+              `Bulk student import error in batch ${batchNumber}:`,
+              error
+            );
+
+            batchErrors.push({
+              row: 0,
+              type: 'error',
+              message:
+                `Batch ${batchNumber} failed: ${
+                  error.message ||
+                  'Unknown Supabase error.'
+                }`,
+            });
+
+            /*
+             * Continue with the next batch.
+             * This means one failed batch does not
+             * stop the entire import unnecessarily.
+             */
+            continue;
+          }
+
+          const databaseResults: BulkResult[] =
+            Array.isArray(data)
+              ? data
+              : [];
+
+          allDatabaseResults.push(
+            ...databaseResults
+          );
+        } catch (batchError: any) {
+          console.error(
+            `Unexpected error in batch ${batchNumber}:`,
+            batchError
+          );
+
+          batchErrors.push({
+            row: 0,
+            type: 'error',
+            message:
+              `Batch ${batchNumber} failed unexpectedly: ${
+                batchError?.message ||
+                'Please try again.'
+              }`,
+          });
+
+          continue;
+        }
 
         /*
-         * Give React a moment to paint the updated progress
-         * before the next batch begins.
+         * Update progress after the batch finishes.
          */
-        await new Promise((resolve) =>
-          setTimeout(resolve, 120)
+        const completed =
+          Math.min(
+            end,
+            payload.length
+          );
+
+        const completionPercent =
+          Math.round(
+            30 +
+              (completed /
+                payload.length) *
+                60
+          );
+
+        setProgressPercent(
+          completionPercent
+        );
+
+        setImportProgress(
+          `Completed ${completed} of ${payload.length} student record(s)...`
         );
       }
 
-      setProgress(100);
-      setProcessed(total);
-      setCurrentBatch(batches);
+      // -------------------------------------------------------
+      // STEP 5 — PROCESS DATABASE RESULTS
+      // -------------------------------------------------------
 
-      const successful = allResults.filter(
-        (item) => item.status === 'success'
-      ).length;
+      setImportProgress(
+        'Processing import and assignment results...'
+      );
+      setProgressPercent(92);
 
-      const partial = allResults.filter(
-        (item) => item.status === 'partial'
-      ).length;
+      const resultMessages: ResultMessage[] =
+        [
+          ...validationResults,
+          ...batchErrors,
+        ];
 
-      const failed = allResults.filter(
-        (item) => item.status === 'failed'
-      ).length;
+      allDatabaseResults.forEach(
+        (result) => {
+          let resultType:
+            | 'success'
+            | 'warning'
+            | 'error';
 
-      setMessage(
-        `Import completed. ${successful.toLocaleString()} processed successfully${
-          partial
-            ? `, ${partial.toLocaleString()} partially completed`
-            : ''
-        }${
-          failed
-            ? `, and ${failed.toLocaleString()} failed`
-            : ''
-        }.`
+          if (
+            result.status ===
+            'success'
+          ) {
+            resultType =
+              'success';
+          } else if (
+            result.status ===
+              'partial' ||
+            result.status ===
+              'skipped'
+          ) {
+            resultType =
+              'warning';
+          } else {
+            resultType =
+              'error';
+          }
+
+          let resultMessage =
+            result.message ||
+            'Import processing completed.';
+
+          if (
+            result.status ===
+              'success' &&
+            result.assigned
+          ) {
+            resultMessage +=
+              ' Student assigned successfully.';
+          }
+
+          resultMessages.push({
+            row: Number(
+              result.row || 0
+            ),
+            message:
+              resultMessage,
+            type:
+              resultType,
+          });
+        }
       );
 
       /*
-       * Refresh reference data so classes created by the RPC
-       * are immediately reflected if the user imports again.
+       * Sort row results so the Excel rows remain
+       * in their natural order.
        */
-      await loadData();
-    } catch (err) {
-      console.error(err);
+      resultMessages.sort(
+        (a, b) => {
+          if (a.row === 0) {
+            return 1;
+          }
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'The student import could not be completed.'
+          if (b.row === 0) {
+            return -1;
+          }
+
+          return a.row - b.row;
+        }
       );
 
+      setErrors(
+        resultMessages
+      );
+
+      // -------------------------------------------------------
+      // STEP 6 — ACCURATE COUNTS
+      // -------------------------------------------------------
+
+      const successful =
+        allDatabaseResults.filter(
+          (item) =>
+            item.status ===
+            'success'
+        );
+
+      const partial =
+        allDatabaseResults.filter(
+          (item) =>
+            item.status ===
+            'partial'
+        );
+
+      const skipped =
+        allDatabaseResults.filter(
+          (item) =>
+            item.status ===
+              'skipped' ||
+            item.status ===
+              'failed'
+        );
+
+      const newStudents =
+        successful.filter(
+          (item) =>
+            item.student_created ===
+            true
+        ).length;
+
+      const existingStudents =
+        successful.filter(
+          (item) =>
+            item.student_existing ===
+            true
+        ).length;
+
+      const assignedStudents =
+        successful.filter(
+          (item) =>
+            item.assigned ===
+            true
+        ).length;
+
+      const newClasses =
+        successful.filter(
+          (item) =>
+            item.class_created ===
+            true
+        ).length;
+
+      const enrollmentsCreated =
+        successful.filter(
+          (item) =>
+            item.enrollment_created ===
+            true
+        ).length;
+
+      const enrollmentsUpdated =
+        successful.filter(
+          (item) =>
+            item.enrollment_updated ===
+            true
+        ).length;
+
+      // -------------------------------------------------------
+      // STEP 7 — REFRESH
+      // -------------------------------------------------------
+
+      setImportProgress(
+        'Refreshing BTI-SMS student and class data...'
+      );
+      setProgressPercent(96);
+
+      await loadData();
+
+      // -------------------------------------------------------
+      // STEP 8 — COMPLETE
+      // -------------------------------------------------------
+
+      setProgressPercent(100);
+
+      const failedBatches =
+        batchErrors.length;
+
+      if (
+        failedBatches > 0
+      ) {
+        setMessage(
+          `Import completed with some batch errors: ${newStudents} new student(s), ${existingStudents} existing student(s) updated, ${assignedStudents} student(s) assigned, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) processed, ${newClasses} class(es) created, ${partial.length} partial record(s), ${skipped.length} skipped/failed row(s), and ${failedBatches} batch(es) requiring attention.`
+        );
+      } else {
+        setMessage(
+          `Import complete: ${newStudents} new student(s), ${existingStudents} existing student(s) updated, ${assignedStudents} student(s) assigned, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) processed, ${newClasses} class(es) created, ${partial.length} partial record(s), and ${skipped.length} skipped/failed row(s).`
+        );
+      }
+
+      setImportProgress('');
+    } catch (error: any) {
+      console.error(
+        'Unexpected bulk import error:',
+        error
+      );
+
+      setProgressPercent(0);
+      setImportProgress('');
+
       setMessage(
-        `Import stopped after ${processed.toLocaleString()} of ${total.toLocaleString()} students.`
+        `Import failed unexpectedly: ${
+          error?.message ||
+          'Please try again.'
+        }`
+      );
+
+      setErrors(
+        (previous) => [
+          ...previous,
+          {
+            row: 0,
+            type: 'error',
+            message:
+              error?.message ||
+              'An unexpected error occurred during the import.',
+          },
+        ]
       );
     } finally {
       setImporting(false);
     }
   }
 
-  function clearImport() {
-    if (importing) return;
+  return (
+    <main>
+      <div className="mb-8">
+        <a
+          href="/students"
+          className="group inline-flex items-center gap-2 text-sm font-bold text-blue-600 transition-all duration-200 hover:-translate-x-1 hover:text-blue-700"
+        >
+          <i className="fa-solid fa-arrow-left transition-transform duration-200 group-hover:-translate-x-1" />
+          Back to Students
+        </a>
 
-    setRows([]);
-    setFileName('');
-    setBulkResults([]);
-    setResultMessages([]);
-    setError('');
-    setMessage('');
-    setProgress(0);
-    setProcessed(0);
-    setCurrentBatch(0);
-    setTotalBatches(0);
-    setImportStarted(false);
-  }
+        <div className="mt-5 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="mb-3 inline-flex animate-pulse items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-blue-700">
+              <i className="fa-solid fa-bolt" />
+              Fast Bulk Processing
+            </div>
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 animate-pulse items-center justify-center rounded-2xl bg-blue-100">
-                <i className="fa-solid fa-spinner animate-spin text-blue-600" />
+            <h1 className="text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+              Bulk Student Import
+            </h1>
+
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 md:text-base">
+              Import, register and assign large
+              numbers of students into BTI-SMS
+              through one fast, secure bulk process.
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-slate-200 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 animate-[pulse_2s_ease-in-out_infinite] items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                <i className="fa-solid fa-users-rectangle text-lg" />
               </div>
 
               <div>
-                <div className="h-5 w-56 animate-pulse rounded bg-slate-200" />
-                <div className="mt-2 h-4 w-72 animate-pulse rounded bg-slate-100" />
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Import fields
+                </p>
+
+                <p className="text-xl font-black text-slate-900">
+                  {headers.length}
+                </p>
               </div>
             </div>
           </div>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <>
-      <style jsx global>{`
-        @keyframes fadeUp {
-          from {
-            opacity: 0;
-            transform: translateY(12px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
+      <div className="grid gap-6 lg:grid-cols-3">
+        <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200 transition duration-300 hover:shadow-xl lg:col-span-1">
+          <div className="bg-gradient-to-r from-slate-950 to-slate-800 p-5 text-white">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
+                <i className="fa-solid fa-file-excel text-lg" />
+              </div>
 
-        @keyframes pulseSoft {
-          0%,
-          100% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.65;
-          }
-        }
-
-        @keyframes progressGlow {
-          0% {
-            opacity: 0.75;
-          }
-          50% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0.75;
-          }
-        }
-
-        .bti-fade-up {
-          animation: fadeUp 0.45s ease-out both;
-        }
-
-        .bti-delay-1 {
-          animation-delay: 0.08s;
-        }
-
-        .bti-delay-2 {
-          animation-delay: 0.16s;
-        }
-
-        .bti-delay-3 {
-          animation-delay: 0.24s;
-        }
-
-        .bti-pulse-soft {
-          animation: pulseSoft 1.8s ease-in-out infinite;
-        }
-
-        .bti-progress-glow {
-          animation: progressGlow 1.5s ease-in-out infinite;
-        }
-      `}</style>
-
-      <div className="min-h-screen bg-slate-50">
-        <main className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">
-          {/* Header */}
-          <section className="bti-fade-up overflow-hidden rounded-3xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 p-6 text-white shadow-xl md:p-8">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold backdrop-blur">
-                  <i className="fa-solid fa-file-import" />
-                  STUDENT DATA MANAGEMENT
-                </div>
-
-                <h1 className="text-2xl font-black tracking-tight md:text-4xl">
-                  Import Students
-                </h1>
-
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-blue-100 md:text-base">
-                  Upload your Excel student register and
-                  securely import students, programmes, classes
-                  and academic-year enrollments into BTI-SMS.
+                <p className="text-xs font-black uppercase tracking-wider text-slate-300">
+                  Step 1
                 </p>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => downloadWorkbook()}
-                disabled={importing}
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-blue-700 shadow-lg transition hover:-translate-y-0.5 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <i className="fa-solid fa-download" />
-                Download Template
-              </button>
-            </div>
-          </section>
-
-          {/* Information cards */}
-          <section className="grid gap-4 md:grid-cols-3">
-            <div className="bti-fade-up bti-delay-1 rounded-2xl border border-blue-100 bg-blue-50 p-5">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
-                  <i className="fa-solid fa-bolt" />
-                </div>
-
-                <div>
-                  <h3 className="font-bold text-slate-900">
-                    Batch Processing
-                  </h3>
-
-                  <p className="mt-1 text-sm leading-5 text-slate-600">
-                    Large registers are processed in small
-                    batches for better reliability.
-                  </p>
-                </div>
+                <h2 className="text-lg font-black">
+                  Download Template
+                </h2>
               </div>
             </div>
+          </div>
 
-            <div className="bti-fade-up bti-delay-2 rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
-                  <i className="fa-solid fa-shield-halved" />
-                </div>
+          <div className="p-5">
+            <p className="text-sm leading-6 text-slate-600">
+              Use the official BTI-SMS template
+              so that your Excel columns match the
+              importer correctly.
+            </p>
 
-                <div>
-                  <h3 className="font-bold text-slate-900">
-                    Duplicate Safe
-                  </h3>
+            <button
+              type="button"
+              onClick={downloadTemplate}
+              disabled={importing}
+              className="group mt-5 flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-900 px-4 py-3.5 text-sm font-black text-white shadow-sm transition duration-300 hover:-translate-y-1 hover:bg-slate-800 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <i className="fa-solid fa-download transition-transform duration-300 group-hover:translate-y-0.5" />
+              Download Excel Template
+            </button>
 
-                  <p className="mt-1 text-sm leading-5 text-slate-600">
-                    Re-uploading the same register will not
-                    create duplicate student records.
-                  </p>
-                </div>
+            <div className="mt-7">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-900">
+                  Excel fields
+                </h3>
+
+                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">
+                  {headers.length} columns
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-1.5">
+                {headers.map(
+                  (
+                    header,
+                    index
+                  ) => (
+                    <div
+                      key={header}
+                      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition duration-200 hover:translate-x-1 ${
+                        header ===
+                        'RESIDENCE'
+                          ? 'bg-blue-50 font-bold text-blue-800 ring-1 ring-blue-200'
+                          : 'text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black text-slate-500">
+                        {index + 1}
+                      </span>
+
+                      <span className="flex-1">
+                        {header}
+                      </span>
+
+                      {header ===
+                        'RESIDENCE' && (
+                        <i className="fa-solid fa-circle-check text-blue-600" />
+                      )}
+                    </div>
+                  )
+                )}
               </div>
             </div>
 
-            <div className="bti-fade-up bti-delay-3 rounded-2xl border border-violet-100 bg-violet-50 p-5">
+            <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-md">
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
                   <i className="fa-solid fa-house-user" />
                 </div>
 
                 <div>
-                  <h3 className="font-bold text-slate-900">
-                    Residence Included
-                  </h3>
+                  <p className="font-black text-blue-900">
+                    Residence is included
+                  </p>
 
-                  <p className="mt-1 text-sm leading-5 text-slate-600">
-                    RESIDENCE is imported as either Day or
-                    Boarding and appears with the student data.
+                  <p className="mt-1 text-xs leading-5 text-blue-800">
+                    Enter either{' '}
+                    <strong>Day</strong>{' '}
+                    or{' '}
+                    <strong>Boarding</strong>.
                   </p>
                 </div>
               </div>
             </div>
-          </section>
 
-          {/* Academic year */}
-          <section className="bti-fade-up rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
-                <i className="fa-solid fa-calendar-days" />
-              </div>
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex gap-3">
+                <i className="fa-solid fa-gauge-high mt-0.5 text-emerald-600" />
 
-              <div className="flex-1">
-                <h2 className="text-lg font-bold text-slate-900">
-                  Academic Year
-                </h2>
+                <div>
+                  <p className="font-black text-emerald-900">
+                    Faster bulk processing
+                  </p>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  Select the academic year for these student
-                  enrollments.
-                </p>
-
-                <select
-                  value={academicYearId}
-                  onChange={(event) =>
-                    setAcademicYearId(event.target.value)
-                  }
-                  disabled={importing}
-                  className="mt-4 min-h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100 md:max-w-xl"
-                >
-                  <option value="">
-                    Select academic year
-                  </option>
-
-                  {academicYears.map((year) => (
-                    <option key={year.id} value={year.id}>
-                      {year.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </section>
-
-          {/* Template columns */}
-          <section className="bti-fade-up rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
-                <i className="fa-solid fa-table-columns" />
-              </div>
-
-              <div className="flex-1">
-                <h2 className="text-lg font-bold text-slate-900">
-                  Excel Format
-                </h2>
-
-                <p className="mt-1 text-sm text-slate-500">
-                  Your workbook should use these columns. The
-                  template already contains them in the correct
-                  order.
-                </p>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {headers.map((header) => (
-                    <span
-                      key={header}
-                      className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-600"
-                    >
-                      {header}
-                    </span>
-                  ))}
+                  <p className="mt-1 text-xs leading-5 text-emerald-800">
+                    BTI-SMS processes the import in
+                    secure batches instead of making
+                    separate database requests for
+                    every student.
+                  </p>
                 </div>
               </div>
             </div>
-          </section>
 
-          {/* Upload */}
-          <section className="bti-fade-up rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-            <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
-                  <i className="fa-solid fa-cloud-arrow-up text-lg" />
+            <div className="mt-4 rounded-2xl border border-purple-200 bg-purple-50 p-4">
+              <div className="flex gap-3">
+                <i className="fa-solid fa-user-check mt-0.5 text-purple-600" />
+
+                <div>
+                  <p className="font-black text-purple-900">
+                    Automatic class assignment
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-purple-800">
+                    FORM + PROGRAMME + CLASS are
+                    used to place the student into the
+                    correct class and create/update the
+                    enrollment automatically.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200 transition duration-300 hover:shadow-xl lg:col-span-2">
+          <div className="border-b border-slate-200 bg-white p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                <i className="fa-solid fa-cloud-arrow-up text-lg" />
+              </div>
+
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-blue-600">
+                  Step 2
+                </p>
+
+                <h2 className="text-lg font-black text-slate-900">
+                  Select Academic Year
+                </h2>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5">
+            <select
+              value={academicYearId}
+              onChange={(event) =>
+                setAcademicYearId(
+                  event.target.value
+                )
+              }
+              disabled={
+                loadingData ||
+                importing
+              }
+              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-bold text-slate-800 outline-none transition duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100"
+            >
+              <option value="">
+                {loadingData
+                  ? 'Loading academic years...'
+                  : 'Select academic year'}
+              </option>
+
+              {academicYears.map(
+                (year) => (
+                  <option
+                    key={year.id}
+                    value={year.id}
+                  >
+                    {year.name}
+                  </option>
+                )
+              )}
+            </select>
+
+            {selectedAcademicYear && (
+              <div className="mt-3 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+                <i className="fa-solid fa-calendar-check text-blue-600" />
+
+                Students will be enrolled against{' '}
+
+                <strong className="text-slate-900">
+                  {selectedAcademicYear.name}
+                </strong>
+              </div>
+            )}
+
+            <div className="mt-8">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                  <i className="fa-solid fa-file-arrow-up" />
                 </div>
 
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    Upload Student Register
-                  </h2>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    Accepted formats: Excel (.xlsx, .xls) or
-                    CSV.
+                  <p className="text-xs font-black uppercase tracking-wider text-blue-600">
+                    Step 3
                   </p>
+
+                  <h2 className="text-lg font-black text-slate-900">
+                    Upload Excel File
+                  </h2>
                 </div>
               </div>
 
-              <label
-                className={`inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-bold shadow-md transition ${
-                  readingFile || importing
-                    ? 'cursor-not-allowed bg-slate-200 text-slate-400'
-                    : 'bg-slate-900 text-white hover:-translate-y-0.5 hover:bg-slate-800'
-                }`}
-              >
-                <i
-                  className={`fa-solid ${
-                    readingFile
-                      ? 'fa-spinner animate-spin'
-                      : 'fa-folder-open'
-                  }`}
-                />
+              <label className="group relative flex min-h-[210px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-slate-300 bg-gradient-to-br from-slate-50 to-blue-50/40 p-8 text-center transition duration-300 hover:-translate-y-1 hover:border-blue-400 hover:bg-blue-50 hover:shadow-xl">
+                <div className="absolute inset-0 bg-blue-400/5 opacity-0 transition duration-500 group-hover:opacity-100" />
 
-                {readingFile
-                  ? 'Reading file...'
-                  : 'Choose Excel File'}
+                <div className="relative flex h-16 w-16 animate-[bounce_3s_ease-in-out_infinite] items-center justify-center rounded-2xl bg-white text-blue-600 shadow-sm ring-1 ring-blue-100 transition duration-300 group-hover:scale-110 group-hover:shadow-xl">
+                  <i className="fa-solid fa-file-excel text-2xl" />
+                </div>
+
+                <span className="relative mt-5 text-base font-black text-slate-800">
+                  Choose Excel or CSV file
+                </span>
+
+                <span className="relative mt-1 text-xs text-slate-500">
+                  .xlsx, .xls or .csv
+                </span>
+
+                <span className="relative mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-black text-blue-700 shadow-sm ring-1 ring-slate-200 transition duration-300 group-hover:scale-105">
+                  <i className="fa-solid fa-arrow-up-from-bracket" />
+                  Select file
+                </span>
 
                 <input
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   onChange={handleFile}
-                  disabled={readingFile || importing}
+                  disabled={importing}
                   className="hidden"
                 />
               </label>
             </div>
 
             {fileName && (
-              <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm">
-                    <i className="fa-solid fa-file-excel" />
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">
-                      {fileName}
-                    </p>
-
-                    <p className="text-xs text-slate-500">
-                      {rows.length.toLocaleString()} rows loaded
-                    </p>
-                  </div>
+              <div className="mt-4 flex animate-[fadeIn_0.4s_ease-out] items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex h-10 w-10 shrink-0 animate-pulse items-center justify-center rounded-xl bg-emerald-600 text-white">
+                  <i className="fa-solid fa-file-circle-check" />
                 </div>
 
-                {!importing && (
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                    File selected
+                  </p>
+
+                  <p className="truncate text-sm font-black text-emerald-900">
+                    {fileName}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {importing && (
+              <div className="mt-5 animate-[fadeIn_0.4s_ease-out] rounded-3xl border border-blue-200 bg-blue-50 p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
+                    <i className="fa-solid fa-spinner fa-spin text-lg" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                      <div>
+                        <p className="font-black text-blue-950">
+                          Import in progress
+                        </p>
+
+                        <p className="mt-1 text-xs text-blue-700">
+                          {importProgress}
+                        </p>
+                      </div>
+
+                      <span className="font-black text-blue-700">
+                        {progressPercent}%
+                      </span>
+                    </div>
+
+                    <div className="mt-4 h-3 overflow-hidden rounded-full bg-blue-100">
+                      <div
+                        className="h-full rounded-full bg-blue-600 transition-all duration-700 ease-out"
+                        style={{
+                          width: `${progressPercent}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-blue-700">
+                      <i className="fa-solid fa-shield-halved" />
+                      Students, classes and
+                      enrollments are being processed
+                      together.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {message && !importing && (
+              <div className="mt-4 flex animate-[fadeIn_0.4s_ease-out] items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                <i className="fa-solid fa-circle-info mt-0.5 shrink-0 text-blue-600" />
+
+                <span>{message}</span>
+              </div>
+            )}
+
+            {rows.length > 0 && (
+              <div className="mt-8">
+                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-black text-slate-900">
+                        Preview
+                      </h2>
+
+                      <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">
+                        {rows.length}
+                      </span>
+                    </div>
+
+                    <p className="mt-1 text-sm text-slate-500">
+                      Review the student records before
+                      starting the bulk operation.
+                    </p>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={clearImport}
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50"
+                    onClick={importStudents}
+                    disabled={
+                      importing ||
+                      !academicYearId ||
+                      !schoolId
+                    }
+                    className="group inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-sm transition duration-300 hover:-translate-y-1 hover:bg-blue-700 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <i className="fa-solid fa-trash-can" />
-                    Clear
+                    <i
+                      className={
+                        importing
+                          ? 'fa-solid fa-spinner fa-spin'
+                          : 'fa-solid fa-cloud-arrow-up'
+                      }
+                    />
+
+                    {importing
+                      ? 'Processing...'
+                      : 'Import & Assign Students'}
                   </button>
+                </div>
+
+                <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 shadow-sm">
+                  <table className="min-w-[1250px] text-left text-xs">
+                    <thead className="bg-slate-100">
+                      <tr>
+                        {headers.map(
+                          (header) => (
+                            <th
+                              key={header}
+                              className={`whitespace-nowrap px-3 py-3.5 font-black ${
+                                header ===
+                                'RESIDENCE'
+                                  ? 'bg-blue-50 text-blue-800'
+                                  : 'text-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                {header}
+
+                                {header ===
+                                  'RESIDENCE' && (
+                                  <i className="fa-solid fa-house-user text-blue-600" />
+                                )}
+                              </div>
+                            </th>
+                          )
+                        )}
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {rows
+                        .slice(0, 50)
+                        .map(
+                          (
+                            row,
+                            index
+                          ) => (
+                            <tr
+                              key={index}
+                              className="border-t border-slate-200 transition duration-200 hover:bg-blue-50/40"
+                            >
+                              <td className="px-3 py-3 font-bold text-slate-800">
+                                {row.full_name}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.form}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.programme}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.class_name}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.gender}
+                              </td>
+
+                              <td className="bg-blue-50/40 px-3 py-3">
+                                {row.resident ? (
+                                  <span
+                                    className={
+                                      normalizeResidence(
+                                        row.resident
+                                      ) ===
+                                      'Boarding'
+                                        ? 'inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-2.5 py-1 font-black text-purple-700'
+                                        : 'inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 font-black text-blue-700'
+                                    }
+                                  >
+                                    <i
+                                      className={
+                                        normalizeResidence(
+                                          row.resident
+                                        ) ===
+                                        'Boarding'
+                                          ? 'fa-solid fa-building'
+                                          : 'fa-solid fa-house'
+                                      }
+                                    />
+
+                                    {normalizeResidence(
+                                      row.resident
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.date_of_birth}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.guardian_name}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.guardian_phone}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.address}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.admission_date}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.jhs_aggregate}
+                              </td>
+                            </tr>
+                          )
+                        )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {rows.length > 50 && (
+                  <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                    <i className="fa-solid fa-eye" />
+                    Showing the first 50 rows
+                    in the preview. All{' '}
+                    {rows.length} rows will be processed.
+                  </div>
                 )}
               </div>
             )}
-          </section>
 
-          {/* Validation notices */}
-          {duplicateRows.size > 0 && (
-            <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white">
-                  <i className="fa-solid fa-triangle-exclamation" />
-                </div>
-
-                <div>
-                  <h3 className="font-bold text-amber-900">
-                    Duplicate names detected in Excel
-                  </h3>
-
-                  <p className="mt-1 text-sm leading-6 text-amber-800">
-                    {duplicateRows.size.toLocaleString()} row
-                    {duplicateRows.size === 1 ? '' : 's'} will
-                    not be sent to the database because the same
-                    student name appears more than once in this
-                    workbook.
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {resultMessages.filter(
-            (item) => item.type === 'error'
-          ).length > 0 && (
-            <section className="rounded-3xl border border-red-200 bg-red-50 p-5">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white">
-                  <i className="fa-solid fa-circle-xmark" />
-                </div>
-
-                <div>
-                  <h3 className="font-bold text-red-900">
-                    Validation issues found
-                  </h3>
-
-                  <p className="mt-1 text-sm leading-6 text-red-800">
-                    Correct the highlighted issues before
-                    starting the import.
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {/* Import progress */}
-          {importStarted && (
-            <section className="bti-fade-up rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-              <div className="flex flex-col gap-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      {importing && (
-                        <i className="fa-solid fa-spinner animate-spin text-blue-600" />
-                      )}
-
-                      {!importing && progress === 100 && (
-                        <i className="fa-solid fa-circle-check text-emerald-600" />
-                      )}
-
-                      <h2 className="text-lg font-bold text-slate-900">
-                        {importing
-                          ? 'Importing students'
-                          : 'Import complete'}
-                      </h2>
-                    </div>
-
-                    <p className="mt-1 text-sm text-slate-500">
-                      {processed.toLocaleString()} of{' '}
-                      {importableRows.length.toLocaleString()}{' '}
-                      students processed
-                    </p>
-                  </div>
-
-                  <div className="text-3xl font-black text-blue-600">
-                    {progress}%
-                  </div>
-                </div>
-
-                <div className="h-4 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className={`bti-progress-glow h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300 ${
-                      progress > 0 ? '' : 'w-0'
-                    }`}
-                    style={{
-                      width: `${progress}%`,
-                    }}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2 text-xs font-semibold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-                  <span>
-                    Batch {currentBatch || 0} of{' '}
-                    {totalBatches || 0}
-                  </span>
-
-                  <span>
-                    {BATCH_SIZE} students per batch
-                  </span>
-                </div>
-
-                {message && (
-                  <div className="rounded-2xl bg-slate-50 p-4 text-sm font-medium text-slate-700">
-                    <i className="fa-solid fa-circle-info mr-2 text-blue-600" />
-                    {message}
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* Preview */}
-          {rows.length > 0 && !importStarted && (
-            <section className="bti-fade-up overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-200 p-5 md:p-6">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">
-                      Import Preview
-                    </h2>
-
-                    <p className="mt-1 text-sm text-slate-500">
-                      Showing the first{' '}
-                      {Math.min(50, rows.length)} of{' '}
-                      {rows.length.toLocaleString()} records.
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
-                    <i className="fa-solid fa-users mr-2" />
-                    {importableRows.length.toLocaleString()} importable
-                  </div>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-[1100px] w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">
-                        #
-                      </th>
-                      <th className="px-4 py-3">
-                        Full Name
-                      </th>
-                      <th className="px-4 py-3">
-                        Form
-                      </th>
-                      <th className="px-4 py-3">
-                        Programme
-                      </th>
-                      <th className="px-4 py-3">
-                        Class
-                      </th>
-                      <th className="px-4 py-3">
-                        Gender
-                      </th>
-                      <th className="px-4 py-3">
-                        Residence
-                      </th>
-                      <th className="px-4 py-3">
-                        DOB
-                      </th>
-                      <th className="px-4 py-3">
-                        Admission
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-100">
-                    {rows.slice(0, 50).map((row, index) => {
-                      const isDuplicate =
-                        duplicateRows.has(index);
-
-                      return (
-                        <tr
-                          key={`${row.full_name}-${index}`}
-                          className={
-                            isDuplicate
-                              ? 'bg-amber-50'
-                              : 'hover:bg-slate-50'
-                          }
-                        >
-                          <td className="px-4 py-3 font-semibold text-slate-400">
-                            {index + 2}
-                          </td>
-
-                          <td className="px-4 py-3 font-bold text-slate-800">
-                            {row.full_name || '—'}
-                          </td>
-
-                          <td className="px-4 py-3 text-slate-600">
-                            {row.form || '—'}
-                          </td>
-
-                          <td className="px-4 py-3 text-slate-600">
-                            {row.programme || '—'}
-                          </td>
-
-                          <td className="px-4 py-3 text-slate-600">
-                            {row.class_name || '—'}
-                          </td>
-
-                          <td className="px-4 py-3 text-slate-600">
-                            {row.gender || '—'}
-                          </td>
-
-                          <td className="px-4 py-3">
-                            {row.resident ? (
-                              <span
-                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
-                                  row.resident ===
-                                  'Boarding'
-                                    ? 'bg-violet-100 text-violet-700'
-                                    : 'bg-blue-100 text-blue-700'
-                                }`}
-                              >
-                                {row.resident}
-                              </span>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-
-                          <td className="px-4 py-3 text-slate-600">
-                            {row.date_of_birth || '—'}
-                          </td>
-
-                          <td className="px-4 py-3 text-slate-600">
-                            {row.admission_date || '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
-          {/* Start import */}
-          {rows.length > 0 && !importStarted && (
-            <section className="bti-fade-up rounded-3xl border border-blue-100 bg-gradient-to-br from-white to-blue-50 p-5 shadow-sm md:p-6">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <i className="fa-solid fa-circle-check text-emerald-600" />
-
-                    <h2 className="text-lg font-bold text-slate-900">
-                      Ready to import
-                    </h2>
-                  </div>
-
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    {importableRows.length.toLocaleString()}{' '}
-                    students will be processed in batches of{' '}
-                    {BATCH_SIZE}. Existing students will be
-                    updated instead of duplicated.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={importStudents}
-                  disabled={
-                    importing ||
-                    !academicYearId ||
-                    !importableRows.length ||
-                    resultMessages.some(
-                      (item) => item.type === 'error'
-                    )
-                  }
-                  className="inline-flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 px-7 py-4 text-sm font-black text-white shadow-xl transition hover:-translate-y-0.5 hover:shadow-2xl disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <i className="fa-solid fa-cloud-arrow-up" />
-                  Import{' '}
-                  {importableRows.length.toLocaleString()}{' '}
-                  Students
-                </button>
-              </div>
-            </section>
-          )}
-
-          {/* Final summary */}
-          {bulkResults.length > 0 && (
-            <section className="bti-fade-up rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-                  <i className="fa-solid fa-chart-pie" />
-                </div>
-
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">
+            {errors.length > 0 && (
+              <div className="mt-8 animate-[fadeIn_0.5s_ease-out]">
+                <div className="mb-4">
+                  <h2 className="text-xl font-black text-slate-900">
                     Import Results
                   </h2>
 
-                  <p className="text-sm text-slate-500">
-                    Summary of the complete import operation.
+                  <p className="mt-1 text-sm text-slate-500">
+                    Review exactly what happened to
+                    each Excel row.
                   </p>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-                <ResultCard
-                  icon="fa-user-plus"
-                  label="New Students"
-                  value={summary.newStudents}
-                  tone="blue"
-                />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="group rounded-2xl border border-emerald-200 bg-emerald-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white transition duration-300 group-hover:scale-110">
+                        <i className="fa-solid fa-circle-check" />
+                      </div>
 
-                <ResultCard
-                  icon="fa-user-check"
-                  label="Existing Students"
-                  value={summary.existingStudents}
-                  tone="emerald"
-                />
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                          Successful
+                        </p>
 
-                <ResultCard
-                  icon="fa-link"
-                  label="Assigned"
-                  value={summary.assigned}
-                  tone="indigo"
-                />
+                        <p className="text-2xl font-black text-emerald-900">
+                          {successResults.length}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-                <ResultCard
-                  icon="fa-school"
-                  label="Classes Created"
-                  value={summary.classesCreated}
-                  tone="violet"
-                />
+                  <div className="group rounded-2xl border border-amber-200 bg-amber-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white transition duration-300 group-hover:scale-110">
+                        <i className="fa-solid fa-triangle-exclamation" />
+                      </div>
 
-                <ResultCard
-                  icon="fa-file-circle-plus"
-                  label="New Enrollments"
-                  value={summary.enrollmentsCreated}
-                  tone="cyan"
-                />
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-wide text-amber-700">
+                          Warnings
+                        </p>
 
-                <ResultCard
-                  icon="fa-rotate"
-                  label="Updated Enrollments"
-                  value={summary.enrollmentsUpdated}
-                  tone="amber"
-                />
+                        <p className="text-2xl font-black text-amber-900">
+                          {warningResults.length}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-                <ResultCard
-                  icon="fa-triangle-exclamation"
-                  label="Partial"
-                  value={summary.partial}
-                  tone="orange"
-                />
+                  <div className="group rounded-2xl border border-red-200 bg-red-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white transition duration-300 group-hover:scale-110">
+                        <i className="fa-solid fa-circle-xmark" />
+                      </div>
 
-                <ResultCard
-                  icon="fa-forward"
-                  label="Skipped"
-                  value={summary.skipped}
-                  tone="slate"
-                />
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-wide text-red-700">
+                          Errors
+                        </p>
 
-                <ResultCard
-                  icon="fa-circle-xmark"
-                  label="Failed"
-                  value={summary.failed}
-                  tone="red"
-                />
+                        <p className="text-2xl font-black text-red-900">
+                          {errorResults.length}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-                <ResultCard
-                  icon="fa-circle-check"
-                  label="Successful Rows"
-                  value={summary.success}
-                  tone="green"
-                />
-              </div>
-            </section>
-          )}
+                <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white">
+                        <i className="fa-solid fa-list-check" />
+                      </div>
 
-          {/* Result details */}
-          {bulkResults.length > 0 && (
-            <section className="bti-fade-up overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-200 p-5 md:p-6">
-                <h2 className="text-lg font-bold text-slate-900">
-                  Detailed Results
-                </h2>
+                      <div>
+                        <h3 className="font-black text-slate-900">
+                          Detailed row results
+                        </h3>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  Review rows that were partially completed or
-                  failed.
-                </p>
-              </div>
+                        <p className="text-xs text-slate-500">
+                          Student assignment and
+                          import status by Excel row.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="max-h-[520px] overflow-auto">
-                <div className="divide-y divide-slate-100">
-                  {bulkResults
-                    .filter(
-                      (item) =>
-                        item.status !== 'success'
-                    )
-                    .map((item, index) => (
-                      <div
-                        key={`${item.row}-${index}`}
-                        className="flex gap-3 p-4"
-                      >
-                        <div
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                            item.status === 'partial'
-                              ? 'bg-amber-100 text-amber-700'
-                              : item.status === 'failed'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          <i
-                            className={`fa-solid ${
-                              item.status === 'partial'
-                                ? 'fa-triangle-exclamation'
-                                : item.status === 'failed'
-                                ? 'fa-circle-xmark'
-                                : 'fa-forward'
+                  <div className="max-h-[500px] overflow-y-auto">
+                    {errors.map(
+                      (
+                        result,
+                        index
+                      ) => {
+                        const isSuccess =
+                          result.type ===
+                          'success';
+
+                        const isError =
+                          result.type ===
+                          'error';
+
+                        return (
+                          <div
+                            key={`${result.row}-${index}`}
+                            className={`flex gap-3 border-b px-5 py-3 transition duration-200 last:border-b-0 hover:bg-slate-50 ${
+                              isSuccess
+                                ? 'border-emerald-100'
+                                : isError
+                                  ? 'border-red-100'
+                                  : 'border-amber-100'
                             }`}
-                          />
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-black uppercase text-slate-400">
-                              Excel row {item.row}
-                            </span>
-
-                            <span
-                              className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${
-                                item.status ===
-                                'partial'
-                                  ? 'bg-amber-100 text-amber-700'
-                                  : item.status ===
-                                    'failed'
-                                  ? 'bg-red-100 text-red-700'
-                                  : 'bg-slate-100 text-slate-600'
+                          >
+                            <div
+                              className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+                                isSuccess
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : isError
+                                    ? 'bg-red-100 text-red-700'
+                                    : 'bg-amber-100 text-amber-700'
                               }`}
                             >
-                              {item.status}
-                            </span>
+                              <i
+                                className={
+                                  isSuccess
+                                    ? 'fa-solid fa-check'
+                                    : isError
+                                      ? 'fa-solid fa-xmark'
+                                      : 'fa-solid fa-exclamation'
+                                }
+                              />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-black uppercase tracking-wide text-slate-400">
+                                  {result.row > 0
+                                    ? `Excel Row ${result.row}`
+                                    : 'Import System'}
+                                </span>
+
+                                {isSuccess && (
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700">
+                                    Assigned
+                                  </span>
+                                )}
+                              </div>
+
+                              <p
+                                className={`mt-1 text-sm leading-6 ${
+                                  isSuccess
+                                    ? 'text-emerald-800'
+                                    : isError
+                                      ? 'text-red-800'
+                                      : 'text-amber-800'
+                                }`}
+                              >
+                                {result.message}
+                              </p>
+                            </div>
                           </div>
-
-                          <p className="mt-1 text-sm leading-6 text-slate-700">
-                            {item.message ||
-                              'No additional information was returned.'}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-
-                  {bulkResults.every(
-                    (item) =>
-                      item.status === 'success'
-                  ) && (
-                    <div className="p-8 text-center">
-                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
-                        <i className="fa-solid fa-check-double text-xl" />
-                      </div>
-
-                      <h3 className="mt-4 font-bold text-slate-900">
-                        All processed rows completed successfully
-                      </h3>
-
-                      <p className="mt-1 text-sm text-slate-500">
-                        No partial or failed records were returned.
-                      </p>
-                    </div>
-                  )}
+                        );
+                      }
+                    )}
+                  </div>
                 </div>
               </div>
-            </section>
-          )}
+            )}
+          </div>
+        </section>
+      </div>
 
-          {/* Messages */}
-          {error && (
-            <section className="bti-fade-up rounded-3xl border border-red-200 bg-red-50 p-5">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white">
-                  <i className="fa-solid fa-circle-exclamation" />
-                </div>
-
-                <div>
-                  <h3 className="font-bold text-red-900">
-                    Import Error
-                  </h3>
-
-                  <p className="mt-1 text-sm leading-6 text-red-800">
-                    {error}
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {message && !importStarted && (
-            <section className="bti-fade-up rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white">
-                  <i className="fa-solid fa-circle-check" />
-                </div>
-
-                <p className="text-sm font-semibold text-emerald-800">
-                  {message}
-                </p>
-              </div>
-            </section>
-          )}
-
-          {/* Quick guide */}
-          <section className="bti-fade-up rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
-                <i className="fa-solid fa-circle-question" />
-              </div>
-
-              <div className="flex-1">
-                <h2 className="text-lg font-bold text-slate-900">
-                  Quick Guide
-                </h2>
-
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <GuideItem
-                    number="01"
-                    text="Download the BTI-SMS Excel template."
-                  />
-
-                  <GuideItem
-                    number="02"
-                    text="Enter student information using the supplied column headings."
-                  />
-
-                  <GuideItem
-                    number="03"
-                    text="Use Day or Boarding in the RESIDENCE column."
-                  />
-
-                  <GuideItem
-                    number="04"
-                    text="Select the correct academic year before importing."
-                  />
-
-                  <GuideItem
-                    number="05"
-                    text="Review the preview and correct validation errors."
-                  />
-
-                  <GuideItem
-                    number="06"
-                    text="Start the import and monitor the live batch progress."
-                  />
-                </div>
-              </div>
+      <section className="mt-6 overflow-hidden rounded-3xl bg-slate-950 p-5 text-white shadow-sm transition duration-300 hover:shadow-xl md:p-6">
+        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 animate-pulse items-center justify-center rounded-2xl bg-blue-600">
+              <i className="fa-solid fa-house-user text-lg" />
             </div>
-          </section>
-        </main>
-      </div>
-    </>
-  );
-}
 
-function ResultCard({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: string;
-  label: string;
-  value: number;
-  tone:
-    | 'blue'
-    | 'emerald'
-    | 'indigo'
-    | 'violet'
-    | 'cyan'
-    | 'amber'
-    | 'orange'
-    | 'slate'
-    | 'red'
-    | 'green';
-}) {
-  const tones = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-100',
-    emerald:
-      'bg-emerald-50 text-emerald-700 border-emerald-100',
-    indigo:
-      'bg-indigo-50 text-indigo-700 border-indigo-100',
-    violet:
-      'bg-violet-50 text-violet-700 border-violet-100',
-    cyan: 'bg-cyan-50 text-cyan-700 border-cyan-100',
-    amber:
-      'bg-amber-50 text-amber-700 border-amber-100',
-    orange:
-      'bg-orange-50 text-orange-700 border-orange-100',
-    slate:
-      'bg-slate-50 text-slate-700 border-slate-200',
-    red: 'bg-red-50 text-red-700 border-red-100',
-    green:
-      'bg-green-50 text-green-700 border-green-100',
-  };
+            <div>
+              <h2 className="font-black">
+                Residence & assignment guide
+              </h2>
 
-  return (
-    <div
-      className={`rounded-2xl border p-4 ${tones[tone]}`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <i className={`fa-solid ${icon}`} />
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">
+                Enter Day or Boarding under
+                RESIDENCE. FORM, PROGRAMME and CLASS
+                are then used to automatically place the
+                student in the correct academic class.
+              </p>
+            </div>
+          </div>
 
-        <span className="text-2xl font-black">
-          {value.toLocaleString()}
-        </span>
-      </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-4 py-2 text-xs font-black text-blue-200 ring-1 ring-blue-400/30">
+              <i className="fa-solid fa-house" />
+              Day
+            </span>
 
-      <p className="mt-2 text-xs font-bold opacity-80">
-        {label}
-      </p>
-    </div>
-  );
-}
+            <span className="inline-flex items-center gap-2 rounded-full bg-purple-500/20 px-4 py-2 text-xs font-black text-purple-200 ring-1 ring-purple-400/30">
+              <i className="fa-solid fa-building" />
+              Boarding
+            </span>
 
-function GuideItem({
-  number,
-  text,
-}: {
-  number: string;
-  text: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-[10px] font-black text-blue-600 shadow-sm">
-        {number}
-      </div>
-
-      <p className="text-sm font-medium leading-5 text-slate-600">
-        {text}
-      </p>
-    </div>
+            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-xs font-black text-emerald-200 ring-1 ring-emerald-400/30">
+              <i className="fa-solid fa-user-check" />
+              Auto Assign
+            </span>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
