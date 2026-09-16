@@ -29,6 +29,7 @@ type ImportRow = {
   programme: string;
   class_name: string;
   gender: string;
+  resident: string;
   date_of_birth: string;
   guardian_name: string;
   guardian_phone: string;
@@ -49,6 +50,7 @@ const headers = [
   'PROGRAMME',
   'CLASS',
   'GENDER',
+  'RESIDENCE',
   'DATE OF BIRTH',
   'GUARDIAN NAME',
   'GUARDIAN PHONE',
@@ -65,6 +67,38 @@ function normalize(value: unknown) {
   return clean(value)
     .toLowerCase()
     .replace(/\s+/g, ' ');
+}
+
+/*
+ * =========================================================
+ * NORMALIZE RESIDENCE
+ * =========================================================
+ *
+ * Accepted values:
+ *
+ * Day
+ * Boarding
+ *
+ * Capitalization does not matter.
+ *
+ * Examples:
+ * day       -> Day
+ * DAY       -> Day
+ * boarding  -> Boarding
+ * BOARDING  -> Boarding
+ */
+function normalizeResidence(value: unknown) {
+  const normalized = clean(value).toLowerCase();
+
+  if (normalized === 'day') {
+    return 'Day';
+  }
+
+  if (normalized === 'boarding') {
+    return 'Boarding';
+  }
+
+  return '';
 }
 
 function excelDateToString(value: unknown): string {
@@ -125,6 +159,7 @@ function mapRow(row: Record<string, unknown>): ImportRow {
     programme: clean(get('PROGRAMME')),
     class_name: clean(get('CLASS')),
     gender: clean(get('GENDER')),
+    resident: clean(get('RESIDENCE')),
     date_of_birth: excelDateToString(get('DATE OF BIRTH')),
     guardian_name: clean(get('GUARDIAN NAME')),
     guardian_phone: clean(get('GUARDIAN PHONE')),
@@ -304,6 +339,7 @@ export default function StudentImportPage() {
         PROGRAMME: 'Electrical Engineering',
         CLASS: 'A Class',
         GENDER: 'Male',
+        RESIDENCE: 'Boarding',
         'DATE OF BIRTH': '2010-05-12',
         'GUARDIAN NAME': 'Kwame Mensah',
         'GUARDIAN PHONE': '0240000000',
@@ -326,6 +362,7 @@ export default function StudentImportPage() {
       { wch: 30 },
       { wch: 28 },
       { wch: 12 },
+      { wch: 16 },
       { wch: 16 },
       { wch: 25 },
       { wch: 20 },
@@ -1068,6 +1105,37 @@ export default function StudentImportPage() {
         continue;
       }
 
+      /*
+       * -----------------------------------------------------
+       * VALIDATE RESIDENCE
+       * -----------------------------------------------------
+       *
+       * Blank residence is allowed for backward
+       * compatibility.
+       *
+       * If supplied, it must be Day or Boarding.
+       */
+      const residentValue =
+        normalizeResidence(
+          row.resident
+        );
+
+      if (
+        row.resident &&
+        !residentValue
+      ) {
+        skipped++;
+
+        resultErrors.push({
+          row: excelRowNumber,
+          type: 'error',
+          message:
+            'RESIDENCE must be Day or Boarding.',
+        });
+
+        continue;
+      }
+
       try {
         /*
          * ---------------------------------------------------
@@ -1120,6 +1188,46 @@ export default function StudentImportPage() {
 
           isExistingStudent =
             true;
+
+          /*
+           * -------------------------------------------------
+           * UPDATE RESIDENCE FOR EXISTING STUDENT
+           * -------------------------------------------------
+           *
+           * Only update the residence when Excel actually
+           * contains a valid value.
+           */
+          if (residentValue) {
+            const {
+              error: residenceUpdateError,
+            } = await supabase
+              .from('students')
+              .update({
+                resident:
+                  residentValue,
+              })
+              .eq(
+                'id',
+                studentId
+              )
+              .eq(
+                'school_id',
+                schoolId
+              );
+
+            if (
+              residenceUpdateError
+            ) {
+              resultErrors.push({
+                row: excelRowNumber,
+                type: 'error',
+                message:
+                  `Student exists, but residence could not be updated: ${residenceUpdateError.message}`,
+              });
+
+              continue;
+            }
+          }
         } else {
           /*
            * -------------------------------------------------
@@ -1164,6 +1272,9 @@ export default function StudentImportPage() {
               null,
             gender:
               row.gender ||
+              null,
+            resident:
+              residentValue ||
               null,
             guardian_name:
               row.guardian_name ||
@@ -1582,6 +1693,16 @@ export default function StudentImportPage() {
               DATE is blank, today's date will be used.
             </div>
 
+            <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+              <strong>
+                Residence:
+              </strong>{' '}
+              Use only <strong>Day</strong> or{' '}
+              <strong>Boarding</strong>. This
+              information is saved to the student's
+              record.
+            </div>
+
             <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
               <strong>
                 Automatic placement:
@@ -1742,7 +1863,7 @@ export default function StudentImportPage() {
 
                 <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
 
-                  <table className="min-w-[1100px] text-left text-xs">
+                  <table className="min-w-[1200px] text-left text-xs">
 
                     <thead className="bg-slate-100">
 
@@ -1809,6 +1930,29 @@ export default function StudentImportPage() {
                                 {
                                   row.gender
                                 }
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {row.resident ? (
+                                  <span
+                                    className={
+                                      normalizeResidence(
+                                        row.resident
+                                      ) ===
+                                      'Boarding'
+                                        ? 'inline-flex rounded-full bg-purple-100 px-2.5 py-1 font-semibold text-purple-700'
+                                        : 'inline-flex rounded-full bg-blue-100 px-2.5 py-1 font-semibold text-blue-700'
+                                    }
+                                  >
+                                    {
+                                      normalizeResidence(
+                                        row.resident
+                                      )
+                                    }
+                                  </span>
+                                ) : (
+                                  '—'
+                                )}
                               </td>
 
                               <td className="px-3 py-3">
