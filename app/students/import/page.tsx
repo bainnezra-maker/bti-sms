@@ -69,24 +69,6 @@ function normalize(value: unknown) {
     .replace(/\s+/g, ' ');
 }
 
-/*
- * =========================================================
- * NORMALIZE RESIDENCE
- * =========================================================
- *
- * Accepted values:
- *
- * Day
- * Boarding
- *
- * Capitalization does not matter.
- *
- * Examples:
- * day       -> Day
- * DAY       -> Day
- * boarding  -> Boarding
- * BOARDING  -> Boarding
- */
 function normalizeResidence(value: unknown) {
   const normalized = clean(value).toLowerCase();
 
@@ -164,9 +146,7 @@ function mapRow(row: Record<string, unknown>): ImportRow {
     guardian_name: clean(get('GUARDIAN NAME')),
     guardian_phone: clean(get('GUARDIAN PHONE')),
     address: clean(get('ADDRESS')),
-    admission_date: excelDateToString(
-      get('ADMISSION DATE')
-    ),
+    admission_date: excelDateToString(get('ADMISSION DATE')),
     jhs_aggregate: clean(get('JHS AGGREGATE')),
   };
 }
@@ -201,11 +181,6 @@ export default function StudentImportPage() {
     loadData();
   }, []);
 
-  /*
-   * =========================================================
-   * LOAD SCHOOL DATA
-   * =========================================================
-   */
   async function loadData() {
     setLoadingData(true);
     setMessage('');
@@ -296,22 +271,14 @@ export default function StudentImportPage() {
       return;
     }
 
-    const loadedProgrammes =
-      programmeData || [];
-
-    const loadedYears =
-      yearData || [];
-
-    const loadedClasses =
-      classData || [];
+    const loadedProgrammes = programmeData || [];
+    const loadedYears = yearData || [];
+    const loadedClasses = classData || [];
 
     setProgrammes(loadedProgrammes);
     setAcademicYears(loadedYears);
     setClasses(loadedClasses);
 
-    /*
-     * Prefer an academic year marked current.
-     */
     const currentYear = loadedYears.find(
       (year) =>
         normalize(year.name).includes('current')
@@ -326,11 +293,6 @@ export default function StudentImportPage() {
     setLoadingData(false);
   }
 
-  /*
-   * =========================================================
-   * DOWNLOAD TEMPLATE
-   * =========================================================
-   */
   function downloadTemplate() {
     const sample = [
       {
@@ -371,8 +333,7 @@ export default function StudentImportPage() {
       { wch: 18 },
     ];
 
-    const workbook =
-      XLSX.utils.book_new();
+    const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(
       workbook,
@@ -386,16 +347,10 @@ export default function StudentImportPage() {
     );
   }
 
-  /*
-   * =========================================================
-   * READ EXCEL FILE
-   * =========================================================
-   */
   async function handleFile(
     event: React.ChangeEvent<HTMLInputElement>
   ) {
-    const file =
-      event.target.files?.[0];
+    const file = event.target.files?.[0];
 
     if (!file) return;
 
@@ -405,8 +360,7 @@ export default function StudentImportPage() {
     setRows([]);
 
     try {
-      const buffer =
-        await file.arrayBuffer();
+      const buffer = await file.arrayBuffer();
 
       const workbook = XLSX.read(
         buffer,
@@ -416,9 +370,7 @@ export default function StudentImportPage() {
         }
       );
 
-      if (
-        !workbook.SheetNames.length
-      ) {
+      if (!workbook.SheetNames.length) {
         setMessage(
           'The selected Excel file does not contain a worksheet.'
         );
@@ -437,8 +389,7 @@ export default function StudentImportPage() {
           defval: '',
         });
 
-      const mappedRows =
-        json.map(mapRow);
+      const mappedRows = json.map(mapRow);
 
       setRows(mappedRows);
 
@@ -456,14 +407,7 @@ export default function StudentImportPage() {
     event.target.value = '';
   }
 
-  /*
-   * =========================================================
-   * FIND PROGRAMME
-   * =========================================================
-   */
-  function findProgramme(
-    name: string
-  ) {
+  function findProgramme(name: string) {
     if (!name) return null;
 
     return (
@@ -475,28 +419,6 @@ export default function StudentImportPage() {
     );
   }
 
-  /*
-   * =========================================================
-   * EXACT CLASS KEY
-   * =========================================================
-   *
-   * THIS IS THE IMPORTANT FIX.
-   *
-   * A class is identified by:
-   *
-   * Academic Year
-   * + FORM
-   * + CLASS
-   * + PROGRAMME
-   *
-   * Example:
-   *
-   * 2026/2027 + Form 2 + A Class + Wood Construction
-   *
-   * is different from:
-   *
-   * 2026/2027 + Form 2 + B Class + Wood Construction
-   */
   function classKey(
     academicYearIdValue: string,
     form: string,
@@ -511,22 +433,6 @@ export default function StudentImportPage() {
     ].join('|');
   }
 
-  /*
-   * =========================================================
-   * FIND EXACT CLASS
-   * =========================================================
-   *
-   * IMPORTANT:
-   *
-   * There is NO fallback to another class.
-   *
-   * If Excel says B CLASS, we find B CLASS.
-   *
-   * If B CLASS does not exist, we create B CLASS.
-   *
-   * We NEVER return A CLASS simply because it has
-   * the same FORM and PROGRAMME.
-   */
   function findExactClass(
     row: ImportRow,
     programmeId: string | null,
@@ -553,10 +459,6 @@ export default function StudentImportPage() {
             normalize(row.form)
       );
 
-    /*
-     * First choice:
-     * exact programme match.
-     */
     if (programmeId) {
       const programmeMatch =
         matchingClasses.find(
@@ -570,13 +472,6 @@ export default function StudentImportPage() {
       }
     }
 
-    /*
-     * Second choice:
-     * exact class/form with no programme.
-     *
-     * We can safely use this exact class and later
-     * attach the programme.
-     */
     const genericMatch =
       matchingClasses.find(
         (schoolClass) =>
@@ -587,24 +482,9 @@ export default function StudentImportPage() {
       return genericMatch;
     }
 
-    /*
-     * If a class with the same name/form exists
-     * but belongs to another programme, DO NOT use it.
-     */
     return null;
   }
 
-  /*
-   * =========================================================
-   * ENSURE EXACT CLASS EXISTS
-   * =========================================================
-   *
-   * This function guarantees that every distinct
-   *
-   * FORM + PROGRAMME + CLASS
-   *
-   * in Excel gets its own class record.
-   */
   async function ensureExactClass(
     row: ImportRow,
     programmeId: string | null,
@@ -614,7 +494,7 @@ export default function StudentImportPage() {
     created: boolean;
     repairedProgramme: boolean;
   }> {
-    if (!schoolId) {
+    if (!schoolId || !academicYearId || !row.class_name) {
       return {
         schoolClass: null,
         created: false,
@@ -622,27 +502,6 @@ export default function StudentImportPage() {
       };
     }
 
-    if (!academicYearId) {
-      return {
-        schoolClass: null,
-        created: false,
-        repairedProgramme: false,
-      };
-    }
-
-    if (!row.class_name) {
-      return {
-        schoolClass: null,
-        created: false,
-        repairedProgramme: false,
-      };
-    }
-
-    /*
-     * -------------------------------------------------------
-     * FIRST: SEARCH LOCAL CLASS CACHE
-     * -------------------------------------------------------
-     */
     const localMatch =
       findExactClass(
         row,
@@ -651,10 +510,6 @@ export default function StudentImportPage() {
       );
 
     if (localMatch) {
-      /*
-       * If the exact class exists but has no programme,
-       * attach the Excel programme to it.
-       */
       if (
         programmeId &&
         !localMatch.programme_id
@@ -709,14 +564,6 @@ export default function StudentImportPage() {
       };
     }
 
-    /*
-     * -------------------------------------------------------
-     * SECOND: CHECK DATABASE DIRECTLY
-     * -------------------------------------------------------
-     *
-     * This protects us if a class was created by another
-     * row during the same import.
-     */
     const {
       data: databaseClasses,
       error: databaseClassError,
@@ -759,9 +606,6 @@ export default function StudentImportPage() {
             normalize(row.form)
       );
 
-    /*
-     * Exact programme match.
-     */
     if (programmeId) {
       const exactProgrammeClass =
         exactDatabaseClasses.find(
@@ -786,12 +630,6 @@ export default function StudentImportPage() {
       }
     }
 
-    /*
-     * Exact class/form with no programme.
-     *
-     * Attach programme to it instead of creating a
-     * duplicate class.
-     */
     const genericClass =
       exactDatabaseClasses.find(
         (schoolClass) =>
@@ -842,10 +680,6 @@ export default function StudentImportPage() {
       };
     }
 
-    /*
-     * If no programme was supplied and an exact generic
-     * class exists, use it.
-     */
     if (
       genericClass &&
       !programmeId
@@ -862,16 +696,6 @@ export default function StudentImportPage() {
       };
     }
 
-    /*
-     * -------------------------------------------------------
-     * IMPORTANT:
-     *
-     * If an A CLASS exists but Excel says B CLASS,
-     * we reach this point and CREATE B CLASS.
-     *
-     * We do NOT return A CLASS.
-     * -------------------------------------------------------
-     */
     const {
       data: createdClass,
       error: createError,
@@ -913,11 +737,6 @@ export default function StudentImportPage() {
     };
   }
 
-  /*
-   * =========================================================
-   * IMPORT STUDENTS
-   * =========================================================
-   */
   async function importStudents() {
     if (!rows.length) {
       setMessage(
@@ -953,34 +772,10 @@ export default function StudentImportPage() {
 
     const resultErrors: ResultMessage[] = [];
 
-    /*
-     * Local class cache.
-     *
-     * This is very important because when we create
-     * A, B, C, D, E or F, later rows must find the
-     * correct class instead of another class.
-     */
     let workingClasses = [
       ...classes,
     ];
 
-    /*
-     * -------------------------------------------------------
-     * PRE-CREATE ALL DISTINCT CLASSES FROM EXCEL
-     * -------------------------------------------------------
-     *
-     * This guarantees that if Excel contains:
-     *
-     * A Class
-     * B Class
-     * C Class
-     * D Class
-     * E Class
-     * F Class
-     *
-     * all six classes exist before student enrollment
-     * processing begins.
-     */
     const uniqueClassRequests =
       new Map<
         string,
@@ -1024,9 +819,6 @@ export default function StudentImportPage() {
       }
     }
 
-    /*
-     * Create/repair every distinct class.
-     */
     for (const [
       ,
       classRequest,
@@ -1071,11 +863,6 @@ export default function StudentImportPage() {
       }
     }
 
-    /*
-     * -------------------------------------------------------
-     * PROCESS STUDENTS
-     * -------------------------------------------------------
-     */
     for (
       let index = 0;
       index < rows.length;
@@ -1087,11 +874,6 @@ export default function StudentImportPage() {
       const excelRowNumber =
         index + 2;
 
-      /*
-       * -----------------------------------------------------
-       * VALIDATE NAME
-       * -----------------------------------------------------
-       */
       if (!row.full_name) {
         skipped++;
 
@@ -1105,16 +887,6 @@ export default function StudentImportPage() {
         continue;
       }
 
-      /*
-       * -----------------------------------------------------
-       * VALIDATE RESIDENCE
-       * -----------------------------------------------------
-       *
-       * Blank residence is allowed for backward
-       * compatibility.
-       *
-       * If supplied, it must be Day or Boarding.
-       */
       const residentValue =
         normalizeResidence(
           row.resident
@@ -1137,11 +909,6 @@ export default function StudentImportPage() {
       }
 
       try {
-        /*
-         * ---------------------------------------------------
-         * FIND EXISTING STUDENT
-         * ---------------------------------------------------
-         */
         const {
           data: existingStudent,
           error: duplicateError,
@@ -1177,11 +944,6 @@ export default function StudentImportPage() {
         let isExistingStudent =
           false;
 
-        /*
-         * ---------------------------------------------------
-         * EXISTING STUDENT
-         * ---------------------------------------------------
-         */
         if (existingStudent) {
           studentId =
             existingStudent.id;
@@ -1189,14 +951,6 @@ export default function StudentImportPage() {
           isExistingStudent =
             true;
 
-          /*
-           * -------------------------------------------------
-           * UPDATE RESIDENCE FOR EXISTING STUDENT
-           * -------------------------------------------------
-           *
-           * Only update the residence when Excel actually
-           * contains a valid value.
-           */
           if (residentValue) {
             const {
               error: residenceUpdateError,
@@ -1229,11 +983,6 @@ export default function StudentImportPage() {
             }
           }
         } else {
-          /*
-           * -------------------------------------------------
-           * NEW STUDENT
-           * -------------------------------------------------
-           */
           const admissionDate =
             row.admission_date ||
             new Date()
@@ -1325,21 +1074,11 @@ export default function StudentImportPage() {
           imported++;
         }
 
-        /*
-         * ---------------------------------------------------
-         * FIND PROGRAMME
-         * ---------------------------------------------------
-         */
         const programme =
           findProgramme(
             row.programme
           );
 
-        /*
-         * ---------------------------------------------------
-         * VALIDATE PROGRAMME
-         * ---------------------------------------------------
-         */
         if (
           row.programme &&
           !programme
@@ -1354,17 +1093,6 @@ export default function StudentImportPage() {
           continue;
         }
 
-        /*
-         * ---------------------------------------------------
-         * FIND THE EXACT CLASS
-         * ---------------------------------------------------
-         *
-         * Notice:
-         *
-         * There is NO FORM + PROGRAMME fallback.
-         *
-         * The CLASS column is mandatory for placement.
-         */
         let schoolClass =
           findExactClass(
             row,
@@ -1373,11 +1101,6 @@ export default function StudentImportPage() {
             workingClasses
           );
 
-        /*
-         * ---------------------------------------------------
-         * CREATE EXACT CLASS IF MISSING
-         * ---------------------------------------------------
-         */
         if (!schoolClass) {
           if (!row.class_name) {
             resultErrors.push({
@@ -1401,18 +1124,11 @@ export default function StudentImportPage() {
           schoolClass =
             result.schoolClass;
 
-          /*
-           * Normally classes were already prepared above,
-           * but this handles any edge case.
-           */
           if (result.created) {
             classesCreated++;
           }
         }
 
-        /*
-         * If still missing, stop this row.
-         */
         if (!schoolClass) {
           resultErrors.push({
             row: excelRowNumber,
@@ -1424,32 +1140,17 @@ export default function StudentImportPage() {
           continue;
         }
 
-        /*
-         * ---------------------------------------------------
-         * DETERMINE PROGRAMME
-         * ---------------------------------------------------
-         */
         const programmeId =
           programme?.id ||
           schoolClass.programme_id ||
           null;
 
-        /*
-         * ---------------------------------------------------
-         * ENROLLMENT DATE
-         * ---------------------------------------------------
-         */
         const enrollmentDate =
           row.admission_date ||
           new Date()
             .toISOString()
             .slice(0, 10);
 
-        /*
-         * ---------------------------------------------------
-         * FIND EXISTING ENROLLMENT
-         * ---------------------------------------------------
-         */
         const {
           data: existingEnrollment,
           error:
@@ -1481,11 +1182,6 @@ export default function StudentImportPage() {
           continue;
         }
 
-        /*
-         * ---------------------------------------------------
-         * ENROLLMENT PAYLOAD
-         * ---------------------------------------------------
-         */
         const enrollmentPayload = {
           student_id:
             studentId,
@@ -1500,11 +1196,6 @@ export default function StudentImportPage() {
           status: 'active',
         };
 
-        /*
-         * ---------------------------------------------------
-         * UPDATE EXISTING ENROLLMENT
-         * ---------------------------------------------------
-         */
         if (existingEnrollment) {
           const {
             error: updateError,
@@ -1537,11 +1228,6 @@ export default function StudentImportPage() {
             repaired++;
           }
         } else {
-          /*
-           * -------------------------------------------------
-           * CREATE ENROLLMENT
-           * -------------------------------------------------
-           */
           const {
             error: enrollmentError,
           } = await supabase
@@ -1583,11 +1269,6 @@ export default function StudentImportPage() {
       }
     }
 
-    /*
-     * -------------------------------------------------------
-     * FINAL RESULT
-     * -------------------------------------------------------
-     */
     setErrors(
       resultErrors
     );
@@ -1596,9 +1277,6 @@ export default function StudentImportPage() {
       `Import complete: ${imported} new student(s), ${repaired} existing student(s) repaired, ${classesCreated} new class(es) created, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) updated, ${skipped} row(s) skipped.`
     );
 
-    /*
-     * Refresh classes from database.
-     */
     const {
       data: refreshedClasses,
     } = await supabase
@@ -1622,427 +1300,150 @@ export default function StudentImportPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-4 md:p-8">
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-4 md:p-8">
       <div className="mx-auto max-w-7xl">
 
-        <div className="mb-6">
+        {/* =====================================================
+            HEADER
+        ====================================================== */}
+        <div className="mb-8">
+
           <a
             href="/students"
-            className="text-sm font-medium text-blue-600 hover:underline"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 transition hover:text-blue-700"
           >
-            ← Back to Students
+            <i className="fa-solid fa-arrow-left" />
+            Back to Students
           </a>
 
-          <h1 className="mt-3 text-2xl font-bold text-slate-900">
-            Bulk Student Import
-          </h1>
+          <div className="mt-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 
-          <p className="mt-1 text-sm text-slate-600">
-            Upload many students from Excel or CSV
-            instead of entering them one by one.
-          </p>
+            <div>
+
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-blue-700">
+                <i className="fa-solid fa-file-import" />
+                Student Data Management
+              </div>
+
+              <h1 className="text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+                Bulk Student Import
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 md:text-base">
+                Import multiple students into BTI-SMS
+                quickly and accurately using the official
+                Excel template.
+              </p>
+
+            </div>
+
+            <div className="hidden rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-slate-200 md:block">
+              <div className="flex items-center gap-3">
+
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                  <i className="fa-solid fa-users-rectangle text-lg" />
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Import fields
+                  </p>
+                  <p className="text-lg font-black text-slate-900">
+                    {headers.length}
+                  </p>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
 
           {/* =====================================================
-              TEMPLATE
+              TEMPLATE CARD
           ====================================================== */}
-          <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-1">
+          <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200 lg:col-span-1">
 
-            <h2 className="text-lg font-semibold text-slate-900">
-              1. Download Template
-            </h2>
+            <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-5 text-white">
 
-            <p className="mt-2 text-sm text-slate-600">
-              Use the official BTI-SMS template so
-              your columns match the importer.
-            </p>
+              <div className="flex items-center gap-3">
 
-            <button
-              type="button"
-              onClick={
-                downloadTemplate
-              }
-              className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Download Excel Template
-            </button>
-
-            <div className="mt-6">
-
-              <h3 className="font-semibold text-slate-900">
-                Excel fields
-              </h3>
-
-              <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                {headers.map(
-                  (header) => (
-                    <li key={header}>
-                      • {header}
-                    </li>
-                  )
-                )}
-              </ul>
-
-            </div>
-
-            <div className="mt-5 rounded-xl bg-blue-50 p-4 text-sm text-blue-800">
-              Blank optional fields are accepted.
-              FULL NAME is required. If ADMISSION
-              DATE is blank, today's date will be used.
-            </div>
-
-            <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
-              <strong>
-                Residence:
-              </strong>{' '}
-              Use only <strong>Day</strong> or{' '}
-              <strong>Boarding</strong>. This
-              information is saved to the student's
-              record.
-            </div>
-
-            <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
-              <strong>
-                Automatic placement:
-              </strong>{' '}
-              FORM + PROGRAMME + CLASS from your
-              Excel file determine the student's
-              exact class.
-            </div>
-
-            <div className="mt-4 rounded-xl bg-purple-50 p-4 text-sm text-purple-800">
-              <strong>
-                Multiple classes supported:
-              </strong>{' '}
-              If your Excel contains A, B, C, D,
-              E and F classes, BTI-SMS will create
-              or reuse all six classes separately.
-            </div>
-
-          </section>
-
-          {/* =====================================================
-              UPLOAD
-          ====================================================== */}
-          <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2">
-
-            <h2 className="text-lg font-semibold text-slate-900">
-              2. Select Academic Year
-            </h2>
-
-            <select
-              value={academicYearId}
-              onChange={(event) =>
-                setAcademicYearId(
-                  event.target.value
-                )
-              }
-              disabled={
-                loadingData ||
-                importing
-              }
-              className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500"
-            >
-
-              <option value="">
-                {loadingData
-                  ? 'Loading academic years...'
-                  : 'Select academic year'}
-              </option>
-
-              {academicYears.map(
-                (year) => (
-                  <option
-                    key={year.id}
-                    value={year.id}
-                  >
-                    {year.name}
-                  </option>
-                )
-              )}
-
-            </select>
-
-            {selectedAcademicYear && (
-              <p className="mt-2 text-xs text-slate-500">
-                Students will be enrolled against{' '}
-                <strong>
-                  {
-                    selectedAcademicYear.name
-                  }
-                </strong>
-                .
-              </p>
-            )}
-
-            <h2 className="mt-8 text-lg font-semibold text-slate-900">
-              3. Upload Excel File
-            </h2>
-
-            <label className="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center transition hover:border-blue-400 hover:bg-blue-50">
-
-              <span className="text-4xl">
-                📊
-              </span>
-
-              <span className="mt-3 font-semibold text-slate-800">
-                Choose Excel or CSV file
-              </span>
-
-              <span className="mt-1 text-xs text-slate-500">
-                .xlsx, .xls or .csv
-              </span>
-
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                onChange={
-                  handleFile
-                }
-                disabled={importing}
-                className="hidden"
-              />
-
-            </label>
-
-            {fileName && (
-              <div className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">
-                Selected file:{' '}
-                <strong>
-                  {fileName}
-                </strong>
-              </div>
-            )}
-
-            {message && (
-              <div className="mt-4 rounded-xl bg-blue-50 p-4 text-sm text-blue-800">
-                {message}
-              </div>
-            )}
-
-            {/* =====================================================
-                PREVIEW
-            ====================================================== */}
-            {rows.length > 0 && (
-              <div className="mt-8">
-
-                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-900">
-                      Preview
-                    </h2>
-
-                    <p className="text-sm text-slate-500">
-                      {rows.length}{' '}
-                      student row(s)
-                      found.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={
-                      importStudents
-                    }
-                    disabled={
-                      importing ||
-                      !academicYearId ||
-                      !schoolId
-                    }
-                    className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {importing
-                      ? 'Importing...'
-                      : 'Import Students'}
-                  </button>
-
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
+                  <i className="fa-solid fa-file-excel text-lg" />
                 </div>
 
-                <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-
-                  <table className="min-w-[1200px] text-left text-xs">
-
-                    <thead className="bg-slate-100">
-
-                      <tr>
-
-                        {headers.map(
-                          (header) => (
-                            <th
-                              key={
-                                header
-                              }
-                              className="whitespace-nowrap px-3 py-3 font-semibold text-slate-700"
-                            >
-                              {header}
-                            </th>
-                          )
-                        )}
-
-                      </tr>
-
-                    </thead>
-
-                    <tbody>
-
-                      {rows
-                        .slice(0, 50)
-                        .map(
-                          (
-                            row,
-                            index
-                          ) => (
-                            <tr
-                              key={
-                                index
-                              }
-                              className="border-t border-slate-200"
-                            >
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.full_name
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.form
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.programme
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.class_name
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.gender
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {row.resident ? (
-                                  <span
-                                    className={
-                                      normalizeResidence(
-                                        row.resident
-                                      ) ===
-                                      'Boarding'
-                                        ? 'inline-flex rounded-full bg-purple-100 px-2.5 py-1 font-semibold text-purple-700'
-                                        : 'inline-flex rounded-full bg-blue-100 px-2.5 py-1 font-semibold text-blue-700'
-                                    }
-                                  >
-                                    {
-                                      normalizeResidence(
-                                        row.resident
-                                      )
-                                    }
-                                  </span>
-                                ) : (
-                                  '—'
-                                )}
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.date_of_birth
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.guardian_name
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.guardian_phone
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.address
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.admission_date
-                                }
-                              </td>
-
-                              <td className="px-3 py-3">
-                                {
-                                  row.jhs_aggregate
-                                }
-                              </td>
-
-                            </tr>
-                          )
-                        )}
-
-                    </tbody>
-
-                  </table>
-
-                </div>
-
-                {rows.length > 50 && (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Showing the first 50 rows in
-                    the preview. All {rows.length}{' '}
-                    rows will be imported/repaired.
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    Step 1
                   </p>
-                )}
+                  <h2 className="text-lg font-black">
+                    Download Template
+                  </h2>
+                </div>
 
               </div>
-            )}
 
-            {/* =====================================================
-                IMPORT NOTES
-            ====================================================== */}
-            {errors.length > 0 && (
-              <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            </div>
 
-                <h2 className="font-semibold text-amber-900">
-                  Import Notes
-                </h2>
+            <div className="p-5">
 
-                <div className="mt-3 max-h-72 space-y-2 overflow-y-auto text-sm text-amber-800">
+              <p className="text-sm leading-6 text-slate-600">
+                Use the official BTI-SMS template so your
+                Excel columns match the importer exactly.
+              </p>
 
-                  {errors.map(
-                    (
-                      error,
-                      index
-                    ) => (
+              <button
+                type="button"
+                onClick={downloadTemplate}
+                className="mt-5 flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-900 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg"
+              >
+                <i className="fa-solid fa-download" />
+                Download Excel Template
+              </button>
+
+              {/* FIELD LIST */}
+              <div className="mt-7">
+
+                <div className="flex items-center justify-between">
+
+                  <h3 className="font-black text-slate-900">
+                    Excel fields
+                  </h3>
+
+                  <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700">
+                    {headers.length} columns
+                  </span>
+
+                </div>
+
+                <div className="mt-3 space-y-1.5">
+
+                  {headers.map(
+                    (header, index) => (
                       <div
-                        key={
-                          index
-                        }
+                        key={header}
+                        className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
+                          header === 'RESIDENCE'
+                            ? 'bg-blue-50 font-bold text-blue-800 ring-1 ring-blue-200'
+                            : 'text-slate-600 hover:bg-slate-50'
+                        }`}
                       >
-                        <strong>
-                          Excel row{' '}
-                          {
-                            error.row
-                          }:
-                        </strong>{' '}
-                        {
-                          error.message
-                        }
+
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black text-slate-500">
+                          {index + 1}
+                        </span>
+
+                        <span className="flex-1">
+                          {header}
+                        </span>
+
+                        {header === 'RESIDENCE' && (
+                          <i className="fa-solid fa-circle-check text-blue-600" />
+                        )}
+
                       </div>
                     )
                   )}
@@ -2050,11 +1451,600 @@ export default function StudentImportPage() {
                 </div>
 
               </div>
-            )}
+
+              {/* RESIDENCE NOTICE */}
+              <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+
+                <div className="flex items-start gap-3">
+
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+                    <i className="fa-solid fa-house-user" />
+                  </div>
+
+                  <div>
+                    <p className="font-black text-blue-900">
+                      Residence is included
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-blue-800">
+                      Enter either{' '}
+                      <strong>Day</strong> or{' '}
+                      <strong>Boarding</strong>.
+                      The value will be saved directly
+                      to the student's record.
+                    </p>
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* OTHER NOTES */}
+              <div className="mt-4 space-y-3">
+
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <div className="flex gap-3">
+
+                    <i className="fa-solid fa-circle-info mt-0.5 text-slate-500" />
+
+                    <p className="text-xs leading-5 text-slate-600">
+                      Blank optional fields are accepted.
+                      FULL NAME is required.
+                    </p>
+
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-emerald-50 p-4">
+                  <div className="flex gap-3">
+
+                    <i className="fa-solid fa-location-dot mt-0.5 text-emerald-600" />
+
+                    <p className="text-xs leading-5 text-emerald-800">
+                      <strong>Automatic placement:</strong>{' '}
+                      FORM + PROGRAMME + CLASS determine
+                      the student's exact class.
+                    </p>
+
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-purple-50 p-4">
+                  <div className="flex gap-3">
+
+                    <i className="fa-solid fa-layer-group mt-0.5 text-purple-600" />
+
+                    <p className="text-xs leading-5 text-purple-800">
+                      A, B, C, D, E and F classes are
+                      handled separately.
+                    </p>
+
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* =====================================================
+              UPLOAD CARD
+          ====================================================== */}
+          <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200 lg:col-span-2">
+
+            <div className="border-b border-slate-200 bg-white p-5">
+
+              <div className="flex items-center gap-3">
+
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                  <i className="fa-solid fa-cloud-arrow-up text-lg" />
+                </div>
+
+                <div>
+
+                  <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                    Step 2
+                  </p>
+
+                  <h2 className="text-lg font-black text-slate-900">
+                    Select Academic Year
+                  </h2>
+
+                </div>
+
+              </div>
+
+            </div>
+
+            <div className="p-5">
+
+              <select
+                value={academicYearId}
+                onChange={(event) =>
+                  setAcademicYearId(
+                    event.target.value
+                  )
+                }
+                disabled={
+                  loadingData ||
+                  importing
+                }
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-medium text-slate-800 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100"
+              >
+
+                <option value="">
+                  {loadingData
+                    ? 'Loading academic years...'
+                    : 'Select academic year'}
+                </option>
+
+                {academicYears.map(
+                  (year) => (
+                    <option
+                      key={year.id}
+                      value={year.id}
+                    >
+                      {year.name}
+                    </option>
+                  )
+                )}
+
+              </select>
+
+              {selectedAcademicYear && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+
+                  <i className="fa-solid fa-calendar-check text-blue-600" />
+
+                  Students will be enrolled against{' '}
+                  <strong className="text-slate-900">
+                    {selectedAcademicYear.name}
+                  </strong>
+
+                </div>
+              )}
+
+              {/* UPLOAD */}
+              <div className="mt-8">
+
+                <div className="mb-3 flex items-center gap-3">
+
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                    <i className="fa-solid fa-file-arrow-up" />
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                      Step 3
+                    </p>
+
+                    <h2 className="text-lg font-black text-slate-900">
+                      Upload Excel File
+                    </h2>
+                  </div>
+
+                </div>
+
+                <label className="group flex min-h-[210px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-300 bg-gradient-to-br from-slate-50 to-blue-50/40 p-8 text-center transition duration-200 hover:-translate-y-0.5 hover:border-blue-400 hover:bg-blue-50">
+
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-blue-600 shadow-sm ring-1 ring-blue-100 transition duration-200 group-hover:scale-105 group-hover:shadow-md">
+                    <i className="fa-solid fa-file-excel text-2xl" />
+                  </div>
+
+                  <span className="mt-5 text-base font-black text-slate-800">
+                    Choose Excel or CSV file
+                  </span>
+
+                  <span className="mt-1 text-xs text-slate-500">
+                    .xlsx, .xls or .csv
+                  </span>
+
+                  <span className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-blue-700 shadow-sm ring-1 ring-slate-200">
+                    <i className="fa-solid fa-arrow-up-from-bracket" />
+                    Select file
+                  </span>
+
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={
+                      handleFile
+                    }
+                    disabled={importing}
+                    className="hidden"
+                  />
+
+                </label>
+
+              </div>
+
+              {/* FILE SELECTED */}
+              {fileName && (
+                <div className="mt-4 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                    <i className="fa-solid fa-file-circle-check" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+                      File selected
+                    </p>
+
+                    <p className="truncate text-sm font-bold text-emerald-900">
+                      {fileName}
+                    </p>
+                  </div>
+
+                </div>
+              )}
+
+              {/* MESSAGE */}
+              {message && (
+                <div className="mt-4 flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+
+                  <i className="fa-solid fa-circle-info mt-0.5 text-blue-600" />
+
+                  <span>
+                    {message}
+                  </span>
+
+                </div>
+              )}
+
+              {/* =====================================================
+                  PREVIEW
+              ====================================================== */}
+              {rows.length > 0 && (
+                <div className="mt-8">
+
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+
+                    <div>
+
+                      <div className="flex items-center gap-2">
+
+                        <h2 className="text-xl font-black text-slate-900">
+                          Preview
+                        </h2>
+
+                        <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">
+                          {rows.length}
+                        </span>
+
+                      </div>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Review the student records before
+                        importing them into BTI-SMS.
+                      </p>
+
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={
+                        importStudents
+                      }
+                      disabled={
+                        importing ||
+                        !academicYearId ||
+                        !schoolId
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <i
+                        className={
+                          importing
+                            ? 'fa-solid fa-spinner fa-spin'
+                            : 'fa-solid fa-cloud-arrow-up'
+                        }
+                      />
+
+                      {importing
+                        ? 'Importing...'
+                        : 'Import Students'}
+
+                    </button>
+
+                  </div>
+
+                  <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 shadow-sm">
+
+                    <table className="min-w-[1250px] text-left text-xs">
+
+                      <thead className="bg-slate-100">
+
+                        <tr>
+
+                          {headers.map(
+                            (header) => (
+                              <th
+                                key={
+                                  header
+                                }
+                                className={`whitespace-nowrap px-3 py-3.5 font-black ${
+                                  header === 'RESIDENCE'
+                                    ? 'bg-blue-50 text-blue-800'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+
+                                  {header}
+
+                                  {header === 'RESIDENCE' && (
+                                    <i className="fa-solid fa-house-user text-blue-600" />
+                                  )}
+
+                                </div>
+                              </th>
+                            )
+                          )}
+
+                        </tr>
+
+                      </thead>
+
+                      <tbody>
+
+                        {rows
+                          .slice(0, 50)
+                          .map(
+                            (
+                              row,
+                              index
+                            ) => (
+                              <tr
+                                key={
+                                  index
+                                }
+                                className="border-t border-slate-200 transition hover:bg-slate-50"
+                              >
+
+                                <td className="px-3 py-3 font-semibold text-slate-800">
+                                  {
+                                    row.full_name
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.form
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.programme
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.class_name
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.gender
+                                  }
+                                </td>
+
+                                <td className="bg-blue-50/40 px-3 py-3">
+
+                                  {row.resident ? (
+                                    <span
+                                      className={
+                                        normalizeResidence(
+                                          row.resident
+                                        ) ===
+                                        'Boarding'
+                                          ? 'inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-2.5 py-1 font-black text-purple-700'
+                                          : 'inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 font-black text-blue-700'
+                                      }
+                                    >
+
+                                      <i
+                                        className={
+                                          normalizeResidence(
+                                            row.resident
+                                          ) ===
+                                          'Boarding'
+                                            ? 'fa-solid fa-building'
+                                            : 'fa-solid fa-house'
+                                        }
+                                      />
+
+                                      {
+                                        normalizeResidence(
+                                          row.resident
+                                        )
+                                      }
+
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">
+                                      —
+                                    </span>
+                                  )}
+
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.date_of_birth
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.guardian_name
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.guardian_phone
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.address
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.admission_date
+                                  }
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {
+                                    row.jhs_aggregate
+                                  }
+                                </td>
+
+                              </tr>
+                            )
+                          )}
+
+                      </tbody>
+
+                    </table>
+
+                  </div>
+
+                  {rows.length > 50 && (
+                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+
+                      <i className="fa-solid fa-eye" />
+
+                      Showing the first 50 rows in the
+                      preview. All {rows.length} rows will
+                      be imported or repaired.
+
+                    </div>
+                  )}
+
+                </div>
+              )}
+
+              {/* =====================================================
+                  IMPORT NOTES
+              ====================================================== */}
+              {errors.length > 0 && (
+                <div className="mt-8 rounded-3xl border border-amber-200 bg-amber-50 p-5">
+
+                  <div className="flex items-center gap-3">
+
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                      <i className="fa-solid fa-triangle-exclamation" />
+                    </div>
+
+                    <div>
+
+                      <h2 className="font-black text-amber-900">
+                        Import Notes
+                      </h2>
+
+                      <p className="text-xs text-amber-700">
+                        Please review the following items.
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                  <div className="mt-4 max-h-72 space-y-2 overflow-y-auto text-sm text-amber-800">
+
+                    {errors.map(
+                      (
+                        error,
+                        index
+                      ) => (
+                        <div
+                          key={
+                            index
+                          }
+                          className="rounded-xl bg-white/60 p-3"
+                        >
+                          <strong>
+                            Excel row{' '}
+                            {
+                              error.row
+                            }:
+                          </strong>{' '}
+                          {
+                            error.message
+                          }
+                        </div>
+                      )
+                    )}
+
+                  </div>
+
+                </div>
+              )}
+
+            </div>
 
           </section>
 
         </div>
+
+        {/* =====================================================
+            RESIDENCE QUICK GUIDE
+        ====================================================== */}
+        <section className="mt-6 rounded-3xl bg-slate-900 p-5 text-white shadow-sm md:p-6">
+
+          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+
+            <div className="flex items-start gap-4">
+
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600">
+                <i className="fa-solid fa-house-user text-lg" />
+              </div>
+
+              <div>
+
+                <h2 className="font-black">
+                  Residence quick guide
+                </h2>
+
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">
+                  The RESIDENCE column is part of the
+                  official import template. Enter the
+                  student's residence as either Day or
+                  Boarding.
+                </p>
+
+              </div>
+
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-4 py-2 text-xs font-black text-blue-200 ring-1 ring-blue-400/30">
+                <i className="fa-solid fa-house" />
+                Day
+              </span>
+
+              <span className="inline-flex items-center gap-2 rounded-full bg-purple-500/20 px-4 py-2 text-xs font-black text-purple-200 ring-1 ring-purple-400/30">
+                <i className="fa-solid fa-building" />
+                Boarding
+              </span>
+
+            </div>
+
+          </div>
+
+        </section>
+
       </div>
     </main>
   );
