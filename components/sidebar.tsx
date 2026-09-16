@@ -117,9 +117,9 @@ const adminMenuSections: MenuSection[] = [
       icon: 'fa-solid fa-chalkboard-user',
     },
     {
-      name: 'Activities',
-      href: '/activities',
-      icon: 'fa-solid fa-calendar-check',
+      name: 'Activity Calendar',
+      href: '/activity-calendar',
+      icon: 'fa-solid fa-calendar-days',
     },
     {
       name: 'Announcements',
