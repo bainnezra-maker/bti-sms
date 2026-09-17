@@ -926,6 +926,10 @@ export default function StaffPage() {
       (person) => person.id === selectedStaffId
     ) || null;
 
+  const selectedDuties = duties.filter(
+    (duty) => duty.staff_id === selectedStaffId
+  );
+
   const filteredDuties = useMemo(() => {
     const query = dutySearch.trim().toLowerCase();
 
