@@ -158,6 +158,36 @@ export default function StudentsPage() {
 
     const schoolId = profile.school_id;
 
+    const loadAllStudents = async () => {
+      const allStudents: Student[] = [];
+      const pageSize = 1000;
+      let from = 0;
+
+      while (true) {
+        const { data, error: studentsError } = await supabase
+          .from('students')
+          .select(
+            'id, admission_number, full_name, gender, guardian_name, guardian_phone, admission_date, jhs_aggregate, status, resident'
+          )
+          .eq('school_id', schoolId)
+          .order('full_name')
+          .range(from, from + pageSize - 1);
+
+        if (studentsError) {
+          return { data: null, error: studentsError };
+        }
+
+        const page = (data ?? []) as Student[];
+        allStudents.push(...page);
+
+        if (page.length < pageSize) {
+          return { data: allStudents, error: null };
+        }
+
+        from += pageSize;
+      }
+    };
+
     const [
       studentsResult,
       programmesResult,
@@ -165,14 +195,7 @@ export default function StudentsPage() {
       academicYearsResult,
       enrollmentsResult,
     ] = await Promise.all([
-      supabase
-        .from('students')
-        .select(
-          'id, admission_number, full_name, gender, guardian_name, guardian_phone, admission_date, jhs_aggregate, status, resident'
-        )
-        .eq('school_id', schoolId)
-        .order('full_name')
-        .range(0, 9999),
+      loadAllStudents(),
 
       supabase
         .from('programmes')
