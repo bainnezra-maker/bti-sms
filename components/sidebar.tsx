@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-type UserRole = 'admin' | 'teacher' | 'Student' | 'staff' | null;
+type UserRole = 'admin' | 'teacher' | 'Student' | 'staff' | 'housemaster' | null;
 
 type MenuItem = {
   name: string;
@@ -213,6 +213,33 @@ const studentMenuSections: MenuSection[] = [
   },
 ];
 
+/*
+ * =========================================================
+ * HOUSEMASTER / HOUSEMISTRESS NAVIGATION
+ * =========================================================
+ */
+const housemasterMenuSections: MenuSection[] = [
+  {
+    title: 'RESIDENTIAL',
+    items: [
+      { name: 'Dashboard', href: '/housemaster', icon: 'fa-solid fa-gauge-high' },
+      { name: 'Students / Admission', href: '/housemaster/students', icon: 'fa-solid fa-user-plus' },
+      { name: 'Boarding & Rooms', href: '/housemaster/boarding', icon: 'fa-solid fa-bed' },
+      { name: 'Day Students', href: '/housemaster/day-students', icon: 'fa-solid fa-house-user' },
+      { name: 'Incident Reports', href: '/housemaster/incidents', icon: 'fa-solid fa-triangle-exclamation' },
+      { name: 'Exiat', href: '/housemaster/exiat', icon: 'fa-solid fa-person-walking-arrow-right' },
+      { name: 'Checkout / Vacation', href: '/housemaster/checkout', icon: 'fa-solid fa-suitcase-rolling' },
+    ],
+  },
+  {
+    title: 'INFORMATION',
+    items: [
+      { name: 'Student Profiles', href: '/housemaster/student-profiles', icon: 'fa-solid fa-id-card' },
+      { name: 'Reports', href: '/housemaster/reports', icon: 'fa-solid fa-chart-pie' },
+    ],
+  },
+];
+
 const supabase = createClient();
 
 export default function Sidebar() {
@@ -263,7 +290,8 @@ export default function Sidebar() {
         profile.role === 'admin' ||
         profile.role === 'teacher' ||
         profile.role === 'Student' ||
-        profile.role === 'staff'
+        profile.role === 'staff' ||
+        profile.role === 'housemaster'
       ) {
         setRole(profile.role as UserRole);
       } else {
@@ -317,6 +345,10 @@ export default function Sidebar() {
       return studentMenuSections;
     }
 
+    if (role === 'housemaster') {
+      return housemasterMenuSections;
+    }
+
     if (role === 'admin') {
       return adminMenuSections;
     }
@@ -363,7 +395,9 @@ export default function Sidebar() {
         ? 'Teacher Workspace'
         : role === 'Student'
           ? 'Student Portal'
-          : 'BTI-SMS';
+          : role === 'housemaster'
+            ? 'Housemaster / Housemistress'
+            : 'BTI-SMS';
 
   /*
    * =========================================================
@@ -498,7 +532,9 @@ export default function Sidebar() {
                 ? 'fa-solid fa-chalkboard-user text-sm'
                 : role === 'Student'
                   ? 'fa-solid fa-user-graduate text-sm'
-                  : 'fa-solid fa-user-shield text-sm'
+                  : role === 'housemaster'
+                    ? 'fa-solid fa-house-user text-sm'
+                    : 'fa-solid fa-user-shield text-sm'
             }
           />
         </div>
