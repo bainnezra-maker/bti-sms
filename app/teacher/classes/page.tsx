@@ -989,18 +989,9 @@ export default function TeacherClassesPage() {
             </div>
 
             <p className="text-2xl font-black text-slate-900">
-              {selectedSemesterId
-                ? semesters
-                    .find(
-                      (semester) =>
-                        semester.id ===
-                        selectedSemesterId
-                    )
-                    ?.name.replace(
-                      'Semester ',
-                      'S'
-                    ) || '—'
-                : '—'}
+              {academicYears.find(
+                (year) => year.id === selectedYearId
+              )?.name ?? '—'}
             </p>
 
             <p className="mt-1 text-xs font-semibold text-slate-500">
