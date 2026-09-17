@@ -15,9 +15,12 @@ type Profile = {
 
 type Assignment = {
   id: string;
-  class_id: string;
+  class_id: string | null;
   subject_id: string;
-  term_id: string;
+  term_id: string | null;
+  academic_year_id: string | null;
+  programme_ids: string[] | null;
+  forms: string[] | null;
 };
 
 type ClassItem = {
@@ -57,7 +60,28 @@ type Enrollment = {
   student_id: string;
   class_id: string;
   academic_year_id: string;
+  programme_id?: string | null;
   status?: string | null;
+};
+
+type DocumentType =
+  | 'unit_specification'
+  | 'learning_session_plan'
+  | 'particulars_of_work_done';
+
+type TeachingDocument = {
+  id: string;
+  staff_id: string;
+  document_type: DocumentType;
+  academic_year_id: string | null;
+  semester_id: string | null;
+  title: string;
+  file_name: string;
+  file_path: string;
+  file_type: string | null;
+  file_size: number | null;
+  uploaded_at: string | null;
+  notes: string | null;
 };
 
 type AttendanceRow = {
@@ -141,6 +165,19 @@ const quickActions = [
     badge: 'Reports',
   },
 ];
+
+
+const DOCUMENT_LABELS: Record<DocumentType, string> = {
+  unit_specification: 'Unit Specification Breakdown (USB)',
+  learning_session_plan: 'Learning Session Plan (LSP)',
+  particulars_of_work_done: 'Particulars of Work Done (POWD)',
+};
+
+const DOCUMENT_ICONS: Record<DocumentType, string> = {
+  unit_specification: 'fa-solid fa-list-check',
+  learning_session_plan: 'fa-solid fa-chalkboard-user',
+  particulars_of_work_done: 'fa-solid fa-file-circle-check',
+};
 
 const DAY_NAMES: Record<number, string> = {
   1: 'Monday',
@@ -419,6 +456,18 @@ export default function TeacherDashboard() {
   const [timetableRows, setTimetableRows] =
     useState<TimetableEntry[]>([]);
 
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<TeachingDocument[]>([]);
+  const [documentType, setDocumentType] = useState<DocumentType>('unit_specification');
+  const [documentTitle, setDocumentTitle] = useState('');
+  const [documentNotes, setDocumentNotes] = useState('');
+  const [documentYearId, setDocumentYearId] = useState('');
+  const [documentSemesterId, setDocumentSemesterId] = useState('');
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [documentMessage, setDocumentMessage] = useState('');
+  const [documentError, setDocumentError] = useState('');
+
   const [loading, setLoading] =
     useState(true);
 
@@ -486,289 +535,134 @@ export default function TeacherDashboard() {
 
       /*
        * --------------------------------------------------
-       * TEACHER ASSIGNMENTS
+       * TEACHER ASSIGNMENTS + ACADEMIC CONTEXT
        * --------------------------------------------------
        */
 
-      const {
-        data: assignmentData,
-        error: assignmentError,
-      } = await supabase
+      const { data: assignmentData, error: assignmentError } = await supabase
         .from('teacher_assignments')
-        .select(
-          'id, class_id, subject_id, term_id'
-        )
+        .select('id, class_id, subject_id, term_id, academic_year_id, programme_ids, forms')
         .eq('teacher_id', user.id);
 
       if (assignmentError) {
-        if (mounted) {
-          setError(assignmentError.message);
-          setLoading(false);
-        }
-
+        if (mounted) { setError(assignmentError.message); setLoading(false); }
         return;
       }
 
-      const assignmentRows =
-        (assignmentData ?? []) as Assignment[];
+      const assignmentRows = (assignmentData ?? []) as Assignment[];
 
-      const classIds = [
-        ...new Set(
-          assignmentRows.map(
-            (row) => row.class_id
-          )
-        ),
-      ];
+      const { data: yearsData, error: yearsError } = await supabase
+        .from('academic_years')
+        .select('id, name, is_current')
+        .eq('school_id', userProfile.school_id)
+        .order('start_date', { ascending: false });
 
-      const subjectIds = [
-        ...new Set(
-          assignmentRows.map(
-            (row) => row.subject_id
-          )
-        ),
-      ];
-
-      const termIds = [
-        ...new Set(
-          assignmentRows.map(
-            (row) => row.term_id
-          )
-        ),
-      ];
-
-      /*
-       * --------------------------------------------------
-       * BASIC ACADEMIC DATA
-       * --------------------------------------------------
-       */
-
-      const [
-        classesResult,
-        subjectsResult,
-        termsResult,
-        yearsResult,
-      ] = await Promise.all([
-        classIds.length
-          ? supabase
-              .from('classes')
-              .select(
-                'id, name, level, programme_id'
-              )
-              .in('id', classIds)
-              .order('name')
-          : Promise.resolve({
-              data: [],
-              error: null,
-            }),
-
-        subjectIds.length
-          ? supabase
-              .from('subjects')
-              .select(
-                'id, name, code'
-              )
-              .in('id', subjectIds)
-              .order('name')
-          : Promise.resolve({
-              data: [],
-              error: null,
-            }),
-
-        termIds.length
-          ? supabase
-              .from('terms')
-              .select(
-                'id, name, academic_year_id, is_current'
-              )
-              .in('id', termIds)
-              .order('start_date')
-          : Promise.resolve({
-              data: [],
-              error: null,
-            }),
-
-        supabase
-          .from('academic_years')
-          .select(
-            'id, name, is_current'
-          )
-          .eq(
-            'school_id',
-            userProfile.school_id
-          )
-          .order('start_date', {
-            ascending: false,
-          }),
-      ]);
-
-      const firstError =
-        classesResult.error ||
-        subjectsResult.error ||
-        termsResult.error ||
-        yearsResult.error;
-
-      if (firstError) {
-        if (mounted) {
-          setError(firstError.message);
-          setLoading(false);
-        }
-
+      if (yearsError) {
+        if (mounted) { setError(yearsError.message); setLoading(false); }
         return;
       }
 
-      const classRows =
-        (classesResult.data ??
-          []) as ClassItem[];
+      const yearRows = (yearsData ?? []) as AcademicYear[];
+      const currentYear = yearRows.find((year) => year.is_current) ?? yearRows[0] ?? null;
+      const activeAssignments = currentYear
+        ? assignmentRows.filter((row) => !row.academic_year_id || row.academic_year_id === currentYear.id)
+        : assignmentRows;
 
-      const subjectRows =
-        (subjectsResult.data ??
-          []) as Subject[];
+      const subjectIds = [...new Set(activeAssignments.map((row) => row.subject_id).filter(Boolean))];
+      const { data: subjectsData, error: subjectsError } = subjectIds.length
+        ? await supabase.from('subjects').select('id, name, code').in('id', subjectIds).order('name')
+        : { data: [], error: null };
 
-      const semesterRows =
-        (termsResult.data ??
-          []) as Semester[];
+      if (subjectsError) {
+        if (mounted) { setError(subjectsError.message); setLoading(false); }
+        return;
+      }
+      const subjectRows = (subjectsData ?? []) as Subject[];
 
-      const yearRows =
-        (yearsResult.data ??
-          []) as AcademicYear[];
+      const { data: allClassesData, error: classesError } = await supabase
+        .from('classes')
+        .select('id, name, level, programme_id')
+        .eq('school_id', userProfile.school_id)
+        .order('name');
 
-      /*
-       * --------------------------------------------------
-       * CURRENT ACADEMIC CONTEXT
-       * --------------------------------------------------
-       */
+      if (classesError) {
+        if (mounted) { setError(classesError.message); setLoading(false); }
+        return;
+      }
 
-      const currentYear =
-        yearRows.find(
-          (year) => year.is_current
-        ) ??
-        yearRows[0] ??
-        null;
+      const allClasses = (allClassesData ?? []) as ClassItem[];
+      const legacyClassIds = new Set(activeAssignments.map((row) => row.class_id).filter(Boolean) as string[]);
+      const classRows = allClasses.filter((classItem) =>
+        legacyClassIds.has(classItem.id) || activeAssignments.some((assignment) => {
+          const programmes = assignment.programme_ids ?? [];
+          const forms = assignment.forms ?? [];
+          return !!classItem.programme_id && programmes.includes(classItem.programme_id) &&
+            (!!classItem.level && forms.some((form) => form.trim().toLowerCase() === classItem.level?.trim().toLowerCase()));
+        })
+      );
+      const classIds = classRows.map((row) => row.id);
 
-      const currentTerm =
-        semesterRows.find(
-          (term) =>
-            term.is_current &&
-            (!currentYear ||
-              term.academic_year_id ===
-                currentYear.id)
-        ) ??
-        semesterRows.find(
-          (term) =>
-            !currentYear ||
-            term.academic_year_id ===
-              currentYear.id
-        ) ??
-        semesterRows[0] ??
-        null;
+      const { data: termsData, error: termsError } = currentYear
+        ? await supabase.from('terms').select('id, name, academic_year_id, is_current').eq('academic_year_id', currentYear.id).order('start_date')
+        : { data: [], error: null };
+      if (termsError) {
+        if (mounted) { setError(termsError.message); setLoading(false); }
+        return;
+      }
+      const semesterRows = (termsData ?? []) as Semester[];
+      const currentTerm = semesterRows.find((term) => term.is_current) ?? semesterRows[0] ?? null;
 
-      /*
-       * --------------------------------------------------
-       * TEACHER TIMETABLE
-       * --------------------------------------------------
-       */
-
-      let timetableDataRows: TimetableEntry[] =
-        [];
-
-      if (assignmentRows.length) {
-        const {
-          data: timetableData,
-          error: timetableError,
-        } = await supabase
+      let timetableDataRows: TimetableEntry[] = [];
+      if (activeAssignments.length) {
+        const { data: timetableData, error: timetableError } = await supabase
           .from('timetable')
-          .select(
-            'id, teacher_assignment_id, academic_year_id, day_of_week, start_time, end_time, status, notes'
-          )
-          .eq(
-            'school_id',
-            userProfile.school_id
-          )
-          .in(
-            'teacher_assignment_id',
-            assignmentRows.map(
-              (row) => row.id
-            )
-          )
-          .order('day_of_week', {
-            ascending: true,
-          })
-          .order('start_time', {
-            ascending: true,
-          });
-
+          .select('id, teacher_assignment_id, academic_year_id, day_of_week, start_time, end_time, status, notes')
+          .eq('school_id', userProfile.school_id)
+          .in('teacher_assignment_id', activeAssignments.map((row) => row.id))
+          .order('day_of_week', { ascending: true })
+          .order('start_time', { ascending: true });
         if (timetableError) {
-          if (mounted) {
-            setError(
-              timetableError.message
-            );
-            setLoading(false);
-          }
-
+          if (mounted) { setError(timetableError.message); setLoading(false); }
           return;
         }
-
-        timetableDataRows =
-          (timetableData ??
-            []) as TimetableEntry[];
+        timetableDataRows = (timetableData ?? []) as TimetableEntry[];
       }
 
-      /*
-       * --------------------------------------------------
-       * ACTIVE ENROLLMENTS
-       * --------------------------------------------------
-       */
-
-      let enrollmentQuery = supabase
-        .from('enrollments')
-        .select(
-          'student_id, class_id, academic_year_id, status'
-        )
-        .in('class_id', classIds);
-
-      if (currentYear?.id) {
-        enrollmentQuery =
-          enrollmentQuery.eq(
-            'academic_year_id',
-            currentYear.id
-          );
-      }
-
-      const enrollmentResult =
-        classIds.length
-          ? await enrollmentQuery
-          : {
-              data: [],
-              error: null,
-            };
-
-      if (enrollmentResult.error) {
-        if (mounted) {
-          setError(
-            enrollmentResult.error.message
-          );
-          setLoading(false);
+      let enrollmentRows: Enrollment[] = [];
+      if (classIds.length && currentYear?.id) {
+        const { data: enrollmentData, error: enrollmentError } = await supabase
+          .from('enrollments')
+          .select('student_id, class_id, academic_year_id, programme_id, status')
+          .in('class_id', classIds)
+          .eq('academic_year_id', currentYear.id);
+        if (enrollmentError) {
+          if (mounted) { setError(enrollmentError.message); setLoading(false); }
+          return;
         }
-
-        return;
+        enrollmentRows = ((enrollmentData ?? []) as Enrollment[]).filter((row) => !row.status || row.status.toLowerCase() === 'active');
       }
 
-      const enrollmentRows =
-        ((enrollmentResult.data ??
-          []) as Enrollment[]).filter(
-          (row) =>
-            !row.status ||
-            row.status.toLowerCase() ===
-              'active'
-        );
+      const studentIds = [...new Set(enrollmentRows.map((row) => row.student_id))];
 
-      const studentIds = [
-        ...new Set(
-          enrollmentRows.map(
-            (row) => row.student_id
-          )
-        ),
-      ];
+      // Link the authenticated teacher to the existing staff record by school + email.
+      const { data: staffMatch } = await supabase
+        .from('staff')
+        .select('id')
+        .eq('school_id', userProfile.school_id)
+        .ilike('email', userProfile.email)
+        .eq('staff_category', 'teaching')
+        .maybeSingle();
+
+      let teacherDocuments: TeachingDocument[] = [];
+      if (staffMatch?.id) {
+        const { data: documentData } = await supabase
+          .from('staff_teaching_documents')
+          .select('id, staff_id, document_type, academic_year_id, semester_id, title, file_name, file_path, file_type, file_size, uploaded_at, notes')
+          .eq('school_id', userProfile.school_id)
+          .eq('staff_id', staffMatch.id)
+          .order('uploaded_at', { ascending: false });
+        teacherDocuments = (documentData ?? []) as TeachingDocument[];
+      }
 
       /*
        * --------------------------------------------------
@@ -883,6 +777,10 @@ export default function TeacherDashboard() {
       setTimetableRows(
         timetableDataRows
       );
+      setStaffId(staffMatch?.id ?? null);
+      setDocuments(teacherDocuments);
+      setDocumentYearId(currentYear?.id ?? '');
+      setDocumentSemesterId(currentTerm?.id ?? '');
 
       setLoading(false);
     }
@@ -893,6 +791,58 @@ export default function TeacherDashboard() {
       mounted = false;
     };
   }, [router]);
+
+  async function uploadTeachingDocument(event: React.FormEvent) {
+    event.preventDefault();
+    setDocumentError('');
+    setDocumentMessage('');
+
+    if (!profile || !staffId) {
+      setDocumentError('Your teacher account is not linked to a teaching staff record. Ask the administrator to make sure your Staff email matches your login email.');
+      return;
+    }
+    if (!documentFile) { setDocumentError('Choose a document to upload.'); return; }
+    if (!documentYearId) { setDocumentError('Select an academic year.'); return; }
+    if (!documentSemesterId) { setDocumentError('Select a semester.'); return; }
+    if (documentFile.size > 10 * 1024 * 1024) { setDocumentError('The selected file is larger than 10 MB.'); return; }
+
+    if (documentType === 'unit_specification' && documents.some((doc) =>
+      doc.document_type === 'unit_specification' && doc.academic_year_id === documentYearId && doc.semester_id === documentSemesterId
+    )) {
+      setDocumentError('A Unit Specification Breakdown already exists for this semester.');
+      return;
+    }
+
+    setUploadingDocument(true);
+    const safeName = documentFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${profile.school_id}/${staffId}/${Date.now()}-${safeName}`;
+    const { error: storageError } = await supabase.storage.from('staff-documents').upload(path, documentFile, { cacheControl: '3600', upsert: false });
+    if (storageError) { setDocumentError(storageError.message); setUploadingDocument(false); return; }
+
+    const { data, error: recordError } = await supabase.from('staff_teaching_documents').insert({
+      staff_id: staffId, school_id: profile.school_id, document_type: documentType, academic_year_id: documentYearId,
+      semester_id: documentSemesterId, title: documentTitle.trim() || DOCUMENT_LABELS[documentType], file_name: documentFile.name,
+      file_path: path, file_type: documentFile.type || null, file_size: documentFile.size, uploaded_by: profile.id, notes: documentNotes.trim() || null,
+    }).select('id, staff_id, document_type, academic_year_id, semester_id, title, file_name, file_path, file_type, file_size, uploaded_at, notes').single();
+
+    if (recordError) {
+      await supabase.storage.from('staff-documents').remove([path]);
+      setDocumentError(recordError.message);
+    } else {
+      setDocuments((current) => [data as TeachingDocument, ...current]);
+      setDocumentTitle(''); setDocumentNotes(''); setDocumentFile(null);
+      const input = document.getElementById('teacher-document-file') as HTMLInputElement | null; if (input) input.value = '';
+      setDocumentMessage('Document uploaded successfully. The administration can now see this submission.');
+    }
+    setUploadingDocument(false);
+  }
+
+  async function openTeachingDocument(item: TeachingDocument) {
+    setDocumentError('');
+    const { data, error: signedError } = await supabase.storage.from('staff-documents').createSignedUrl(item.file_path, 600);
+    if (signedError || !data?.signedUrl) { setDocumentError(signedError?.message || 'The document could not be opened.'); return; }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+  }
 
   /*
    * --------------------------------------------------
@@ -1226,37 +1176,36 @@ export default function TeacherDashboard() {
       const submitted =
         assessmentRows.length;
 
-      const expectedAssignments =
-        assignments.filter(
-          (assignment) =>
-            !currentSemester ||
-            assignment.term_id ===
-              currentSemester.id
-        );
+      const expectedAssignments = assignments.filter(
+        (assignment) =>
+          !currentAcademicYear ||
+          !assignment.academic_year_id ||
+          assignment.academic_year_id === currentAcademicYear.id
+      );
 
-      const uniquePairs: Assignment[] =
-        Array.from(
-          new Map<string, Assignment>(
-            expectedAssignments.map(
-              (assignment) => [
-                `${assignment.class_id}|${assignment.subject_id}`,
-                assignment,
-              ]
-            )
-          ).values()
-        );
+      const expectedPerType = expectedAssignments.reduce(
+        (total, assignment) => {
+          const matchingClassIds = assignment.class_id
+            ? [assignment.class_id]
+            : classes
+                .filter((classItem) =>
+                  !!classItem.programme_id &&
+                  (assignment.programme_ids ?? []).includes(classItem.programme_id) &&
+                  !!classItem.level &&
+                  (assignment.forms ?? []).some(
+                    (form) => form.trim().toLowerCase() === classItem.level?.trim().toLowerCase()
+                  )
+                )
+                .map((classItem) => classItem.id);
 
-      const expectedPerType =
-        uniquePairs.reduce(
-          (total, assignment) =>
-            total +
-            enrollments.filter(
-              (enrollment) =>
-                enrollment.class_id ===
-                assignment.class_id
-            ).length,
-          0
-        );
+          return total + new Set(
+            enrollments
+              .filter((enrollment) => matchingClassIds.includes(enrollment.class_id))
+              .map((enrollment) => enrollment.student_id)
+          ).size;
+        },
+        0
+      );
 
       const expected =
         expectedPerType *
@@ -1343,6 +1292,8 @@ export default function TeacherDashboard() {
       assignments,
       enrollments,
       currentSemester,
+      currentAcademicYear,
+      classes,
     ]);
 
   /*
@@ -2838,6 +2789,58 @@ export default function TeacherDashboard() {
             </div>
           </section>
 
+          {/* TEACHING DOCUMENTS */}
+          <section className="bti-card-in overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-6 py-6 sm:px-7">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[.18em] text-slate-400">Professional Records</p>
+                  <h2 className="mt-1 text-xl font-black text-slate-900">My Teaching Documents</h2>
+                  <p className="mt-1 text-xs text-slate-500">Upload your USB, LSP and POWD directly from your teacher portal.</p>
+                </div>
+                <span className="w-fit rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-600">{documents.length} documents</span>
+              </div>
+            </div>
+            <div className="grid gap-6 p-6 sm:p-7 lg:grid-cols-[1fr_1.15fr]">
+              <form onSubmit={uploadTeachingDocument} className="rounded-3xl bg-slate-50 p-5">
+                <div className="grid gap-4">
+                  <label className="text-xs font-black text-slate-700">Document Type
+                    <select value={documentType} onChange={(e) => setDocumentType(e.target.value as DocumentType)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none">
+                      <option value="unit_specification">USB — Unit Specification Breakdown</option>
+                      <option value="learning_session_plan">LSP — Learning Session Plan</option>
+                      <option value="particulars_of_work_done">POWD — Particulars of Work Done</option>
+                    </select>
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-xs font-black text-slate-700">Academic Year
+                      <select value={documentYearId} onChange={(e) => setDocumentYearId(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none">
+                        <option value="">Select year</option>{academicYears.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-xs font-black text-slate-700">Semester
+                      <select value={documentSemesterId} onChange={(e) => setDocumentSemesterId(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none">
+                        <option value="">Select semester</option>{semesters.filter((sem) => !documentYearId || sem.academic_year_id === documentYearId).map((sem) => <option key={sem.id} value={sem.id}>{sem.name}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <input value={documentTitle} onChange={(e) => setDocumentTitle(e.target.value)} placeholder="Optional document title" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none" />
+                  <textarea value={documentNotes} onChange={(e) => setDocumentNotes(e.target.value)} placeholder="Optional notes" rows={3} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none" />
+                  <input id="teacher-document-file" type="file" onChange={(e) => setDocumentFile(e.target.files?.[0] ?? null)} className="w-full rounded-xl border border-dashed border-slate-300 bg-white px-3 py-3 text-xs" />
+                  {!staffId && <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-700"><i className="fa-solid fa-triangle-exclamation mr-2" />Your login email must match your Teaching Staff email before uploads can be accepted.</p>}
+                  {documentError && <p className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{documentError}</p>}
+                  {documentMessage && <p className="rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{documentMessage}</p>}
+                  <button disabled={uploadingDocument || !staffId} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
+                    <i className={`mr-2 ${uploadingDocument ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-cloud-arrow-up'}`} />{uploadingDocument ? 'Uploading...' : 'Upload Document'}
+                  </button>
+                </div>
+              </form>
+              <div>
+                <div className="grid gap-3 sm:grid-cols-3">{(['unit_specification','learning_session_plan','particulars_of_work_done'] as DocumentType[]).map((type) => <div key={type} className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><i className={`${DOCUMENT_ICONS[type]} text-slate-500`} /><p className="mt-3 text-2xl font-black text-slate-900">{documents.filter((doc) => doc.document_type === type).length}</p><p className="mt-1 text-[9px] font-black uppercase tracking-wide text-slate-400">{type === 'unit_specification' ? 'USB' : type === 'learning_session_plan' ? 'LSP' : 'POWD'}</p></div>)}</div>
+                <div className="mt-4 space-y-2">{documents.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-xs text-slate-400"><i className="fa-solid fa-folder-open mb-3 block text-2xl" />No teaching documents uploaded yet.</div> : documents.slice(0, 8).map((item) => <div key={item.id} className="flex items-center gap-3 rounded-2xl border border-slate-100 p-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><i className={DOCUMENT_ICONS[item.document_type]} /></span><div className="min-w-0 flex-1"><p className="truncate text-xs font-black text-slate-800">{item.title}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{item.file_name}</p></div><button type="button" onClick={() => openTeachingDocument(item)} className="rounded-xl bg-slate-100 px-3 py-2 text-[10px] font-black text-slate-700 hover:bg-slate-200"><i className="fa-solid fa-arrow-up-right-from-square mr-1" />Open</button></div>)}</div>
+              </div>
+            </div>
+          </section>
+
           {/* QUICK ACTIONS */}
 
           <section className="bti-card-in">
@@ -2920,7 +2923,7 @@ export default function TeacherDashboard() {
                 <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400">
                   <tr>
                     <th className="px-6 py-4">
-                      Class
+                      Department / Form
                     </th>
 
                     <th className="px-6 py-4">
@@ -2928,7 +2931,7 @@ export default function TeacherDashboard() {
                     </th>
 
                     <th className="px-6 py-4">
-                      Semester
+                      Forms
                     </th>
 
                     <th className="px-6 py-4">
@@ -2954,19 +2957,8 @@ export default function TeacherDashboard() {
                             assignment.subject_id
                         );
 
-                      const semester =
-                        semesters.find(
-                          (item) =>
-                            item.id ===
-                            assignment.term_id
-                        );
-
-                      const year =
-                        academicYears.find(
-                          (item) =>
-                            item.id ===
-                            semester?.academic_year_id
-                        );
+                      const year = academicYears.find((item) => item.id === assignment.academic_year_id);
+                      const departmentCount = assignment.programme_ids?.length ?? 0;
 
                       return (
                         <tr
@@ -2974,8 +2966,7 @@ export default function TeacherDashboard() {
                           className="hover:bg-slate-50"
                         >
                           <td className="px-6 py-4 font-black text-slate-800">
-                            {classItem?.name ??
-                              '—'}
+                            {classItem?.name ?? (departmentCount ? `${departmentCount} department${departmentCount === 1 ? '' : 's'}` : '—')}
                           </td>
 
                           <td className="px-6 py-4 font-bold text-slate-700">
@@ -2984,8 +2975,7 @@ export default function TeacherDashboard() {
                           </td>
 
                           <td className="px-6 py-4 text-slate-600">
-                            {semester?.name ??
-                              '—'}
+                            {assignment.forms?.join(', ') || '—'}
                           </td>
 
                           <td className="px-6 py-4 text-slate-600">
