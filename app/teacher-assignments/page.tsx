@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   faBook,
   faBuilding,
-  faCalendarAlt,
   faChalkboardTeacher,
   faCheck,
   faCheckCircle,
@@ -33,13 +32,6 @@ type AcademicYear = {
   is_current?: boolean | null;
 };
 
-type Term = {
-  id: string;
-  name: string;
-  academic_year_id: string;
-  is_current?: boolean | null;
-};
-
 type Programme = {
   id: string;
   name: string;
@@ -56,17 +48,16 @@ type Assignment = {
   id: string;
   teacher_id: string;
   subject_id: string;
-  term_id: string;
   school_id: string | null;
   academic_year_id: string | null;
   programme_ids: string[];
   forms: string[];
   class_id: string | null;
+  term_id: string | null;
   created_at?: string | null;
 
   teacher?: Teacher | Teacher[] | null;
   subject?: Subject | Subject[] | null;
-  term?: Term | Term[] | null;
   academic_year?: AcademicYear | AcademicYear[] | null;
 };
 
@@ -82,6 +73,18 @@ function firstRelation<T>(
   }
 
   return relation;
+}
+
+function arraysEqualUnordered(
+  first: string[],
+  second: string[]
+) {
+  if (first.length !== second.length) return false;
+
+  const a = [...first].sort();
+  const b = [...second].sort();
+
+  return a.every((value, index) => value === b[index]);
 }
 
 export default function TeacherAssignmentsPage() {
@@ -100,14 +103,12 @@ export default function TeacherAssignmentsPage() {
   const [academicYears, setAcademicYears] = useState<
     AcademicYear[]
   >([]);
-  const [terms, setTerms] = useState<Term[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
   const [selectedTeacher, setSelectedTeacher] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
-  const [selectedTerm, setSelectedTerm] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('');
 
   const [selectedProgrammes, setSelectedProgrammes] = useState<
@@ -166,12 +167,12 @@ export default function TeacherAssignmentsPage() {
           id,
           teacher_id,
           subject_id,
-          term_id,
           school_id,
           academic_year_id,
           programme_ids,
           forms,
           class_id,
+          term_id,
           created_at,
           teacher:users!teacher_assignments_teacher_id_fkey (
             id,
@@ -182,12 +183,6 @@ export default function TeacherAssignmentsPage() {
             id,
             name,
             code
-          ),
-          term:terms (
-            id,
-            name,
-            academic_year_id,
-            is_current
           ),
           academic_year:academic_years (
             id,
@@ -305,56 +300,7 @@ export default function TeacherAssignmentsPage() {
           (year) => year.is_current === true
         ) || loadedYears[0];
 
-      if (loadedYears.length > 0) {
-        const yearIds = loadedYears.map(
-          (year) => year.id
-        );
-
-        const {
-          data: termsData,
-          error: termsError,
-        } = await supabase
-          .from('terms')
-          .select(
-            'id, name, academic_year_id, is_current'
-          )
-          .in('academic_year_id', yearIds)
-          .order('start_date', {
-            ascending: true,
-          });
-
-        if (termsError) {
-          throw new Error(
-            `Unable to load semesters: ${termsError.message}`
-          );
-        }
-
-        const loadedTerms =
-          (termsData || []) as Term[];
-
-        setTerms(loadedTerms);
-
-        if (currentYear) {
-          setSelectedYear(currentYear.id);
-
-          const currentTerm =
-            loadedTerms.find(
-              (term) =>
-                term.academic_year_id ===
-                  currentYear.id &&
-                term.is_current === true
-            ) ||
-            loadedTerms.find(
-              (term) =>
-                term.academic_year_id ===
-                currentYear.id
-            );
-
-          setSelectedTerm(currentTerm?.id || '');
-        }
-      } else {
-        setTerms([]);
-      }
+      setSelectedYear(currentYear?.id || '');
 
       await loadAssignments();
     } catch (err: any) {
@@ -370,42 +316,6 @@ export default function TeacherAssignmentsPage() {
   useEffect(() => {
     loadData();
   }, []);
-
-  const filteredTerms = useMemo(() => {
-    if (!selectedYear) return [];
-
-    return terms.filter(
-      (term) =>
-        term.academic_year_id === selectedYear
-    );
-  }, [terms, selectedYear]);
-
-  useEffect(() => {
-    if (!selectedYear) {
-      setSelectedTerm('');
-      return;
-    }
-
-    const termStillValid = terms.some(
-      (term) =>
-        term.id === selectedTerm &&
-        term.academic_year_id === selectedYear
-    );
-
-    if (!termStillValid) {
-      const currentTerm =
-        filteredTerms.find(
-          (term) => term.is_current === true
-        ) || filteredTerms[0];
-
-      setSelectedTerm(currentTerm?.id || '');
-    }
-  }, [
-    selectedYear,
-    selectedTerm,
-    terms,
-    filteredTerms,
-  ]);
 
   function toggleProgramme(programmeId: string) {
     setSelectedProgrammes((current) => {
@@ -433,6 +343,7 @@ export default function TeacherAssignmentsPage() {
 
   function toggleAllProgrammes() {
     if (
+      programmes.length > 0 &&
       selectedProgrammes.length === programmes.length
     ) {
       setSelectedProgrammes([]);
@@ -445,9 +356,7 @@ export default function TeacherAssignmentsPage() {
   }
 
   function toggleAllForms() {
-    if (
-      selectedForms.length === FORM_OPTIONS.length
-    ) {
+    if (selectedForms.length === FORM_OPTIONS.length) {
       setSelectedForms([]);
       return;
     }
@@ -485,10 +394,6 @@ export default function TeacherAssignmentsPage() {
 
       const subject = firstRelation(
         assignment.subject
-      );
-
-      const term = firstRelation(
-        assignment.term
       );
 
       const academicYear =
@@ -529,9 +434,6 @@ export default function TeacherAssignmentsPage() {
         (subject?.code || '')
           .toLowerCase()
           .includes(query) ||
-        (term?.name || '')
-          .toLowerCase()
-          .includes(query) ||
         (academicYear?.name || '')
           .toLowerCase()
           .includes(query) ||
@@ -557,11 +459,6 @@ export default function TeacherAssignmentsPage() {
 
     if (!selectedYear) {
       setError('Please select an academic year.');
-      return;
-    }
-
-    if (!selectedTerm) {
-      setError('Please select a semester.');
       return;
     }
 
@@ -596,29 +493,20 @@ export default function TeacherAssignmentsPage() {
         if (
           assignment.teacher_id !== selectedTeacher ||
           assignment.subject_id !== selectedSubject ||
-          assignment.term_id !== selectedTerm ||
           assignment.academic_year_id !== selectedYear
         ) {
           return false;
         }
 
-        const existingProgrammes =
-          [...(assignment.programme_ids || [])].sort();
-
-        const newProgrammes =
-          [...selectedProgrammes].sort();
-
-        const existingForms =
-          [...(assignment.forms || [])].sort();
-
-        const newForms =
-          [...selectedForms].sort();
-
         return (
-          JSON.stringify(existingProgrammes) ===
-            JSON.stringify(newProgrammes) &&
-          JSON.stringify(existingForms) ===
-            JSON.stringify(newForms)
+          arraysEqualUnordered(
+            assignment.programme_ids || [],
+            selectedProgrammes
+          ) &&
+          arraysEqualUnordered(
+            assignment.forms || [],
+            selectedForms
+          )
         );
       }
     );
@@ -639,12 +527,14 @@ export default function TeacherAssignmentsPage() {
           .insert({
             teacher_id: selectedTeacher,
             subject_id: selectedSubject,
-            term_id: selectedTerm,
             school_id: schoolId,
             academic_year_id: selectedYear,
             programme_ids: selectedProgrammes,
             forms: selectedForms,
+
+            // Legacy fields are intentionally unused.
             class_id: null,
+            term_id: null,
           });
 
       if (insertError) {
@@ -652,7 +542,7 @@ export default function TeacherAssignmentsPage() {
       }
 
       setMessage(
-        'Teacher assignment created successfully. The assigned departments and forms are now linked to this teacher.'
+        'Teacher assignment created successfully.'
       );
 
       await loadAssignments();
@@ -719,11 +609,6 @@ export default function TeacherAssignmentsPage() {
     subjects.find(
       (subject) =>
         subject.id === selectedSubject
-    )?.name || '';
-
-  const selectedTermName =
-    terms.find(
-      (term) => term.id === selectedTerm
     )?.name || '';
 
   const selectedYearName =
@@ -833,7 +718,8 @@ export default function TeacherAssignmentsPage() {
                 </h2>
 
                 <p className="text-sm text-slate-500">
-                  Choose a teacher, subject, departments and forms.
+                  Choose a teacher, academic year, subject,
+                  departments and forms.
                 </p>
               </div>
             </div>
@@ -853,7 +739,7 @@ export default function TeacherAssignmentsPage() {
             <div className="p-5">
 
               {/* TOP SELECTORS */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
 
                 {/* TEACHER */}
                 <div>
@@ -901,10 +787,9 @@ export default function TeacherAssignmentsPage() {
 
                   <select
                     value={selectedYear}
-                    onChange={(e) => {
-                      setSelectedYear(e.target.value);
-                      setSelectedTerm('');
-                    }}
+                    onChange={(e) =>
+                      setSelectedYear(e.target.value)
+                    }
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none transition duration-200 hover:border-indigo-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                   >
                     <option value="">
@@ -918,44 +803,6 @@ export default function TeacherAssignmentsPage() {
                       >
                         {year.name}
                         {year.is_current
-                          ? ' (Current)'
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* SEMESTER */}
-                <div>
-                  <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
-                    <FontAwesomeIcon
-                      icon={faCalendarAlt}
-                      className="text-orange-500"
-                    />
-                    Semester
-                  </label>
-
-                  <select
-                    value={selectedTerm}
-                    onChange={(e) =>
-                      setSelectedTerm(e.target.value)
-                    }
-                    disabled={!selectedYear}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none transition duration-200 hover:border-orange-300 focus:border-orange-500 focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:bg-slate-100"
-                  >
-                    <option value="">
-                      {selectedYear
-                        ? 'Select semester'
-                        : 'Select year first'}
-                    </option>
-
-                    {filteredTerms.map((term) => (
-                      <option
-                        key={term.id}
-                        value={term.id}
-                      >
-                        {term.name}
-                        {term.is_current
                           ? ' (Current)'
                           : ''}
                       </option>
@@ -1015,21 +862,22 @@ export default function TeacherAssignmentsPage() {
                     </div>
 
                     <p className="mt-1 text-sm text-slate-500">
-                      Select one or multiple departments for this teacher.
+                      Check one or multiple departments for this teacher.
                     </p>
                   </div>
 
                   <button
                     type="button"
                     onClick={toggleAllProgrammes}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition duration-200 hover:-translate-y-0.5 hover:bg-blue-50 hover:shadow-sm"
+                    disabled={programmes.length === 0}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition duration-200 hover:-translate-y-0.5 hover:bg-blue-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <FontAwesomeIcon
                       icon={faCheckCircle}
                     />
 
                     {selectedProgrammes.length ===
-                    programmes.length &&
+                      programmes.length &&
                     programmes.length > 0
                       ? 'Clear All'
                       : 'Select All'}
@@ -1121,7 +969,7 @@ export default function TeacherAssignmentsPage() {
                     </div>
 
                     <p className="mt-1 text-sm text-slate-500">
-                      Select one, two or all three forms.
+                      Check Form 1, Form 2, Form 3 or any combination.
                     </p>
                   </div>
 
@@ -1193,7 +1041,7 @@ export default function TeacherAssignmentsPage() {
                 </div>
               </div>
 
-              {/* PREVIEW */}
+              {/* ASSIGNMENT PREVIEW */}
               {(selectedTeacherName ||
                 selectedSubjectName ||
                 selectedProgrammeNames.length > 0 ||
@@ -1220,12 +1068,6 @@ export default function TeacherAssignmentsPage() {
                     {selectedYearName && (
                       <span className="rounded-full bg-indigo-100 px-3 py-1.5 font-medium text-indigo-700">
                         Year: {selectedYearName}
-                      </span>
-                    )}
-
-                    {selectedTermName && (
-                      <span className="rounded-full bg-orange-100 px-3 py-1.5 font-medium text-orange-700">
-                        Semester: {selectedTermName}
                       </span>
                     )}
 
@@ -1272,6 +1114,7 @@ export default function TeacherAssignmentsPage() {
                         icon={faSpinner}
                         spin
                       />
+
                       Assigning Teacher...
                     </>
                   ) : (
@@ -1280,6 +1123,7 @@ export default function TeacherAssignmentsPage() {
                         icon={faCheckCircle}
                         className="transition-transform duration-200 group-hover:scale-110"
                       />
+
                       Assign Teacher
                     </>
                   )}
@@ -1306,7 +1150,7 @@ export default function TeacherAssignmentsPage() {
                   </h2>
 
                   <p className="text-sm text-slate-500">
-                    Manage teacher department, form and subject assignments.
+                    Manage teacher, department, form and subject assignments.
                   </p>
                 </div>
               </div>
@@ -1357,7 +1201,7 @@ export default function TeacherAssignmentsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[1100px] w-full text-left text-sm">
+              <table className="w-full min-w-[1000px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th className="px-4 py-3 font-semibold text-slate-600">
@@ -1374,10 +1218,6 @@ export default function TeacherAssignmentsPage() {
 
                     <th className="px-4 py-3 font-semibold text-slate-600">
                       Subject
-                    </th>
-
-                    <th className="px-4 py-3 font-semibold text-slate-600">
-                      Semester
                     </th>
 
                     <th className="px-4 py-3 font-semibold text-slate-600">
@@ -1401,11 +1241,6 @@ export default function TeacherAssignmentsPage() {
                       const subject =
                         firstRelation(
                           assignment.subject
-                        );
-
-                      const term =
-                        firstRelation(
-                          assignment.term
                         );
 
                       const academicYear =
@@ -1435,6 +1270,7 @@ export default function TeacherAssignmentsPage() {
                           key={assignment.id}
                           className="border-b border-slate-100 transition duration-200 hover:bg-blue-50/40"
                         >
+                          {/* TEACHER */}
                           <td className="px-4 py-4">
                             <div className="flex items-center gap-3">
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
@@ -1458,6 +1294,7 @@ export default function TeacherAssignmentsPage() {
                             </div>
                           </td>
 
+                          {/* DEPARTMENTS */}
                           <td className="px-4 py-4">
                             <div className="flex max-w-sm flex-wrap gap-1.5">
                               {assignmentProgrammes.length >
@@ -1486,6 +1323,7 @@ export default function TeacherAssignmentsPage() {
                             </div>
                           </td>
 
+                          {/* FORMS */}
                           <td className="px-4 py-4">
                             <div className="flex flex-wrap gap-1.5">
                               {assignment.forms.length >
@@ -1508,6 +1346,7 @@ export default function TeacherAssignmentsPage() {
                             </div>
                           </td>
 
+                          {/* SUBJECT */}
                           <td className="px-4 py-4">
                             <div className="flex items-center gap-2">
                               <FontAwesomeIcon
@@ -1528,20 +1367,7 @@ export default function TeacherAssignmentsPage() {
                             </div>
                           </td>
 
-                          <td className="px-4 py-4">
-                            <div className="flex items-center gap-2">
-                              <FontAwesomeIcon
-                                icon={faCalendarAlt}
-                                className="text-orange-500"
-                              />
-
-                              <span className="text-slate-700">
-                                {term?.name ||
-                                  'Unknown Semester'}
-                              </span>
-                            </div>
-                          </td>
-
+                          {/* ACADEMIC YEAR */}
                           <td className="px-4 py-4">
                             <div className="flex items-center gap-2">
                               <FontAwesomeIcon
@@ -1556,6 +1382,7 @@ export default function TeacherAssignmentsPage() {
                             </div>
                           </td>
 
+                          {/* ACTION */}
                           <td className="px-4 py-4 text-right">
                             <button
                               type="button"
@@ -1597,12 +1424,13 @@ export default function TeacherAssignmentsPage() {
 
         {/* SUMMARY CARDS */}
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
           <div className="group rounded-xl bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-md">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
                 <FontAwesomeIcon
                   icon={faChalkboardTeacher}
-                  className="transition-transform group-hover:scale-110"
+                  className="transition-transform duration-200 group-hover:scale-110"
                 />
               </div>
 
@@ -1623,7 +1451,7 @@ export default function TeacherAssignmentsPage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-100 text-cyan-600">
                 <FontAwesomeIcon
                   icon={faBuilding}
-                  className="transition-transform group-hover:scale-110"
+                  className="transition-transform duration-200 group-hover:scale-110"
                 />
               </div>
 
@@ -1644,7 +1472,7 @@ export default function TeacherAssignmentsPage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100 text-green-600">
                 <FontAwesomeIcon
                   icon={faBook}
-                  className="transition-transform group-hover:scale-110"
+                  className="transition-transform duration-200 group-hover:scale-110"
                 />
               </div>
 
@@ -1665,7 +1493,7 @@ export default function TeacherAssignmentsPage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 text-purple-600">
                 <FontAwesomeIcon
                   icon={faUsers}
-                  className="transition-transform group-hover:scale-110"
+                  className="transition-transform duration-200 group-hover:scale-110"
                 />
               </div>
 
@@ -1696,10 +1524,11 @@ export default function TeacherAssignmentsPage() {
               </p>
 
               <p className="mt-1 text-blue-700">
-                These assignments determine the departments,
-                forms and subjects linked to each teacher.
-                The teacher portal can use them to display
-                the appropriate classes and student records.
+                Each assignment links a teacher to an academic
+                year, subject, selected departments and selected
+                forms. These assignments can be used by the
+                teacher portal to determine which students and
+                academic records belong to that teacher.
               </p>
             </div>
           </div>
