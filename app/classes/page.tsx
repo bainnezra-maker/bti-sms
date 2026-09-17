@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -22,11 +23,34 @@ import {
   faChalkboardTeacher,
   faBookOpen,
   faCircleInfo,
+  faChevronRight,
+  faHouse,
+  faBed,
 } from '@fortawesome/free-solid-svg-icons';
 
 type AcademicYear = {
   id: string;
   name: string;
+  is_current?: boolean;
+};
+
+type StudentDirectoryEntry = {
+  id: string;
+  academic_year_id: string;
+  programme_id: string | null;
+  class_id: string | null;
+  student: {
+    id: string;
+    full_name: string;
+    admission_number: string | null;
+    resident: string | null;
+  } | null;
+  class: {
+    id: string;
+    name: string;
+    level: string | null;
+  } | null;
+  programme: Programme | null;
 };
 
 type Programme = {
@@ -51,6 +75,10 @@ export default function ClassesPage() {
   const [classes, setClasses] = useState<ClassRecord[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
+  const [directoryEntries, setDirectoryEntries] = useState<StudentDirectoryEntry[]>([]);
+  const [selectedDirectoryYearId, setSelectedDirectoryYearId] = useState('');
+  const [selectedForm, setSelectedForm] = useState('');
+  const [selectedClassLetter, setSelectedClassLetter] = useState('');
 
   const [name, setName] = useState('');
   const [level, setLevel] = useState('');
@@ -78,6 +106,22 @@ export default function ClassesPage() {
     academic_year: Array.isArray(item.academic_year)
       ? item.academic_year[0] || null
       : item.academic_year || null,
+    programme: Array.isArray(item.programme)
+      ? item.programme[0] || null
+      : item.programme || null,
+  });
+
+  const normalizeDirectoryEntry = (item: any): StudentDirectoryEntry => ({
+    id: item.id,
+    academic_year_id: item.academic_year_id,
+    programme_id: item.programme_id ?? null,
+    class_id: item.class_id ?? null,
+    student: Array.isArray(item.student)
+      ? item.student[0] || null
+      : item.student || null,
+    class: Array.isArray(item.class)
+      ? item.class[0] || null
+      : item.class || null,
     programme: Array.isArray(item.programme)
       ? item.programme[0] || null
       : item.programme || null,
@@ -121,6 +165,7 @@ export default function ClassesPage() {
         { data: classData, error: classError },
         { data: yearData, error: yearError },
         { data: programmeData, error: programmeError },
+        { data: enrollmentData, error: enrollmentDataError },
       ] = await Promise.all([
         supabase
           .from('classes')
@@ -145,7 +190,7 @@ export default function ClassesPage() {
 
         supabase
           .from('academic_years')
-          .select('id, name')
+          .select('id, name, is_current')
           .eq('school_id', schoolId)
           .order('start_date', { ascending: false }),
 
@@ -154,6 +199,31 @@ export default function ClassesPage() {
           .select('id, name')
           .eq('school_id', schoolId)
           .order('name', { ascending: true }),
+
+        supabase
+          .from('enrollments')
+          .select(`
+            id,
+            academic_year_id,
+            programme_id,
+            class_id,
+            student:students!inner (
+              id,
+              full_name,
+              admission_number,
+              resident
+            ),
+            class:classes!inner (
+              id,
+              name,
+              level
+            ),
+            programme:programmes (
+              id,
+              name
+            )
+          `)
+          .eq('student.school_id', schoolId),
       ]);
 
       if (classError) {
@@ -168,12 +238,47 @@ export default function ClassesPage() {
         throw new Error(programmeError.message);
       }
 
+      if (enrollmentDataError) {
+        throw new Error(enrollmentDataError.message);
+      }
+
       setClasses(
         (classData || []).map((item: any) => normalizeClass(item))
       );
 
-      setAcademicYears((yearData || []) as AcademicYear[]);
+      const normalizedYears = (yearData || []) as AcademicYear[];
+      const normalizedEntries = (enrollmentData || []).map((item: any) =>
+        normalizeDirectoryEntry(item)
+      );
+
+      setAcademicYears(normalizedYears);
       setProgrammes((programmeData || []) as Programme[]);
+      setDirectoryEntries(normalizedEntries);
+
+      const selectedYear =
+        normalizedYears.find((year) => year.is_current) ||
+        normalizedYears[0] ||
+        null;
+
+      if (selectedYear) {
+        setSelectedDirectoryYearId((current) => current || selectedYear.id);
+      }
+
+      const availableForms = Array.from(
+        new Set(
+          normalizedEntries
+            .map((entry) => entry.class?.level?.trim() || '')
+            .filter(Boolean)
+        )
+      ).sort((a, b) => {
+        const aNumber = Number(a.match(/\d+/)?.[0] || 999);
+        const bNumber = Number(b.match(/\d+/)?.[0] || 999);
+        return aNumber - bNumber || a.localeCompare(b);
+      });
+
+      if (availableForms.length > 0) {
+        setSelectedForm((current) => current || availableForms[0]);
+      }
     } catch (err: any) {
       setError(err?.message || 'Unable to load classes.');
     } finally {
@@ -432,6 +537,76 @@ export default function ClassesPage() {
     }
   };
 
+  const classLetters = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  const getClassLetter = (className: string | null | undefined) => {
+    const match = (className || '')
+      .trim()
+      .toUpperCase()
+      .match(/^([A-F])(?:\s*CLASS)?$/);
+
+    return match?.[1] || '';
+  };
+
+  const directoryForms = useMemo(() => {
+    const discovered = Array.from(
+      new Set(
+        directoryEntries
+          .filter((entry) =>
+            selectedDirectoryYearId
+              ? entry.academic_year_id === selectedDirectoryYearId
+              : true
+          )
+          .map((entry) => entry.class?.level?.trim() || '')
+          .filter(Boolean)
+      )
+    );
+
+    return discovered.sort((a, b) => {
+      const aNumber = Number(a.match(/\d+/)?.[0] || 999);
+      const bNumber = Number(b.match(/\d+/)?.[0] || 999);
+      return aNumber - bNumber || a.localeCompare(b);
+    });
+  }, [directoryEntries, selectedDirectoryYearId]);
+
+  const selectedFormEntries = useMemo(
+    () =>
+      directoryEntries.filter(
+        (entry) =>
+          (!selectedDirectoryYearId ||
+            entry.academic_year_id === selectedDirectoryYearId) &&
+          entry.class?.level?.trim() === selectedForm &&
+          Boolean(entry.student)
+      ),
+    [directoryEntries, selectedDirectoryYearId, selectedForm]
+  );
+
+  const selectedClassEntries = useMemo(
+    () =>
+      selectedFormEntries.filter(
+        (entry) => getClassLetter(entry.class?.name) === selectedClassLetter
+      ),
+    [selectedFormEntries, selectedClassLetter]
+  );
+
+  const programmeStudentGroups = useMemo(() => {
+    const groups = new Map<string, StudentDirectoryEntry[]>();
+
+    selectedClassEntries.forEach((entry) => {
+      const programmeName = entry.programme?.name || 'Unassigned programme';
+      groups.set(programmeName, [...(groups.get(programmeName) || []), entry]);
+    });
+
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([programmeName, students]) => ({
+        programmeName,
+        students: students.sort((a, b) =>
+          (a.student?.full_name || '').localeCompare(b.student?.full_name || '')
+        ),
+      }));
+  }, [selectedClassEntries]);
+
   const filteredClasses = useMemo(() => {
     const query = search.toLowerCase().trim();
 
@@ -512,7 +687,7 @@ export default function ClassesPage() {
                 </h1>
 
                 <p className="mt-1 max-w-2xl text-sm text-slate-300">
-                  Organize classes by form, programme and academic year.
+                  Open a form, choose A–F, and view every student in that class across programmes.
                 </p>
               </div>
             </div>
@@ -610,6 +785,257 @@ export default function ClassesPage() {
 
           </div>
         )}
+
+
+        {/* STUDENT CLASS DIRECTORY */}
+        <div className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 bg-gradient-to-r from-indigo-50 via-white to-cyan-50 p-5 sm:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md">
+                  <FontAwesomeIcon
+                    icon={faUsers}
+                    className="animate-pulse text-lg"
+                  />
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-900">
+                    Student Class Directory
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    Select a form, then A–F. Students are grouped by programme and ordered by name.
+                  </p>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                <FontAwesomeIcon icon={faCalendarDays} className="text-indigo-500" />
+                Academic year
+                <select
+                  value={selectedDirectoryYearId}
+                  onChange={(event) => {
+                    setSelectedDirectoryYearId(event.target.value);
+                    setSelectedForm('');
+                    setSelectedClassLetter('');
+                  }}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                >
+                  {academicYears.map((year) => (
+                    <option key={year.id} value={year.id}>
+                      {year.name}{year.is_current ? ' (Current)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="p-5 sm:p-6">
+            <div className="mb-5">
+              <p className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-700">
+                <FontAwesomeIcon icon={faGraduationCap} className="text-indigo-500" />
+                Step 1: Choose a form
+              </p>
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {directoryForms.map((form) => {
+                  const formStudentCount = directoryEntries.filter(
+                    (entry) =>
+                      entry.academic_year_id === selectedDirectoryYearId &&
+                      entry.class?.level?.trim() === form &&
+                      Boolean(entry.student)
+                  ).length;
+
+                  return (
+                    <button
+                      key={form}
+                      type="button"
+                      onClick={() => {
+                        setSelectedForm(form);
+                        setSelectedClassLetter('');
+                      }}
+                      className={
+                        'group rounded-2xl border p-4 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-md ' +
+                        (selectedForm === form
+                          ? 'border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                          : 'border-slate-200 bg-white text-slate-800 hover:border-indigo-300')
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <FontAwesomeIcon
+                          icon={faSchool}
+                          className={
+                            selectedForm === form
+                              ? 'animate-bounce text-indigo-100'
+                              : 'text-indigo-500 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6'
+                          }
+                        />
+                        <span
+                          className={
+                            'rounded-full px-2.5 py-1 text-xs font-bold ' +
+                            (selectedForm === form
+                              ? 'bg-white/20 text-white'
+                              : 'bg-indigo-50 text-indigo-700')
+                          }
+                        >
+                          {formStudentCount}
+                        </span>
+                      </div>
+                      <p className="mt-4 font-bold">{form}</p>
+                      <p
+                        className={
+                          'mt-1 text-xs ' +
+                          (selectedForm === form ? 'text-indigo-100' : 'text-slate-500')
+                        }
+                      >
+                        View class groups
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {selectedForm ? (
+              <div className="border-t border-slate-100 pt-5">
+                <p className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <FontAwesomeIcon icon={faLayerGroup} className="text-cyan-500" />
+                  Step 2: Choose a class in {selectedForm}
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                  {classLetters.map((letter) => {
+                    const classStudentCount = selectedFormEntries.filter(
+                      (entry) => getClassLetter(entry.class?.name) === letter
+                    ).length;
+
+                    return (
+                      <button
+                        key={letter}
+                        type="button"
+                        onClick={() => setSelectedClassLetter(letter)}
+                        className={
+                          'group rounded-2xl border p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-md ' +
+                          (selectedClassLetter === letter
+                            ? 'border-cyan-500 bg-cyan-600 text-white shadow-lg shadow-cyan-200'
+                            : 'border-slate-200 bg-slate-50 text-slate-800 hover:border-cyan-300 hover:bg-cyan-50')
+                        }
+                      >
+                        <FontAwesomeIcon
+                          icon={faSchool}
+                          className={
+                            selectedClassLetter === letter
+                              ? 'animate-bounce text-cyan-100'
+                              : 'text-cyan-500 transition-transform duration-300 group-hover:scale-110'
+                          }
+                        />
+                        <p className="mt-2 text-lg font-black">{letter}</p>
+                        <p
+                          className={
+                            'text-xs font-semibold ' +
+                            (selectedClassLetter === letter
+                              ? 'text-cyan-100'
+                              : 'text-slate-500')
+                          }
+                        >
+                          {classStudentCount} student{classStudentCount === 1 ? '' : 's'}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {selectedClassLetter ? (
+              <div className="mt-6 border-t border-slate-100 pt-6">
+                <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-indigo-500">
+                      {selectedForm} · {selectedClassLetter} Class
+                    </p>
+                    <h3 className="mt-1 text-xl font-bold text-slate-900">
+                      {selectedClassEntries.length} student{selectedClassEntries.length === 1 ? '' : 's'}
+                    </h3>
+                  </div>
+                  <p className="text-sm text-slate-500">
+                    Grouped alphabetically by programme
+                  </p>
+                </div>
+
+                {programmeStudentGroups.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+                    <FontAwesomeIcon icon={faUsers} className="animate-pulse text-2xl text-slate-400" />
+                    <p className="mt-3 font-semibold text-slate-700">No students are assigned to this class yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {programmeStudentGroups.map(({ programmeName, students }) => (
+                      <section
+                        key={programmeName}
+                        className="overflow-hidden rounded-2xl border border-slate-200"
+                      >
+                        <div className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <FontAwesomeIcon icon={faLayerGroup} className="text-indigo-500" />
+                            <h4 className="font-bold text-slate-800">{programmeName}</h4>
+                          </div>
+                          <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-700">
+                            {students.length}
+                          </span>
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                          {students.map((entry, index) => (
+                            <Link
+                              key={entry.id}
+                              href={entry.student ? \`/students/\${entry.student.id}\` : '#'}
+                              className="group flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-indigo-50"
+                            >
+                              <div className="flex min-w-0 items-center gap-3">
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-sm font-black text-indigo-600 transition-transform duration-300 group-hover:scale-110">
+                                  {index + 1}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-slate-900">
+                                    {entry.student?.full_name || 'Unnamed student'}
+                                  </p>
+                                  <p className="mt-0.5 text-xs text-slate-500">
+                                    {entry.student?.admission_number || 'Admission number pending'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex shrink-0 items-center gap-2">
+                                {entry.student?.resident ? (
+                                  <span className="hidden items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 sm:inline-flex">
+                                    <FontAwesomeIcon
+                                      icon={
+                                        entry.student.resident.toLowerCase() === 'boarding'
+                                          ? faBed
+                                          : faHouse
+                                      }
+                                      className="text-indigo-500"
+                                    />
+                                    {entry.student.resident}
+                                  </span>
+                                ) : null}
+                                <FontAwesomeIcon
+                                  icon={faChevronRight}
+                                  className="text-slate-400 transition-transform duration-300 group-hover:translate-x-1 group-hover:text-indigo-600"
+                                />
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
 
         {/* FORM + QUICK INFO */}
         <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -924,12 +1350,12 @@ export default function ClassesPage() {
 
                 <div>
                   <h2 className="font-bold text-slate-900">
-                    All Classes
+                    Class Setup Records
                   </h2>
 
                   <p className="text-sm text-slate-500">
                     Showing {filteredClasses.length} of{' '}
-                    {classes.length} classes
+                    {classes.length} underlying programme records
                   </p>
                 </div>
 
