@@ -259,9 +259,6 @@ export default function TeacherClassesPage() {
           ) ??
           yearSemesters[0];
 
-        if (currentSemester) {
-          setSelectedSemesterId(currentSemester.id);
-        }
       }
     } catch (err: any) {
       console.error('Teacher My Classes error:', err);
