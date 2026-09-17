@@ -1308,7 +1308,10 @@ export default function StudentsPage() {
                                       const isBoarding = student.resident === 'Boarding';
 
                                       return (
-                                        <div key={student.id} className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md">
+                                        <Link
+                                          href={`/students/${student.id}`}
+                                          className="group block cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-300 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-blue-100"
+                                        >
                                           <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                               <p className="truncate font-black text-slate-900">{student.full_name}</p>
@@ -1326,7 +1329,7 @@ export default function StudentsPage() {
                                               {student.resident || 'Residence not provided'}
                                             </span>
                                           </div>
-                                        </div>
+                                        </Link>
                                       );
                                     })}
                                 </div>
@@ -1347,3 +1350,4 @@ export default function StudentsPage() {
     </div>
   );
 }
+commit
