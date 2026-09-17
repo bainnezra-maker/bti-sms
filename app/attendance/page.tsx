@@ -18,8 +18,14 @@ type ClassItem = {
 type Assignment = {
   id: string;
   academic_year_id: string | null;
+  subject_id: string | null;
   programme_ids: string[] | null;
   forms: string[] | null;
+};
+type Subject = {
+  id: string;
+  name: string;
+  code: string | null;
 };
 type StudentRow = {
   id: string;
@@ -73,9 +79,11 @@ export default function AttendancePage() {
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
 
   const [selectedYear, setSelectedYear] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedForm, setSelectedForm] = useState('all');
   const [selectedProgramme, setSelectedProgramme] = useState('all');
   const [selectedClass, setSelectedClass] = useState('all');
@@ -111,7 +119,7 @@ export default function AttendancePage() {
         const typed = p as UserProfile;
         setProfile(typed);
 
-        const [yearsResult, programmesResult, assignmentsResult] = await Promise.all([
+        const [yearsResult, programmesResult, subjectsResult, assignmentsResult] = await Promise.all([
           supabase
             .from('academic_years')
             .select('id, name, is_current')
@@ -123,21 +131,29 @@ export default function AttendancePage() {
             .eq('school_id', typed.school_id)
             .order('name'),
           supabase
+            .from('subjects')
+            .select('id, name, code')
+            .eq('school_id', typed.school_id)
+            .order('name'),
+          supabase
             .from('teacher_assignments')
-            .select('id, academic_year_id, programme_ids, forms')
+            .select('id, academic_year_id, subject_id, programme_ids, forms')
             .eq('teacher_id', typed.id),
         ]);
 
         if (yearsResult.error) throw yearsResult.error;
         if (programmesResult.error) throw programmesResult.error;
+        if (subjectsResult.error) throw subjectsResult.error;
         if (assignmentsResult.error) throw assignmentsResult.error;
 
         const years = (yearsResult.data ?? []) as AcademicYear[];
         const allProgrammes = (programmesResult.data ?? []) as Programme[];
+        const allSubjects = (subjectsResult.data ?? []) as Subject[];
         const teacherAssignments = (assignmentsResult.data ?? []) as Assignment[];
 
         setAcademicYears(years);
         setProgrammes(allProgrammes);
+        setSubjects(allSubjects);
         setAssignments(teacherAssignments);
 
         const assignmentYearIds = new Set(
@@ -165,14 +181,31 @@ export default function AttendancePage() {
     [assignments, selectedYear]
   );
 
+  const assignedSubjects = useMemo(() => {
+    const ids = Array.from(new Set(yearAssignments.map(a => a.subject_id).filter(Boolean))) as string[];
+    return subjects.filter(s => ids.includes(s.id));
+  }, [yearAssignments, subjects]);
+
+  useEffect(() => {
+    if (!selectedYear) return;
+    if (!assignedSubjects.some(s => s.id === selectedSubject)) {
+      setSelectedSubject(assignedSubjects[0]?.id ?? '');
+    }
+  }, [selectedYear, assignedSubjects, selectedSubject]);
+
+  const subjectAssignments = useMemo(
+    () => yearAssignments.filter(a => a.subject_id === selectedSubject),
+    [yearAssignments, selectedSubject]
+  );
+
   const assignedForms = useMemo(
-    () => Array.from(new Set(yearAssignments.flatMap(a => a.forms ?? []))).sort(),
-    [yearAssignments]
+    () => Array.from(new Set(subjectAssignments.flatMap(a => a.forms ?? []))).sort(),
+    [subjectAssignments]
   );
 
   const assignedProgrammeIds = useMemo(
-    () => Array.from(new Set(yearAssignments.flatMap(a => a.programme_ids ?? []))),
-    [yearAssignments]
+    () => Array.from(new Set(subjectAssignments.flatMap(a => a.programme_ids ?? []))),
+    [subjectAssignments]
   );
 
   const assignedProgrammes = useMemo(
@@ -322,7 +355,8 @@ export default function AttendancePage() {
         .from('attendance')
         .select('student_id, status')
         .in('student_id', students.map(s => s.id))
-        .eq('date', selectedDate);
+        .eq('date', selectedDate)
+        .eq('subject_id', selectedSubject);
 
       if (error) {
         setMessageType('error');
@@ -341,7 +375,7 @@ export default function AttendancePage() {
       setLoadingAttendance(false);
     }
     loadExistingAttendance();
-  }, [selectedDate, students.map(s => s.id).join('|')]);
+  }, [selectedDate, selectedSubject, students.map(s => s.id).join('|')]);
 
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -401,7 +435,7 @@ export default function AttendancePage() {
 
     const { error } = await supabase
       .from('attendance')
-      .upsert(rows, { onConflict: 'student_id,date' });
+      .upsert(rows, { onConflict: 'student_id,date,subject_id' });
 
     if (error) {
       setMessageType('error');
@@ -467,7 +501,7 @@ export default function AttendancePage() {
               </p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
               <Filter label="Academic Year">
                 <select value={selectedYear} onChange={e => {
                   setSelectedYear(e.target.value);
@@ -475,6 +509,16 @@ export default function AttendancePage() {
                 }} className="bti-select">
                   {academicYears.length === 0 && <option value="">No assigned academic year</option>}
                   {academicYears.map(y => <option key={y.id} value={y.id}>{y.name}{y.is_current ? ' — Current' : ''}</option>)}
+                </select>
+              </Filter>
+
+              <Filter label="Subject">
+                <select value={selectedSubject} onChange={e => {
+                  setSelectedSubject(e.target.value);
+                  setSelectedForm('all'); setSelectedProgramme('all'); setSelectedClass('all');
+                }} className="bti-select" disabled={!selectedYear || assignedSubjects.length === 0}>
+                  <option value="">Select Subject</option>
+                  {assignedSubjects.map(s => <option key={s.id} value={s.id}>{s.name}{s.code ? ` (${s.code})` : ''}</option>)}
                 </select>
               </Filter>
 
@@ -509,6 +553,9 @@ export default function AttendancePage() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-full bg-cyan-50 px-3 py-1.5 text-cyan-700">
+                {subjects.find(s => s.id === selectedSubject)?.name || 'No Subject Selected'}
+              </span>
               <span className="rounded-full bg-blue-50 px-3 py-1.5 text-blue-700">{selectedForm === 'all' ? 'All Assigned Forms' : selectedForm}</span>
               <span className="rounded-full bg-violet-50 px-3 py-1.5 text-violet-700">
                 {selectedProgramme === 'all' ? 'All Departments' : assignedProgrammes.find(p => p.id === selectedProgramme)?.name}
