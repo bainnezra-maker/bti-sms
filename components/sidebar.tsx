@@ -186,6 +186,11 @@ const teacherMenuSections: MenuSection[] = [
         href: '/results',
         icon: 'fa-solid fa-chart-line',
       },
+      {
+        name: 'My Uploads',
+        href: '/teacher/my-uploads',
+        icon: 'fa-solid fa-cloud-arrow-up',
+      },
     ],
   },
 ];
