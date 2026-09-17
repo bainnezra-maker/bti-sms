@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-type LoginMode = 'admin' | 'teacher' | 'student';
+type LoginMode = 'admin' | 'teacher' | 'student' | 'housemaster';
 
 export default function LoginPage() {
   const [loginMode, setLoginMode] = useState<LoginMode>('admin');
@@ -227,16 +227,21 @@ export default function LoginPage() {
      * Administrator.
      */
     if (profile.role === 'admin') {
-      router.replace('/');
-      return;
+      if (loginMode !== 'admin') { await supabase.auth.signOut(); setLoading(false); setError('Please use the Administrator login option.'); return; }
+      router.replace('/'); return;
     }
 
     /*
      * Teacher.
      */
     if (profile.role === 'teacher') {
-      router.replace('/teacher');
-      return;
+      if (loginMode !== 'teacher') { await supabase.auth.signOut(); setLoading(false); setError('Please use the Teacher login option.'); return; }
+      router.replace('/teacher'); return;
+    }
+
+    if (profile.role === 'housemaster') {
+      if (loginMode !== 'housemaster') { await supabase.auth.signOut(); setLoading(false); setError('Please use the Housemaster / Housemistress login option.'); return; }
+      router.replace('/housemaster'); return;
     }
 
     /*
@@ -264,6 +269,7 @@ export default function LoginPage() {
   }
 
   const isStudent = loginMode === 'student';
+  const isHousemaster = loginMode === 'housemaster';
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-950">
@@ -351,7 +357,9 @@ export default function LoginPage() {
                         ? 'fa-solid fa-graduation-cap'
                         : loginMode === 'teacher'
                           ? 'fa-solid fa-chalkboard-user'
-                          : 'fa-solid fa-user-shield'
+                          : isHousemaster
+                            ? 'fa-solid fa-house-user'
+                            : 'fa-solid fa-user-shield'
                     }
                   />
                 </div>
@@ -362,7 +370,9 @@ export default function LoginPage() {
                       ? 'Student Portal'
                       : loginMode === 'teacher'
                         ? 'Teacher Portal'
-                        : 'Administrator Portal'}
+                        : isHousemaster
+                          ? 'Housemaster / Housemistress Portal'
+                          : 'Administrator Portal'}
                   </h2>
 
                   <p className="mt-0.5 text-sm text-slate-500">
@@ -382,7 +392,7 @@ export default function LoginPage() {
                 Select your portal
               </p>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => changeLoginMode('admin')}
@@ -424,6 +434,20 @@ export default function LoginPage() {
                   <i className="fa-solid fa-graduation-cap text-base" />
                   <span>Student</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => changeLoginMode('housemaster')}
+                  disabled={loading}
+                  className={`flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all ${
+                    loginMode === 'housemaster'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+                      : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-900'
+                  }`}
+                >
+                  <i className="fa-solid fa-house-user text-base" />
+                  <span className="text-center leading-4">Housemaster / Housemistress</span>
+                </button>
               </div>
             </div>
 
@@ -461,7 +485,9 @@ export default function LoginPage() {
                       placeholder={
                         loginMode === 'teacher'
                           ? 'teacher@bti.edu.gh'
-                          : 'admin@bti.edu.gh'
+                          : loginMode === 'housemaster'
+                            ? 'housemaster@bti.edu.gh'
+                            : 'admin@bti.edu.gh'
                       }
                       value={email}
                       onChange={(e) => {
