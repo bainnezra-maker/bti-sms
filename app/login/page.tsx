@@ -327,7 +327,7 @@ export default function LoginPage() {
           <div className="mb-7 text-center">
             <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-3xl border border-white/10 bg-white/10 shadow-2xl shadow-black/20 backdrop-blur-xl">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-slate-900 shadow-lg">
-                <i className="fa-solid fa-school text-3xl" />
+                <i className="bti-brand-icon fa-solid fa-school text-3xl" />
               </div>
             </div>
 
@@ -352,7 +352,7 @@ export default function LoginPage() {
 
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white shadow-md">
                   <i
-                    className={
+                    className={`bti-header-icon ${
                       isStudent
                         ? 'fa-solid fa-graduation-cap'
                         : loginMode === 'teacher'
@@ -360,7 +360,7 @@ export default function LoginPage() {
                           : isHousemaster
                             ? 'fa-solid fa-house-user'
                             : 'fa-solid fa-user-shield'
-                    }
+                    }`}
                   />
                 </div>
 
@@ -396,8 +396,9 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => changeLoginMode('admin')}
+                  aria-pressed={loginMode === 'admin'}
                   disabled={loading}
-                  className={`flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all ${
+                  className={`bti-portal-button flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all duration-300 hover:-translate-y-0.5 ${
                     loginMode === 'admin'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-md'
                       : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-900'
@@ -410,8 +411,9 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => changeLoginMode('teacher')}
+                  aria-pressed={loginMode === 'teacher'}
                   disabled={loading}
-                  className={`flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all ${
+                  className={`bti-portal-button flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all duration-300 hover:-translate-y-0.5 ${
                     loginMode === 'teacher'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-md'
                       : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-900'
@@ -424,8 +426,9 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => changeLoginMode('student')}
+                  aria-pressed={loginMode === 'student'}
                   disabled={loading}
-                  className={`flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all ${
+                  className={`bti-portal-button flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all duration-300 hover:-translate-y-0.5 ${
                     loginMode === 'student'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-md'
                       : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-900'
@@ -438,8 +441,9 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => changeLoginMode('housemaster')}
+                  aria-pressed={loginMode === 'housemaster'}
                   disabled={loading}
-                  className={`flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all ${
+                  className={`bti-portal-button flex min-h-[76px] flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold transition-all duration-300 hover:-translate-y-0.5 ${
                     loginMode === 'housemaster'
                       ? 'border-slate-900 bg-slate-900 text-white shadow-md'
                       : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-900'
@@ -703,6 +707,50 @@ export default function LoginPage() {
 
           50% {
             transform: translate(-25px, -20px);
+          }
+        }
+
+        @keyframes iconFloat {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          50% { transform: translateY(-4px) rotate(2deg); }
+        }
+
+        @keyframes iconGlow {
+          0%, 100% { filter: drop-shadow(0 0 0 rgba(15, 23, 42, 0)); }
+          50% { filter: drop-shadow(0 4px 8px rgba(15, 23, 42, 0.22)); }
+        }
+
+        @keyframes portalPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.08); }
+        }
+
+        .bti-brand-icon {
+          animation: iconFloat 3.6s ease-in-out infinite, iconGlow 3.6s ease-in-out infinite;
+        }
+
+        .bti-header-icon {
+          animation: iconFloat 3s ease-in-out infinite;
+        }
+
+        .bti-portal-button i {
+          transition: transform 300ms ease, filter 300ms ease;
+        }
+
+        .bti-portal-button:hover i {
+          transform: translateY(-2px) scale(1.16);
+          filter: drop-shadow(0 3px 5px rgba(15, 23, 42, 0.22));
+        }
+
+        .bti-portal-button[aria-pressed="true"] i {
+          animation: portalPulse 2s ease-in-out infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .bti-brand-icon,
+          .bti-header-icon,
+          .bti-portal-button[aria-pressed="true"] i {
+            animation: none !important;
           }
         }
 
