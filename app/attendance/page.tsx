@@ -1,21 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-type AcademicYear = {
-  id: string;
-  name: string;
-  is_current: boolean;
-};
+type Status = 'present' | 'absent' | 'excused' | 'late';
 
-type Programme = {
-  id: string;
-  name: string;
-  code: string | null;
-};
-
+type AcademicYear = { id: string; name: string; is_current: boolean };
+type Programme = { id: string; name: string; code: string | null };
 type ClassItem = {
   id: string;
   name: string;
@@ -23,470 +15,227 @@ type ClassItem = {
   programme_id: string | null;
   academic_year_id: string | null;
 };
-
-type Student = {
+type Assignment = {
+  id: string;
+  academic_year_id: string | null;
+  programme_ids: string[] | null;
+  forms: string[] | null;
+};
+type StudentRow = {
   id: string;
   full_name: string;
   admission_number: string;
+  classId: string;
+  className: string;
+  form: string | null;
+  programmeId: string | null;
+  programmeName: string | null;
 };
-
-type AttendanceRecord = {
-  student_id: string;
-  date: string;
-  status: Status;
-};
-
-type Status = 'present' | 'absent' | 'late' | 'excused';
-
 type UserProfile = {
   id: string;
+  full_name?: string | null;
   school_id: string;
   role: string;
   is_active: boolean | null;
 };
 
-const STATUS_OPTIONS: Status[] = [
-  'present',
-  'absent',
-  'late',
-  'excused',
-];
+const STATUS_OPTIONS: Status[] = ['present', 'absent', 'excused', 'late'];
 
 function todayString() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
 }
 
-function statusLabel(status: Status) {
-  if (status === 'present') return 'Present';
-  if (status === 'absent') return 'Absent';
-  if (status === 'late') return 'Late';
-  return 'Excused';
+function label(status: Status) {
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function statusIcon(status: Status) {
-  if (status === 'present') {
-    return 'fa-solid fa-circle-check';
-  }
-
-  if (status === 'absent') {
-    return 'fa-solid fa-circle-xmark';
-  }
-
-  if (status === 'late') {
-    return 'fa-solid fa-clock';
-  }
-
+function icon(status: Status) {
+  if (status === 'present') return 'fa-solid fa-circle-check';
+  if (status === 'absent') return 'fa-solid fa-circle-xmark';
+  if (status === 'late') return 'fa-solid fa-clock';
   return 'fa-solid fa-shield-heart';
+}
+
+function activeStyle(status: Status) {
+  if (status === 'present') return 'border-emerald-600 bg-emerald-600 text-white shadow-emerald-600/20';
+  if (status === 'absent') return 'border-red-600 bg-red-600 text-white shadow-red-600/20';
+  if (status === 'late') return 'border-amber-500 bg-amber-500 text-white shadow-amber-500/20';
+  return 'border-violet-600 bg-violet-600 text-white shadow-violet-600/20';
 }
 
 export default function AttendancePage() {
   const supabase = createClient();
 
-  const [schoolId, setSchoolId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [role, setRole] = useState('');
-
-  const [academicYears, setAcademicYears] = useState<
-    AcademicYear[]
-  >([]);
-
-  const [programmes, setProgrammes] = useState<
-    Programme[]
-  >([]);
-
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
-
-  const [students, setStudents] = useState<Student[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [students, setStudents] = useState<StudentRow[]>([]);
 
   const [selectedYear, setSelectedYear] = useState('');
-
-  const [selectedProgramme, setSelectedProgramme] =
-    useState('');
-
-  const [selectedClass, setSelectedClass] = useState('');
-
-  const [selectedDate, setSelectedDate] =
-    useState(todayString());
-
+  const [selectedForm, setSelectedForm] = useState('all');
+  const [selectedProgramme, setSelectedProgramme] = useState('all');
+  const [selectedClass, setSelectedClass] = useState('all');
+  const [selectedDate, setSelectedDate] = useState(todayString());
   const [search, setSearch] = useState('');
 
   const [marks, setMarks] = useState<Record<string, Status>>({});
-
   const [loading, setLoading] = useState(true);
-
-  const [loadingStudents, setLoadingStudents] =
-    useState(false);
-
-  const [loadingAttendance, setLoadingAttendance] =
-    useState(false);
-
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [saving, setSaving] = useState(false);
-
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState<'info' | 'success' | 'error'>('info');
 
-  const [messageType, setMessageType] =
-    useState<'info' | 'success' | 'error'>('info');
-
-  // ------------------------------------------------------------
-  // LOAD USER, SCHOOL AND ACADEMIC DATA
-  // ------------------------------------------------------------
   useEffect(() => {
     async function loadSetup() {
-      setLoading(true);
-      setMessage('');
+      try {
+        setLoading(true);
+        const { data: authData } = await supabase.auth.getUser();
+        const user = authData.user;
+        if (!user) throw new Error('You are not logged in.');
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        const { data: p, error: pError } = await supabase
+          .from('users')
+          .select('id, full_name, school_id, role, is_active')
+          .eq('id', user.id)
+          .single();
 
-      if (!user) {
-        setMessageType('error');
-        setMessage('You are not logged in.');
-        setLoading(false);
-        return;
-      }
-
-      setUserId(user.id);
-
-      const {
-        data: profile,
-        error: profileError,
-      } = await supabase
-        .from('users')
-        .select('id, school_id, role, is_active')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (
-        profileError ||
-        !profile?.school_id ||
-        profile.is_active === false
-      ) {
-        setMessageType('error');
-        setMessage(
-          'Could not load your active school account.'
-        );
-        setLoading(false);
-        return;
-      }
-
-      const typedProfile = profile as UserProfile;
-
-      setSchoolId(typedProfile.school_id);
-      setRole(typedProfile.role);
-
-      const [
-        academicYearsResult,
-        programmesResult,
-        classesResult,
-      ] = await Promise.all([
-        supabase
-          .from('academic_years')
-          .select('id, name, is_current')
-          .eq('school_id', typedProfile.school_id)
-          .order('name', {
-            ascending: false,
-          }),
-
-        supabase
-          .from('programmes')
-          .select('id, name, code')
-          .eq('school_id', typedProfile.school_id)
-          .order('name'),
-
-        supabase
-          .from('classes')
-          .select(
-            'id, name, level, programme_id, academic_year_id'
-          )
-          .eq('school_id', typedProfile.school_id)
-          .order('name'),
-      ]);
-
-      // ----------------------------------------------------------
-      // ACADEMIC YEARS
-      // ----------------------------------------------------------
-      let loadedAcademicYears: AcademicYear[] = [];
-
-      if (academicYearsResult.error) {
-        setMessageType('error');
-        setMessage(
-          academicYearsResult.error.message
-        );
-      } else {
-        loadedAcademicYears =
-          academicYearsResult.data || [];
-
-        setAcademicYears(
-          loadedAcademicYears
-        );
-
-        const currentYear =
-          loadedAcademicYears.find(
-            (year) => year.is_current
-          );
-
-        if (currentYear) {
-          setSelectedYear(
-            currentYear.id
-          );
-        } else if (
-          loadedAcademicYears.length
-        ) {
-          setSelectedYear(
-            loadedAcademicYears[0].id
-          );
+        if (pError || !p?.school_id || p.is_active === false) {
+          throw new Error(pError?.message || 'Could not load your active school account.');
         }
-      }
 
-      // ----------------------------------------------------------
-      // PROGRAMMES
-      // ----------------------------------------------------------
-      if (programmesResult.error) {
-        setMessageType('error');
-        setMessage(
-          programmesResult.error.message
-        );
-      } else {
-        setProgrammes(
-          programmesResult.data || []
-        );
-      }
+        const typed = p as UserProfile;
+        setProfile(typed);
 
-      // ----------------------------------------------------------
-      // CLASSES
-      // ----------------------------------------------------------
-      if (classesResult.error) {
-        setMessageType('error');
-        setMessage(
-          classesResult.error.message
-        );
-      } else {
-        let loadedClasses =
-          classesResult.data || [];
-
-        /*
-         * ADMINISTRATORS:
-         * Keep school-wide access to all classes.
-         */
-        if (
-          typedProfile.role.toLowerCase() ===
-          'teacher'
-        ) {
-          /*
-           * TEACHERS:
-           * Only load classes assigned to this teacher
-           * through the existing teacher_assignments table.
-           */
-          const {
-            data: assignments,
-            error: assignmentError,
-          } = await supabase
+        const [yearsResult, programmesResult, assignmentsResult] = await Promise.all([
+          supabase
+            .from('academic_years')
+            .select('id, name, is_current')
+            .eq('school_id', typed.school_id)
+            .order('name', { ascending: false }),
+          supabase
+            .from('programmes')
+            .select('id, name, code')
+            .eq('school_id', typed.school_id)
+            .order('name'),
+          supabase
             .from('teacher_assignments')
-            .select('class_id')
-            .eq(
-              'teacher_id',
-              typedProfile.id
-            );
+            .select('id, academic_year_id, programme_ids, forms')
+            .eq('teacher_id', typed.id),
+        ]);
 
-          if (assignmentError) {
-            setMessageType('error');
+        if (yearsResult.error) throw yearsResult.error;
+        if (programmesResult.error) throw programmesResult.error;
+        if (assignmentsResult.error) throw assignmentsResult.error;
 
-            setMessage(
-              `Could not load your teaching assignments: ${assignmentError.message}`
-            );
+        const years = (yearsResult.data ?? []) as AcademicYear[];
+        const allProgrammes = (programmesResult.data ?? []) as Programme[];
+        const teacherAssignments = (assignmentsResult.data ?? []) as Assignment[];
 
-            loadedClasses = [];
-          } else {
-            const assignedClassIds =
-              new Set(
-                (assignments || []).map(
-                  (assignment) =>
-                    assignment.class_id
-                )
-              );
+        setAcademicYears(years);
+        setProgrammes(allProgrammes);
+        setAssignments(teacherAssignments);
 
-            /*
-             * Keep ONLY classes assigned to this teacher.
-             */
-            loadedClasses =
-              loadedClasses.filter(
-                (classItem) =>
-                  assignedClassIds.has(
-                    classItem.id
-                  )
-              );
-
-            /*
-             * IMPORTANT:
-             *
-             * If the teacher has exactly ONE assigned class,
-             * automatically select that class and its academic year.
-             */
-            if (
-              loadedClasses.length === 1
-            ) {
-              const onlyClass =
-                loadedClasses[0];
-
-              if (
-                onlyClass.academic_year_id
-              ) {
-                setSelectedYear(
-                  onlyClass.academic_year_id
-                );
-              }
-
-              setSelectedClass(
-                onlyClass.id
-              );
-            }
-
-            /*
-             * If the teacher has MULTIPLE assigned classes,
-             * automatically select the current academic year
-             * if one of their classes belongs to it.
-             *
-             * Otherwise select the first academic year
-             * containing one of their assigned classes.
-             */
-            if (
-              loadedClasses.length > 1
-            ) {
-              const currentAcademicYear =
-                loadedAcademicYears.find(
-                  (year) =>
-                    year.is_current &&
-                    loadedClasses.some(
-                      (classItem) =>
-                        classItem.academic_year_id ===
-                        year.id
-                    )
-                );
-
-              const matchingAcademicYear =
-                currentAcademicYear ||
-                loadedAcademicYears.find(
-                  (year) =>
-                    loadedClasses.some(
-                      (classItem) =>
-                        classItem.academic_year_id ===
-                        year.id
-                    )
-                );
-
-              if (
-                matchingAcademicYear
-              ) {
-                setSelectedYear(
-                  matchingAcademicYear.id
-                );
-              }
-            }
-          }
-        }
-
-        setClasses(
-          loadedClasses
+        const assignmentYearIds = new Set(
+          teacherAssignments.map(a => a.academic_year_id).filter(Boolean)
         );
+        const preferred =
+          years.find(y => y.is_current && assignmentYearIds.has(y.id)) ??
+          years.find(y => assignmentYearIds.has(y.id)) ??
+          years.find(y => y.is_current) ??
+          years[0];
+
+        if (preferred) setSelectedYear(preferred.id);
+      } catch (err: any) {
+        setMessageType('error');
+        setMessage(err?.message || 'Unable to prepare attendance.');
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     }
-
     loadSetup();
   }, []);
 
-  // ------------------------------------------------------------
-  // FILTER CLASSES
-  // ------------------------------------------------------------
-  const filteredClasses = useMemo(() => {
-    return classes.filter(
-      (item) => {
-        const matchesYear =
-          !selectedYear ||
-          item.academic_year_id ===
-            selectedYear;
+  const yearAssignments = useMemo(
+    () => assignments.filter(a => a.academic_year_id === selectedYear),
+    [assignments, selectedYear]
+  );
 
-        const matchesProgramme =
-          !selectedProgramme ||
-          item.programme_id ===
-            selectedProgramme;
+  const assignedForms = useMemo(
+    () => Array.from(new Set(yearAssignments.flatMap(a => a.forms ?? []))).sort(),
+    [yearAssignments]
+  );
 
-        return (
-          matchesYear &&
-          matchesProgramme
-        );
+  const assignedProgrammeIds = useMemo(
+    () => Array.from(new Set(yearAssignments.flatMap(a => a.programme_ids ?? []))),
+    [yearAssignments]
+  );
+
+  const assignedProgrammes = useMemo(
+    () => programmes.filter(p => assignedProgrammeIds.includes(p.id)),
+    [programmes, assignedProgrammeIds]
+  );
+
+  useEffect(() => {
+    async function loadClasses() {
+      if (!profile || !selectedYear || !assignedProgrammeIds.length || !assignedForms.length) {
+        setClasses([]);
+        return;
       }
-    );
-  }, [
-    classes,
-    selectedYear,
-    selectedProgramme,
-  ]);
 
-  // ------------------------------------------------------------
-  // RESET CLASS WHEN FILTER CHANGES
-  // ------------------------------------------------------------
-  useEffect(() => {
-    if (
-      selectedClass &&
-      !filteredClasses.some(
-        (item) =>
-          item.id ===
-          selectedClass
-      )
-    ) {
-      setSelectedClass('');
-    }
-  }, [
-    filteredClasses,
-    selectedClass,
-  ]);
+      const { data, error } = await supabase
+        .from('classes')
+        .select('id, name, level, programme_id, academic_year_id')
+        .eq('school_id', profile.school_id)
+        .eq('academic_year_id', selectedYear)
+        .in('programme_id', assignedProgrammeIds)
+        .in('level', assignedForms)
+        .order('name');
 
-  // ------------------------------------------------------------
-  // AUTO-SELECT CLASS WHEN ONLY ONE CLASS IS AVAILABLE
-  // ------------------------------------------------------------
-  useEffect(() => {
-    if (
-      filteredClasses.length === 1 &&
-      selectedClass !==
-        filteredClasses[0].id
-    ) {
-      setSelectedClass(
-        filteredClasses[0].id
+      if (error) {
+        setMessageType('error');
+        setMessage(`Could not load assigned classes: ${error.message}`);
+        setClasses([]);
+        return;
+      }
+
+      const authorized = ((data ?? []) as ClassItem[]).filter(c =>
+        yearAssignments.some(a =>
+          (a.programme_ids ?? []).includes(c.programme_id ?? '') &&
+          (a.forms ?? []).includes(c.level ?? '')
+        )
       );
+      setClasses(authorized);
     }
-  }, [
-    filteredClasses,
-    selectedClass,
-  ]);
+    loadClasses();
+  }, [profile, selectedYear, assignedProgrammeIds.join('|'), assignedForms.join('|')]);
 
-  // ------------------------------------------------------------
-  // SELECTED CLASS
-  // ------------------------------------------------------------
-  const selectedClassItem =
-    useMemo(() => {
-      return classes.find(
-        (item) =>
-          item.id ===
-          selectedClass
-      );
-    }, [
-      classes,
-      selectedClass,
-    ]);
+  const visibleClasses = useMemo(() => {
+    return classes.filter(c => {
+      if (selectedForm !== 'all' && c.level !== selectedForm) return false;
+      if (selectedProgramme !== 'all' && c.programme_id !== selectedProgramme) return false;
+      if (selectedClass !== 'all' && c.name !== selectedClass) return false;
+      return true;
+    });
+  }, [classes, selectedForm, selectedProgramme, selectedClass]);
 
-  // ------------------------------------------------------------
-  // LOAD STUDENTS IN SELECTED CLASS
-  // ------------------------------------------------------------
+  const classOptions = useMemo(
+    () => Array.from(new Set(
+      classes
+        .filter(c => selectedForm === 'all' || c.level === selectedForm)
+        .filter(c => selectedProgramme === 'all' || c.programme_id === selectedProgramme)
+        .map(c => c.name)
+    )).sort(),
+    [classes, selectedForm, selectedProgramme]
+  );
+
   useEffect(() => {
     async function loadStudents() {
-      if (
-        !schoolId ||
-        !selectedYear ||
-        !selectedClass
-      ) {
+      if (!profile || !selectedYear || visibleClasses.length === 0) {
         setStudents([]);
         setMarks({});
         return;
@@ -495,42 +244,24 @@ export default function AttendancePage() {
       setLoadingStudents(true);
       setMessage('');
 
-      const {
-        data: enrollmentData,
-        error: enrollmentError,
-      } = await supabase
+      const classIds = visibleClasses.map(c => c.id);
+      const { data: enrollmentData, error: enrollmentError } = await supabase
         .from('enrollments')
-        .select('student_id')
-        .eq(
-          'class_id',
-          selectedClass
-        )
-        .eq(
-          'academic_year_id',
-          selectedYear
-        )
-        .eq(
-          'status',
-          'active'
-        );
+        .select('student_id, class_id')
+        .in('class_id', classIds)
+        .eq('academic_year_id', selectedYear)
+        .eq('status', 'active');
 
       if (enrollmentError) {
         setMessageType('error');
-
-        setMessage(
-          `Could not load class enrollment: ${enrollmentError.message}`
-        );
-
+        setMessage(`Could not load enrollment: ${enrollmentError.message}`);
         setStudents([]);
         setLoadingStudents(false);
         return;
       }
 
-      const studentIds =
-        enrollmentData?.map(
-          (item) =>
-            item.student_id
-        ) || [];
+      const enrollmentRows = enrollmentData ?? [];
+      const studentIds = Array.from(new Set(enrollmentRows.map(e => e.student_id)));
 
       if (!studentIds.length) {
         setStudents([]);
@@ -539,1288 +270,418 @@ export default function AttendancePage() {
         return;
       }
 
-      const {
-        data: studentData,
-        error: studentError,
-      } = await supabase
+      const { data: studentData, error: studentError } = await supabase
         .from('students')
-        .select(
-          'id, full_name, admission_number'
-        )
-        .eq(
-          'school_id',
-          schoolId
-        )
-        .eq(
-          'status',
-          'active'
-        )
-        .in(
-          'id',
-          studentIds
-        )
+        .select('id, full_name, admission_number')
+        .eq('school_id', profile.school_id)
+        .eq('status', 'active')
+        .in('id', studentIds)
         .order('full_name');
 
       if (studentError) {
         setMessageType('error');
-
-        setMessage(
-          `Could not load students: ${studentError.message}`
-        );
-
+        setMessage(`Could not load students: ${studentError.message}`);
         setStudents([]);
         setLoadingStudents(false);
         return;
       }
 
-      const loadedStudents =
-        studentData || [];
+      const classMap = new Map(classes.map(c => [c.id, c]));
+      const programmeMap = new Map(programmes.map(p => [p.id, p]));
+      const enrollmentByStudent = new Map(enrollmentRows.map(e => [e.student_id, e.class_id]));
 
-      setStudents(
-        loadedStudents
-      );
+      const rows: StudentRow[] = (studentData ?? []).map(s => {
+        const classId = enrollmentByStudent.get(s.id) ?? '';
+        const cls = classMap.get(classId);
+        const prog = cls?.programme_id ? programmeMap.get(cls.programme_id) : null;
+        return {
+          id: s.id,
+          full_name: s.full_name,
+          admission_number: s.admission_number,
+          classId,
+          className: cls?.name ?? '—',
+          form: cls?.level ?? null,
+          programmeId: cls?.programme_id ?? null,
+          programmeName: prog?.name ?? null,
+        };
+      });
 
-      const initialMarks: Record<
-        string,
-        Status
-      > = {};
-
-      loadedStudents.forEach(
-        (student) => {
-          initialMarks[
-            student.id
-          ] = 'present';
-        }
-      );
-
-      setMarks(
-        initialMarks
-      );
-
+      setStudents(rows);
+      setMarks(Object.fromEntries(rows.map(s => [s.id, 'present' as Status])));
       setLoadingStudents(false);
     }
-
     loadStudents();
-  }, [
-    schoolId,
-    selectedYear,
-    selectedClass,
-  ]);
+  }, [profile, selectedYear, visibleClasses.map(c => c.id).join('|')]);
 
-  // ------------------------------------------------------------
-  // LOAD EXISTING ATTENDANCE FOR DATE
-  // ------------------------------------------------------------
   useEffect(() => {
-    async function loadAttendance() {
-      if (
-        !selectedClass ||
-        !selectedDate ||
-        !students.length
-      ) {
-        return;
-      }
-
+    async function loadExistingAttendance() {
+      if (!selectedDate || !students.length) return;
       setLoadingAttendance(true);
-      setMessage('');
 
-      const studentIds =
-        students.map(
-          (student) =>
-            student.id
-        );
-
-      const {
-        data,
-        error,
-      } = await supabase
+      const { data, error } = await supabase
         .from('attendance')
-        .select(
-          'student_id, date, status'
-        )
-        .in(
-          'student_id',
-          studentIds
-        )
-        .eq(
-          'date',
-          selectedDate
-        );
+        .select('student_id, status')
+        .in('student_id', students.map(s => s.id))
+        .eq('date', selectedDate);
 
       if (error) {
         setMessageType('error');
-
-        setMessage(
-          `Could not load attendance: ${error.message}`
-        );
-
+        setMessage(`Could not load attendance: ${error.message}`);
         setLoadingAttendance(false);
         return;
       }
 
-      const existingMarks: Record<
-        string,
-        Status
-      > = {};
-
-      students.forEach(
-        (student) => {
-          existingMarks[
-            student.id
-          ] = 'present';
-        }
+      const next: Record<string, Status> = Object.fromEntries(
+        students.map(s => [s.id, 'present' as Status])
       );
-
-      const records =
-        (data || []) as AttendanceRecord[];
-
-      records.forEach(
-        (record) => {
-          if (
-            record.status ===
-              'present' ||
-            record.status ===
-              'absent' ||
-            record.status ===
-              'late' ||
-            record.status ===
-              'excused'
-          ) {
-            existingMarks[
-              record.student_id
-            ] =
-              record.status;
-          }
-        }
-      );
-
-      setMarks(
-        existingMarks
-      );
-
+      (data ?? []).forEach((r: any) => {
+        if (STATUS_OPTIONS.includes(r.status as Status)) next[r.student_id] = r.status as Status;
+      });
+      setMarks(next);
       setLoadingAttendance(false);
     }
+    loadExistingAttendance();
+  }, [selectedDate, students.map(s => s.id).join('|')]);
 
-    loadAttendance();
-  }, [
-    selectedClass,
-    selectedDate,
-    students,
-  ]);
+  const filteredStudents = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return students;
+    return students.filter(s =>
+      s.full_name.toLowerCase().includes(q) ||
+      s.admission_number.toLowerCase().includes(q) ||
+      (s.programmeName ?? '').toLowerCase().includes(q) ||
+      (s.form ?? '').toLowerCase().includes(q) ||
+      s.className.toLowerCase().includes(q)
+    );
+  }, [students, search]);
 
-  // ------------------------------------------------------------
-  // SEARCH STUDENTS
-  // ------------------------------------------------------------
-  const filteredStudents =
-    useMemo(() => {
-      const query =
-        search
-          .trim()
-          .toLowerCase();
-
-      if (!query) {
-        return students;
-      }
-
-      return students.filter(
-        (student) =>
-          student.full_name
-            .toLowerCase()
-            .includes(query) ||
-          student.admission_number
-            .toLowerCase()
-            .includes(query)
-      );
-    }, [
-      students,
-      search,
-    ]);
-
-  // ------------------------------------------------------------
-  // COUNTS
-  // ------------------------------------------------------------
   const counts = useMemo(() => {
-    let present = 0;
-    let absent = 0;
-    let late = 0;
-    let excused = 0;
+    const result = { total: students.length, present: 0, absent: 0, excused: 0, late: 0 };
+    students.forEach(s => {
+      const status = marks[s.id];
+      if (status) result[status]++;
+    });
+    return result;
+  }, [students, marks]);
 
-    students.forEach(
-      (student) => {
-        const status =
-          marks[student.id];
+  const percentage = counts.total
+    ? ((counts.present + counts.late) / counts.total) * 100
+    : 0;
 
-        if (
-          status ===
-          'present'
-        ) {
-          present++;
-        }
-
-        if (
-          status ===
-          'absent'
-        ) {
-          absent++;
-        }
-
-        if (
-          status ===
-          'late'
-        ) {
-          late++;
-        }
-
-        if (
-          status ===
-          'excused'
-        ) {
-          excused++;
-        }
-      }
-    );
-
-    const total =
-      students.length;
-
-    const attended =
-      present + late;
-
-    const attendancePercentage =
-      total > 0
-        ? (attended / total) *
-          100
-        : 0;
-
-    return {
-      total,
-      present,
-      absent,
-      late,
-      excused,
-      attended,
-      attendancePercentage,
-    };
-  }, [
-    students,
-    marks,
-  ]);
-
-  // ------------------------------------------------------------
-  // CHANGE INDIVIDUAL STATUS
-  // ------------------------------------------------------------
-  function setMark(
-    studentId: string,
-    status: Status
-  ) {
-    setMarks(
-      (previous) => ({
-        ...previous,
-        [studentId]:
-          status,
-      })
-    );
+  function setMark(id: string, status: Status) {
+    setMarks(previous => ({ ...previous, [id]: status }));
   }
 
-  // ------------------------------------------------------------
-  // MARK EVERYONE
-  // ------------------------------------------------------------
-  function markAll(
-    status: Status
-  ) {
-    const newMarks: Record<
-      string,
-      Status
-    > = {};
-
-    students.forEach(
-      (student) => {
-        newMarks[
-          student.id
-        ] = status;
-      }
-    );
-
-    setMarks(
-      newMarks
-    );
+  function markAll(status: Status) {
+    setMarks(previous => {
+      const next = { ...previous };
+      filteredStudents.forEach(student => { next[student.id] = status; });
+      return next;
+    });
   }
 
-  // ------------------------------------------------------------
-  // SAVE ATTENDANCE
-  // ------------------------------------------------------------
   async function saveAttendance() {
-    if (
-      !schoolId ||
-      !userId ||
-      !selectedClass ||
-      !selectedDate ||
-      !students.length
-    ) {
-      setMessageType(
-        'error'
-      );
-
-      setMessage(
-        'Please select an academic year and class first.'
-      );
-
+    if (!profile || !students.length || !selectedDate) {
+      setMessageType('error');
+      setMessage('Select an assigned group with students before submitting attendance.');
       return;
     }
 
     setSaving(true);
     setMessage('');
 
-    const rows =
-      students.map(
-        (student) => ({
-          student_id:
-            student.id,
+    const rows = students.map(student => ({
+      student_id: student.id,
+      school_id: profile.school_id,
+      class_id: student.classId,
+      date: selectedDate,
+      status: marks[student.id] ?? 'present',
+      recorded_by: profile.id,
+    }));
 
-          school_id:
-            schoolId,
-
-          class_id:
-            selectedClass,
-
-          date:
-            selectedDate,
-
-          status:
-            marks[
-              student.id
-            ] ||
-            'present',
-
-          recorded_by:
-            userId,
-        })
-      );
-
-    const {
-      error,
-    } = await supabase
+    const { error } = await supabase
       .from('attendance')
-      .upsert(
-        rows,
-        {
-          onConflict:
-            'student_id,date',
-        }
-      );
+      .upsert(rows, { onConflict: 'student_id,date' });
 
     if (error) {
-      setMessageType(
-        'error'
-      );
-
+      setMessageType('error');
+      setMessage(`Could not submit attendance: ${error.message}`);
+    } else {
+      setMessageType('success');
       setMessage(
-        `Could not save attendance: ${error.message}`
+        `Attendance submitted for ${students.length} students — ${counts.present} present, ${counts.absent} absent, ${counts.late} late and ${counts.excused} excused.`
       );
-
-      setSaving(false);
-      return;
     }
-
-    setMessageType(
-      'success'
-    );
-
-    setMessage(
-      `Attendance saved successfully for ${students.length} students.`
-    );
-
     setSaving(false);
   }
 
-  // ------------------------------------------------------------
-  // LOADING SCREEN
-  // ------------------------------------------------------------
   if (loading) {
     return (
-      <>
-        <style jsx global>{`
-          @keyframes btiAttendanceFade {
-            from {
-              opacity: 0;
-              transform: translateY(12px);
-            }
-
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-
-          .bti-attendance-loading {
-            animation:
-              btiAttendanceFade
-              0.5s ease-out both;
-          }
-
-          @media (
-            prefers-reduced-motion: reduce
-          ) {
-            .bti-attendance-loading {
-              animation: none;
-            }
-          }
-        `}</style>
-
-        <div className="min-h-screen bg-slate-50 p-6">
-          <div className="bti-attendance-loading mx-auto max-w-6xl">
-            <div className="rounded-3xl bg-white p-10 text-center shadow-sm">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                <i className="fa-solid fa-calendar-check text-2xl" />
-              </div>
-
-              <h2 className="mt-4 text-lg font-bold text-slate-900">
-                Loading Attendance
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Preparing your attendance workspace...
-              </p>
-            </div>
-          </div>
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="mx-auto max-w-7xl rounded-3xl bg-white p-12 text-center shadow-sm">
+          <i className="fa-solid fa-spinner fa-spin text-3xl text-blue-600" />
+          <p className="mt-4 font-bold text-slate-800">Loading Teacher Attendance...</p>
         </div>
-      </>
+      </div>
     );
   }
 
-  // ------------------------------------------------------------
-  // PAGE
-  // ------------------------------------------------------------
   return (
     <>
       <style jsx global>{`
         @keyframes btiAttendanceFadeUp {
-          from {
-            opacity: 0;
-            transform: translateY(18px);
-          }
-
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(14px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-
-        @keyframes btiAttendanceScale {
-          from {
-            opacity: 0;
-            transform: scale(0.97);
-          }
-
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-
-        @keyframes btiAttendanceProgress {
-          from {
-            width: 0;
-          }
-        }
-
-        @keyframes btiAttendancePulse {
-          0%,
-          100% {
-            transform: scale(1);
-          }
-
-          50% {
-            transform: scale(1.04);
-          }
-        }
-
-        .bti-attendance-fade {
-          animation:
-            btiAttendanceFadeUp
-            0.55s ease-out both;
-        }
-
-        .bti-attendance-scale {
-          animation:
-            btiAttendanceScale
-            0.45s ease-out both;
-        }
-
-        .bti-attendance-delay-1 {
-          animation-delay: 0.08s;
-        }
-
-        .bti-attendance-delay-2 {
-          animation-delay: 0.16s;
-        }
-
-        .bti-attendance-delay-3 {
-          animation-delay: 0.24s;
-        }
-
-        .bti-attendance-delay-4 {
-          animation-delay: 0.32s;
-        }
-
-        .bti-attendance-progress {
-          animation:
-            btiAttendanceProgress
-            0.9s ease-out both;
-        }
-
-        .bti-attendance-pulse:hover {
-          animation:
-            btiAttendancePulse
-            0.7s ease-in-out;
-        }
-
-        @media (
-          prefers-reduced-motion: reduce
-        ) {
-          .bti-attendance-fade,
-          .bti-attendance-scale,
-          .bti-attendance-progress,
-          .bti-attendance-pulse {
-            animation: none;
-          }
+        .bti-attendance-fade { animation: btiAttendanceFadeUp .45s ease-out both; }
+        @media (prefers-reduced-motion: reduce) {
+          .bti-attendance-fade { animation: none; }
         }
       `}</style>
 
       <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
-        <div className="mx-auto max-w-6xl space-y-5">
+        <div className="mx-auto max-w-7xl space-y-5">
+          <section className="bti-attendance-fade overflow-hidden rounded-[30px] bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 p-6 text-white shadow-xl sm:p-8">
+            <div className="flex items-center justify-between gap-5">
+              <div>
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold">
+                  <i className="fa-solid fa-calendar-check" /> Teacher Attendance Workspace
+                </span>
+                <h1 className="mt-5 text-3xl font-black sm:text-4xl">Take Attendance</h1>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">
+                  Select your assigned form, department and class, then mark each student in real time.
+                </p>
+                {profile?.full_name && <p className="mt-4 font-bold">Welcome, {profile.full_name}</p>}
+              </div>
+              <div className="hidden h-24 w-24 items-center justify-center rounded-3xl border border-white/15 bg-white/10 text-4xl sm:flex">
+                <i className="fa-solid fa-clipboard-user" />
+              </div>
+            </div>
+          </section>
 
-          {/* HEADER */}
-          <div className="bti-attendance-fade flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20">
-                  <i className="fa-solid fa-calendar-check text-xl" />
-                </div>
+          <section className="bti-attendance-fade rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="mb-5">
+              <h2 className="font-black text-slate-900">Attendance Register</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                “All” combines students across the areas assigned to you.
+              </p>
+            </div>
 
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <Filter label="Academic Year">
+                <select value={selectedYear} onChange={e => {
+                  setSelectedYear(e.target.value);
+                  setSelectedForm('all'); setSelectedProgramme('all'); setSelectedClass('all');
+                }} className="bti-select">
+                  {academicYears.length === 0 && <option value="">No assigned academic year</option>}
+                  {academicYears.map(y => <option key={y.id} value={y.id}>{y.name}{y.is_current ? ' — Current' : ''}</option>)}
+                </select>
+              </Filter>
+
+              <Filter label="Form">
+                <select value={selectedForm} onChange={e => {
+                  setSelectedForm(e.target.value); setSelectedProgramme('all'); setSelectedClass('all');
+                }} className="bti-select">
+                  <option value="all">All Assigned Forms</option>
+                  {assignedForms.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </Filter>
+
+              <Filter label="Department / Programme">
+                <select value={selectedProgramme} onChange={e => {
+                  setSelectedProgramme(e.target.value); setSelectedClass('all');
+                }} className="bti-select">
+                  <option value="all">All Departments</option>
+                  {assignedProgrammes.map(p => <option key={p.id} value={p.id}>{p.name}{p.code ? ` (${p.code})` : ''}</option>)}
+                </select>
+              </Filter>
+
+              <Filter label="Class">
+                <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="bti-select">
+                  <option value="all">All Classes</option>
+                  {classOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Filter>
+
+              <Filter label="Attendance Date">
+                <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="bti-select" />
+              </Filter>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-full bg-blue-50 px-3 py-1.5 text-blue-700">{selectedForm === 'all' ? 'All Assigned Forms' : selectedForm}</span>
+              <span className="rounded-full bg-violet-50 px-3 py-1.5 text-violet-700">
+                {selectedProgramme === 'all' ? 'All Departments' : assignedProgrammes.find(p => p.id === selectedProgramme)?.name}
+              </span>
+              <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700">{selectedClass === 'all' ? 'All Classes' : selectedClass}</span>
+            </div>
+          </section>
+
+          {message && (
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${
+              messageType === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' :
+              messageType === 'error' ? 'border-red-200 bg-red-50 text-red-800' :
+              'border-blue-200 bg-blue-50 text-blue-800'
+            }`}>
+              <i className={`mr-2 ${messageType === 'success' ? 'fa-solid fa-circle-check' : messageType === 'error' ? 'fa-solid fa-circle-exclamation' : 'fa-solid fa-circle-info'}`} />
+              {message}
+            </div>
+          )}
+
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            {[
+              ['Total', counts.total, 'fa-solid fa-users', 'bg-slate-50 text-slate-700'],
+              ['Present', counts.present, 'fa-solid fa-circle-check', 'bg-emerald-50 text-emerald-700'],
+              ['Absent', counts.absent, 'fa-solid fa-circle-xmark', 'bg-red-50 text-red-700'],
+              ['Excused', counts.excused, 'fa-solid fa-shield-heart', 'bg-violet-50 text-violet-700'],
+              ['Late', counts.late, 'fa-solid fa-clock', 'bg-amber-50 text-amber-700'],
+              ['Attendance', `${percentage.toFixed(1)}%`, 'fa-solid fa-chart-line', 'bg-blue-50 text-blue-700'],
+            ].map(([name, value, cardIcon, style]) => (
+              <div key={String(name)} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${style}`}><i className={String(cardIcon)} /></div>
+                <p className="mt-3 text-xs font-bold text-slate-500">{name}</p>
+                <p className="mt-1 text-2xl font-black text-slate-900">{value}</p>
+              </div>
+            ))}
+          </section>
+
+          <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 p-4 sm:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
-                    Attendance Management
-                  </h1>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    Take and manage daily attendance by class.
+                  <h2 className="font-black text-slate-900">Student Attendance List</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {selectedDate} • {students.length} student{students.length === 1 ? '' : 's'} in the selected group
                   </p>
                 </div>
-              </div>
-
-              {role.toLowerCase() ===
-                'teacher' && (
-                <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
-                  <i className="fa-solid fa-chalkboard-user" />
-                  Teacher Attendance Workspace
+                <div className="flex flex-wrap gap-2">
+                  <Quick status="present" onClick={() => markAll('present')} />
+                  <Quick status="absent" onClick={() => markAll('absent')} />
+                  <Quick status="excused" onClick={() => markAll('excused')} />
+                  <Quick status="late" onClick={() => markAll('late')} />
                 </div>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {role.toLowerCase() ===
-                'teacher' && (
-                <Link
-                  href="/teacher/classes"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50"
-                >
-                  <i className="fa-solid fa-arrow-left" />
-                  My Classes
-                </Link>
-              )}
-
-              <Link
-                href="/students"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50"
-              >
-                <i className="fa-solid fa-users" />
-                Students
-              </Link>
-            </div>
-          </div>
-
-          {/* FILTERS */}
-          <div className="bti-attendance-fade bti-attendance-delay-1 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
-                <i className="fa-solid fa-sliders" />
               </div>
 
-              <div>
-                <h2 className="font-bold text-slate-900">
-                  Attendance Register
-                </h2>
-
-                <p className="text-xs text-slate-500">
-                  Select the academic year, class and date.
-                </p>
+              <div className="relative mt-5">
+                <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search name, admission number, form, department or class..."
+                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100" />
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-              {/* ACADEMIC YEAR */}
-              <div>
-                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Academic Year
-                </label>
-
-                <select
-                  value={selectedYear}
-                  onChange={(event) =>
-                    setSelectedYear(
-                      event.target.value
-                    )
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                >
-                  <option value="">
-                    Select academic year
-                  </option>
-
-                  {academicYears.map(
-                    (year) => (
-                      <option
-                        key={year.id}
-                        value={year.id}
-                      >
-                        {year.name}
-                        {year.is_current
-                          ? ' (Current)'
-                          : ''}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              {/* PROGRAMME */}
-              <div>
-                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Programme
-                </label>
-
-                <select
-                  value={
-                    selectedProgramme
-                  }
-                  onChange={(event) =>
-                    setSelectedProgramme(
-                      event.target.value
-                    )
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                >
-                  <option value="">
-                    All Programmes
-                  </option>
-
-                  {programmes.map(
-                    (programme) => (
-                      <option
-                        key={
-                          programme.id
-                        }
-                        value={
-                          programme.id
-                        }
-                      >
-                        {
-                          programme.name
-                        }
-                        {programme.code
-                          ? ` (${programme.code})`
-                          : ''}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              {/* CLASS */}
-              <div>
-                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Class
-                </label>
-
-                <select
-                  value={
-                    selectedClass
-                  }
-                  onChange={(event) =>
-                    setSelectedClass(
-                      event.target.value
-                    )
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                >
-                  <option value="">
-                    Select class
-                  </option>
-
-                  {filteredClasses.map(
-                    (classItem) => (
-                      <option
-                        key={
-                          classItem.id
-                        }
-                        value={
-                          classItem.id
-                        }
-                      >
-                        {
-                          classItem.name
-                        }
-                        {classItem.level
-                          ? ` • ${classItem.level}`
-                          : ''}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              {/* DATE */}
-              <div>
-                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Date
-                </label>
-
-                <input
-                  type="date"
-                  value={
-                    selectedDate
-                  }
-                  onChange={(event) =>
-                    setSelectedDate(
-                      event.target.value
-                    )
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-              </div>
-            </div>
-
-            {selectedClassItem && (
-              <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm">
-                <i className="fa-solid fa-building-columns text-blue-600" />
-
-                <span className="font-semibold text-slate-800">
-                  {
-                    selectedClassItem.name
-                  }
-                </span>
-
-                {selectedClassItem.level && (
-                  <span className="text-slate-500">
-                    •{' '}
-                    {
-                      selectedClassItem.level
-                    }
-                  </span>
-                )}
+            {(loadingStudents || loadingAttendance) && (
+              <div className="p-12 text-center text-blue-600">
+                <i className="fa-solid fa-spinner fa-spin text-2xl" />
+                <p className="mt-3 text-sm font-bold text-slate-700">Loading attendance register...</p>
               </div>
             )}
-          </div>
 
-          {/* MESSAGE */}
-          {message && (
-            <div
-              className={`bti-attendance-fade rounded-2xl border px-4 py-3 text-sm ${
-                messageType ===
-                'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                  : messageType ===
-                    'error'
-                  ? 'border-red-200 bg-red-50 text-red-800'
-                  : 'border-blue-200 bg-blue-50 text-blue-800'
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                <i
-                  className={`mt-0.5 ${
-                    messageType ===
-                    'success'
-                      ? 'fa-solid fa-circle-check'
-                      : messageType ===
-                        'error'
-                      ? 'fa-solid fa-circle-exclamation'
-                      : 'fa-solid fa-circle-info'
-                  }`}
-                />
-
-                <span>
-                  {message}
-                </span>
+            {!loadingStudents && !loadingAttendance && filteredStudents.length === 0 && (
+              <div className="p-12 text-center">
+                <i className="fa-solid fa-users-slash text-3xl text-slate-300" />
+                <p className="mt-4 font-bold text-slate-700">No students found for this selection.</p>
+                <p className="mt-1 text-sm text-slate-500">Choose another assigned form, department or class.</p>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* NO CLASS */}
-          {!selectedClass && (
-            <div className="bti-attendance-scale rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                <i className="fa-solid fa-users-rectangle text-2xl" />
-              </div>
-
-              <h2 className="mt-5 text-xl font-black text-slate-900">
-                Select a class
-              </h2>
-
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                Choose an academic year and class to load
-                the student attendance register.
-              </p>
-
-              {role.toLowerCase() ===
-                'teacher' && (
-                <Link
-                  href="/teacher/classes"
-                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700"
-                >
-                  <i className="fa-solid fa-chalkboard" />
-                  Open My Classes
-                </Link>
-              )}
-            </div>
-          )}
-
-          {/* ATTENDANCE REGISTER */}
-          {selectedClass && (
-            <>
-              {/* SUMMARY */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-
-                {[
-                  {
-                    label: 'Total',
-                    value:
-                      counts.total,
-                    icon:
-                      'fa-solid fa-users',
-                    style:
-                      'bg-slate-50 text-slate-700',
-                  },
-                  {
-                    label: 'Present',
-                    value:
-                      counts.present,
-                    icon:
-                      'fa-solid fa-circle-check',
-                    style:
-                      'bg-emerald-50 text-emerald-700',
-                  },
-                  {
-                    label: 'Absent',
-                    value:
-                      counts.absent,
-                    icon:
-                      'fa-solid fa-circle-xmark',
-                    style:
-                      'bg-red-50 text-red-700',
-                  },
-                  {
-                    label: 'Late',
-                    value:
-                      counts.late,
-                    icon:
-                      'fa-solid fa-clock',
-                    style:
-                      'bg-orange-50 text-orange-700',
-                  },
-                  {
-                    label: 'Excused',
-                    value:
-                      counts.excused,
-                    icon:
-                      'fa-solid fa-shield-heart',
-                    style:
-                      'bg-purple-50 text-purple-700',
-                  },
-                  {
-                    label: 'Attendance',
-                    value: `${counts.attendancePercentage.toFixed(
-                      1
-                    )}%`,
-                    icon:
-                      'fa-solid fa-chart-line',
-                    style:
-                      'bg-blue-50 text-blue-700',
-                  },
-                ].map(
-                  (
-                    card,
-                    index
-                  ) => (
-                    <div
-                      key={
-                        card.label
-                      }
-                      className={`bti-attendance-fade bti-attendance-delay-${
-                        (index %
-                          4) +
-                        1
-                      } rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md`}
-                    >
-                      <div
-                        className={`flex h-9 w-9 items-center justify-center rounded-xl ${card.style}`}
-                      >
-                        <i
-                          className={
-                            card.icon
-                          }
-                        />
-                      </div>
-
-                      <p className="mt-3 text-xs font-semibold text-slate-500">
-                        {
-                          card.label
-                        }
-                      </p>
-
-                      <p className="mt-1 text-2xl font-black text-slate-900">
-                        {
-                          card.value
-                        }
-                      </p>
-                    </div>
-                  )
-                )}
-
-              </div>
-
-              {/* REGISTER */}
-              <div className="bti-attendance-fade bti-attendance-delay-2 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-
-                {/* REGISTER HEADER */}
-                <div className="border-b border-slate-200 p-4 sm:p-6">
-                  <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                          <i className="fa-solid fa-clipboard-user" />
-                        </div>
-
-                        <div>
-                          <h2 className="font-bold text-slate-900">
-                            Student Register
-                          </h2>
-
-                          <p className="text-xs text-slate-500">
-                            {
-                              selectedDate
-                            }
-                            {selectedClassItem
-                              ? ` • ${selectedClassItem.name}`
-                              : ''}
+            {!loadingStudents && !loadingAttendance && filteredStudents.length > 0 && (
+              <div className="divide-y divide-slate-100">
+                {filteredStudents.map((student, index) => (
+                  <div key={student.id} className="p-4 transition hover:bg-slate-50 sm:p-5">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-black text-slate-600">{index + 1}</div>
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-slate-900">{student.full_name}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {student.admission_number} • {student.form ?? '—'} • {student.programmeName ?? '—'} • Class {student.className}
                           </p>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          markAll(
-                            'present'
-                          )
-                        }
-                        className="bti-attendance-pulse inline-flex items-center gap-2 rounded-xl bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-200"
-                      >
-                        <i className="fa-solid fa-check-double" />
-                        Present All
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          markAll(
-                            'absent'
-                          )
-                        }
-                        className="bti-attendance-pulse inline-flex items-center gap-2 rounded-xl bg-red-100 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-200"
-                      >
-                        <i className="fa-solid fa-xmark" />
-                        Absent All
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          markAll(
-                            'late'
-                          )
-                        }
-                        className="bti-attendance-pulse inline-flex items-center gap-2 rounded-xl bg-orange-100 px-3 py-2 text-xs font-bold text-orange-700 transition hover:bg-orange-200"
-                      >
-                        <i className="fa-solid fa-clock" />
-                        Late All
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* SEARCH */}
-                  <div className="relative mt-5">
-                    <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-
-                    <input
-                      type="text"
-                      value={
-                        search
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setSearch(
-                          event.target
-                            .value
-                        )
-                      }
-                      placeholder="Search student name or admission number..."
-                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                    />
-                  </div>
-                </div>
-
-                {/* LOADING */}
-                {(loadingStudents ||
-                  loadingAttendance) && (
-                  <div className="p-10 text-center">
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                      <i className="fa-solid fa-spinner fa-spin text-xl" />
-                    </div>
-
-                    <p className="mt-3 text-sm font-semibold text-slate-700">
-                      Loading attendance register...
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      Please wait.
-                    </p>
-                  </div>
-                )}
-
-                {/* EMPTY */}
-                {!loadingStudents &&
-                  !loadingAttendance &&
-                  students.length ===
-                    0 && (
-                    <div className="p-10 text-center">
-                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-                        <i className="fa-solid fa-user-group text-xl" />
-                      </div>
-
-                      <p className="mt-4 font-bold text-slate-700">
-                        No active students found.
-                      </p>
-
-                      <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-                        Make sure students are enrolled in
-                        this class for the selected academic
-                        year.
-                      </p>
-                    </div>
-                  )}
-
-                {/* STUDENTS */}
-                {!loadingStudents &&
-                  !loadingAttendance &&
-                  filteredStudents.length >
-                    0 && (
-                    <div className="divide-y divide-slate-100">
-                      {filteredStudents.map(
-                        (
-                          student,
-                          index
-                        ) => {
-                          const currentStatus =
-                            marks[
-                              student
-                                .id
-                            ] ||
-                            'present';
-
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {STATUS_OPTIONS.map(status => {
+                          const active = marks[student.id] === status;
                           return (
-                            <div
-                              key={
-                                student.id
-                              }
-                              className="p-4 transition hover:bg-slate-50 sm:p-5"
-                            >
-                              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-
-                                {/* STUDENT INFO */}
-                                <div className="flex items-center gap-3">
-                                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-black text-slate-600">
-                                    {
-                                      index +
-                                      1
-                                    }
-                                  </div>
-
-                                  <div className="min-w-0">
-                                    <p className="truncate font-bold text-slate-900">
-                                      {
-                                        student.full_name
-                                      }
-                                    </p>
-
-                                    <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
-                                      <i className="fa-solid fa-id-card" />
-
-                                      {
-                                        student.admission_number
-                                      }
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {/* STATUS BUTTONS */}
-                                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                                  {STATUS_OPTIONS.map(
-                                    (
-                                      status
-                                    ) => {
-                                      const active =
-                                        currentStatus ===
-                                        status;
-
-                                      return (
-                                        <button
-                                          key={
-                                            status
-                                          }
-                                          type="button"
-                                          onClick={() =>
-                                            setMark(
-                                              student.id,
-                                              status
-                                            )
-                                          }
-                                          className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold transition ${
-                                            active
-                                              ? 'border-blue-600 bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                                              : 'border-slate-200 bg-white text-slate-600 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50'
-                                          }`}
-                                        >
-                                          <i
-                                            className={statusIcon(
-                                              status
-                                            )}
-                                          />
-
-                                          {
-                                            statusLabel(
-                                              status
-                                            )
-                                          }
-                                        </button>
-                                      );
-                                    }
-                                  )}
-                                </div>
-                              </div>
-                            </div>
+                            <button key={status} type="button" onClick={() => setMark(student.id, status)}
+                              className={`inline-flex min-w-[104px] items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-black transition ${
+                                active ? `${activeStyle(status)} shadow-md` : 'border-slate-200 bg-white text-slate-600 hover:-translate-y-0.5 hover:bg-slate-50'
+                              }`}>
+                              <i className={icon(status)} /> {label(status)}
+                            </button>
                           );
-                        }
-                      )}
-                    </div>
-                  )}
-
-                {/* NO SEARCH RESULTS */}
-                {!loadingStudents &&
-                  !loadingAttendance &&
-                  students.length >
-                    0 &&
-                  filteredStudents.length ===
-                    0 && (
-                    <div className="p-10 text-center">
-                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-                        <i className="fa-solid fa-magnifying-glass text-lg" />
+                        })}
                       </div>
-
-                      <p className="mt-3 font-semibold text-slate-700">
-                        No students match your search.
-                      </p>
-                    </div>
-                  )}
-
-                {/* PROGRESS */}
-                {students.length >
-                  0 && (
-                  <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
-                    <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
-                      <span>
-                        Attendance Progress
-                      </span>
-
-                      <span>
-                        {
-                          counts.attended
-                        }
-                        /
-                        {
-                          counts.total
-                        }{' '}
-                        attended
-                      </span>
-                    </div>
-
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-                      <div
-                        className="bti-attendance-progress h-full rounded-full bg-blue-600"
-                        style={{
-                          width: `${Math.min(
-                            counts.attendancePercentage,
-                            100
-                          )}%`,
-                        }}
-                      />
                     </div>
                   </div>
-                )}
-
-                {/* SAVE */}
-                {students.length >
-                  0 && (
-                  <div className="border-t border-slate-200 p-4 sm:p-6">
-                    <button
-                      type="button"
-                      onClick={
-                        saveAttendance
-                      }
-                      disabled={
-                        saving
-                      }
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 font-bold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-                    >
-                      <i
-                        className={
-                          saving
-                            ? 'fa-solid fa-spinner fa-spin'
-                            : 'fa-solid fa-floppy-disk'
-                        }
-                      />
-
-                      {saving
-                        ? 'Saving Attendance...'
-                        : 'Save Attendance'}
-                    </button>
-                  </div>
-                )}
+                ))}
               </div>
-            </>
-          )}
+            )}
+
+            {students.length > 0 && (
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                <div className="text-xs font-semibold text-slate-600">
+                  <strong>{counts.present}</strong> Present • <strong>{counts.absent}</strong> Absent • <strong>{counts.excused}</strong> Excused • <strong>{counts.late}</strong> Late
+                </div>
+                <button type="button" onClick={saveAttendance} disabled={saving}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:opacity-60">
+                  <i className={saving ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-paper-plane'} />
+                  {saving ? 'Submitting Attendance...' : 'Submit Attendance'}
+                </button>
+              </div>
+            )}
+          </section>
+
+          <div className="flex flex-wrap gap-2">
+            <Link href="/teacher/classes" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700">
+              <i className="fa-solid fa-arrow-left mr-2" />My Classes
+            </Link>
+            <Link href="/attendance-reports" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700">
+              <i className="fa-solid fa-chart-column mr-2" />Attendance Reports
+            </Link>
+          </div>
         </div>
       </div>
 
-      {/* FONT AWESOME */}
-      <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
-      />
+      <style jsx global>{`
+        .bti-select {
+          width: 100%;
+          border-radius: .75rem;
+          border: 1px solid rgb(226 232 240);
+          background: rgb(248 250 252);
+          padding: .75rem 1rem;
+          font-size: .875rem;
+          font-weight: 600;
+          color: rgb(51 65 85);
+          outline: none;
+        }
+        .bti-select:focus {
+          border-color: rgb(59 130 246);
+          background: white;
+          box-shadow: 0 0 0 4px rgb(219 234 254);
+        }
+      `}</style>
+
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
     </>
+  );
+}
+
+function Filter({ label: title, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-500">{title}</label>
+      {children}
+    </div>
+  );
+}
+
+function Quick({ status, onClick }: { status: Status; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50">
+      <i className={icon(status)} /> {label(status)} All
+    </button>
   );
 }
