@@ -726,33 +726,48 @@ export default function StudentImportPage() {
       );
       setProgressPercent(20);
 
-      const names = new Map<string, PreparedRow[]>();
+      const rowsByFingerprint = new Map<
+        string,
+        PreparedRow[]
+      >();
 
       validRows.forEach((row) => {
-        const key = normalize(row.full_name);
-        names.set(key, [...(names.get(key) || []), row]);
+        const fingerprint = [
+          row.full_name,
+          row.form,
+          row.programme,
+          row.class_name,
+          row.gender,
+          row.resident,
+          row.date_of_birth,
+          row.guardian_name,
+          row.guardian_phone,
+          row.address,
+          row.admission_date,
+          row.jhs_aggregate,
+        ]
+          .map(normalize)
+          .join('|');
+
+        rowsByFingerprint.set(fingerprint, [
+          ...(rowsByFingerprint.get(fingerprint) || []),
+          row,
+        ]);
       });
 
       const rowsToImport: PreparedRow[] = [];
 
-      names.forEach((sameNameRows) => {
-        if (sameNameRows.length === 1) {
-          rowsToImport.push(sameNameRows[0]);
-          return;
-        }
+      rowsByFingerprint.forEach((identicalRows) => {
+        const firstRow = identicalRows[0];
+        rowsToImport.push(firstRow);
 
-        const rowNumbers = sameNameRows
-          .map((row) => row.row_number)
-          .join(', ');
-        const name = sameNameRows[0].full_name;
-
-        sameNameRows.forEach((row) =>
+        identicalRows.slice(1).forEach((row) =>
           addResult({
             row: row.row_number,
             status: 'skipped',
             type: 'warning',
             message:
-              `Skipped before import: duplicate name "${name}" appears in Excel rows ${rowNumbers}. Import each record separately or add a distinguishing detail.`,
+              `Skipped before import: this row is identical to Excel row ${firstRow.row_number}.`,
           })
         );
       });
