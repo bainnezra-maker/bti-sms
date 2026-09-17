@@ -25,37 +25,6 @@ type Staff = {
   updated_at: string | null;
 };
 
-type DocumentType =
-  | 'unit_specification'
-  | 'learning_session_plan'
-  | 'particulars_of_work_done';
-
-type DocumentRecord = {
-  id: string;
-  staff_id: string;
-  document_type: DocumentType;
-  academic_year_id: string | null;
-  semester_id: string | null;
-  title: string;
-  file_name: string;
-  file_path: string;
-  file_type: string | null;
-  file_size: number | null;
-  uploaded_at: string | null;
-  notes: string | null;
-};
-
-type AcademicYear = {
-  id: string;
-  name: string;
-};
-
-type Semester = {
-  id: string;
-  academic_year_id: string;
-  name: string;
-};
-
 type DutyStatus =
   | 'scheduled'
   | 'active'
@@ -112,18 +81,6 @@ const emptyDutyForm: DutyForm = {
   end_date: '',
   notes: '',
   status: 'scheduled',
-};
-
-const documentLabels: Record<DocumentType, string> = {
-  unit_specification: 'Unit Specification Breakdown',
-  learning_session_plan: 'Learning Session Plan',
-  particulars_of_work_done: 'Particulars of Work Done',
-};
-
-const documentIcons: Record<DocumentType, string> = {
-  unit_specification: 'fa-solid fa-list-check',
-  learning_session_plan: 'fa-solid fa-chalkboard-user',
-  particulars_of_work_done: 'fa-solid fa-file-circle-check',
 };
 
 const dutyStatusLabels: Record<DutyStatus, string> = {
@@ -341,9 +298,6 @@ function Info({
 
 export default function StaffPage() {
   const [staff, setStaff] = useState<Staff[]>([]);
-  const [documents, setDocuments] = useState<DocumentRecord[]>([]);
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
-  const [semesters, setSemesters] = useState<Semester[]>([]);
   const [duties, setDuties] = useState<DutyRecord[]>([]);
 
   const [schoolId, setSchoolId] = useState<string | null>(null);
@@ -351,7 +305,6 @@ export default function StaffPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [savingDuty, setSavingDuty] = useState(false);
 
   const [error, setError] = useState('');
@@ -370,15 +323,6 @@ export default function StaffPage() {
     null
   );
   const [showDetails, setShowDetails] = useState(false);
-
-  const [documentType, setDocumentType] =
-    useState<DocumentType>('unit_specification');
-
-  const [documentTitle, setDocumentTitle] = useState('');
-  const [documentNotes, setDocumentNotes] = useState('');
-  const [documentYearId, setDocumentYearId] = useState('');
-  const [documentSemesterId, setDocumentSemesterId] = useState('');
-  const [documentFile, setDocumentFile] = useState<File | null>(null);
 
   const [showDutyForm, setShowDutyForm] = useState(false);
   const [editingDutyId, setEditingDutyId] = useState<string | null>(null);
@@ -441,43 +385,12 @@ export default function StaffPage() {
       return;
     }
 
-    const [
-      staffResult,
-      documentsResult,
-      yearsResult,
-      semestersResult,
-      dutiesResult,
-    ] = await Promise.all([
+    const [staffResult, dutiesResult] = await Promise.all([
       supabase
         .from('staff')
         .select('*')
         .eq('school_id', profile.schoolId)
         .order('full_name', { ascending: true }),
-
-      supabase
-        .from('staff_teaching_documents')
-        .select(
-          'id, staff_id, document_type, academic_year_id, semester_id, title, file_name, file_path, file_type, file_size, uploaded_at, notes'
-        )
-        .eq('school_id', profile.schoolId)
-        .order('uploaded_at', { ascending: false }),
-
-      supabase
-        .from('academic_years')
-        .select('id, name')
-        .eq('school_id', profile.schoolId)
-        .order('start_date', {
-          ascending: false,
-          nullsFirst: false,
-        }),
-
-      supabase
-        .from('terms')
-        .select('id, academic_year_id, name')
-        .order('start_date', {
-          ascending: true,
-          nullsFirst: false,
-        }),
 
       supabase
         .from('staff_duty_roster')
@@ -495,24 +408,6 @@ export default function StaffPage() {
       setError(staffResult.error.message);
     } else {
       setStaff((staffResult.data || []) as Staff[]);
-    }
-
-    if (documentsResult.error) {
-      setError((current) => current || documentsResult.error!.message);
-    } else {
-      setDocuments((documentsResult.data || []) as DocumentRecord[]);
-    }
-
-    if (yearsResult.error) {
-      setError((current) => current || yearsResult.error!.message);
-    } else {
-      setAcademicYears((yearsResult.data || []) as AcademicYear[]);
-    }
-
-    if (semestersResult.error) {
-      setError((current) => current || semestersResult.error!.message);
-    } else {
-      setSemesters((semestersResult.data || []) as Semester[]);
     }
 
     if (dutiesResult.error) {
@@ -717,9 +612,6 @@ export default function StaffPage() {
       current.filter((item) => item.id !== person.id)
     );
 
-    setDocuments((current) =>
-      current.filter((item) => item.staff_id !== person.id)
-    );
 
     setDuties((current) =>
       current.filter((item) => item.staff_id !== person.id)
@@ -736,193 +628,6 @@ export default function StaffPage() {
     setShowDetails(true);
     setError('');
     setMessage('');
-  }
-
-  function resetDocumentForm() {
-    setDocumentType('unit_specification');
-    setDocumentTitle('');
-    setDocumentNotes('');
-    setDocumentYearId('');
-    setDocumentSemesterId('');
-    setDocumentFile(null);
-  }
-
-  async function uploadDocument(event: React.FormEvent) {
-    event.preventDefault();
-
-    setError('');
-    setMessage('');
-
-    if (!schoolId || !currentUserId || !selectedStaffId) {
-      setError('Please select a staff member first.');
-      return;
-    }
-
-    if (!documentFile) {
-      setError('Please choose a document to upload.');
-      return;
-    }
-
-    if (
-      documentType === 'unit_specification' &&
-      (!documentYearId || !documentSemesterId)
-    ) {
-      setError(
-        'Unit Specification requires an academic year and semester.'
-      );
-      return;
-    }
-
-    if (documentType === 'unit_specification') {
-      const duplicate = documents.some(
-        (doc) =>
-          doc.staff_id === selectedStaffId &&
-          doc.document_type === 'unit_specification' &&
-          doc.academic_year_id === documentYearId &&
-          doc.semester_id === documentSemesterId
-      );
-
-      if (duplicate) {
-        setError(
-          'This teacher already has a Unit Specification uploaded for the selected semester.'
-        );
-        return;
-      }
-    }
-
-    if (documentFile.size > 10 * 1024 * 1024) {
-      setError('The selected file is larger than 10 MB.');
-      return;
-    }
-
-    setUploading(true);
-
-    const safeName = documentFile.name.replace(
-      /[^a-zA-Z0-9._-]/g,
-      '_'
-    );
-
-    const path = `${schoolId}/${selectedStaffId}/${Date.now()}-${safeName}`;
-
-    const { error: storageError } = await supabase.storage
-      .from('staff-documents')
-      .upload(path, documentFile, {
-        cacheControl: '3600',
-        upsert: false,
-      });
-
-    if (storageError) {
-      setError(
-        `${storageError.message}. If this is the first document upload, make sure the private "staff-documents" Supabase Storage bucket and its Storage policies have been created.`
-      );
-
-      setUploading(false);
-      return;
-    }
-
-    const { data, error: recordError } = await supabase
-      .from('staff_teaching_documents')
-      .insert({
-        staff_id: selectedStaffId,
-        school_id: schoolId,
-        document_type: documentType,
-        academic_year_id: documentYearId || null,
-        semester_id: documentSemesterId || null,
-        title:
-          documentTitle.trim() ||
-          documentLabels[documentType],
-        file_name: documentFile.name,
-        file_path: path,
-        file_type: documentFile.type || null,
-        file_size: documentFile.size,
-        uploaded_by: currentUserId,
-        notes: documentNotes.trim() || null,
-      })
-      .select(
-        'id, staff_id, document_type, academic_year_id, semester_id, title, file_name, file_path, file_type, file_size, uploaded_at, notes'
-      )
-      .single();
-
-    if (recordError) {
-      await supabase.storage
-        .from('staff-documents')
-        .remove([path]);
-
-      setError(recordError.message);
-    } else {
-      setDocuments((current) => [
-        data as DocumentRecord,
-        ...current,
-      ]);
-
-      resetDocumentForm();
-
-      setMessage('Teaching document uploaded successfully.');
-    }
-
-    setUploading(false);
-  }
-
-  async function openDocument(document: DocumentRecord) {
-    setError('');
-
-    const { data, error: signedUrlError } =
-      await supabase.storage
-        .from('staff-documents')
-        .createSignedUrl(document.file_path, 60 * 10);
-
-    if (signedUrlError || !data?.signedUrl) {
-      setError(
-        signedUrlError?.message ||
-          'The document could not be opened.'
-      );
-
-      return;
-    }
-
-    window.open(
-      data.signedUrl,
-      '_blank',
-      'noopener,noreferrer'
-    );
-  }
-
-  async function deleteDocument(document: DocumentRecord) {
-    const confirmed = window.confirm(
-      `Delete ${document.file_name}?`
-    );
-
-    if (!confirmed) return;
-
-    setError('');
-    setMessage('');
-
-    const { error: storageError } =
-      await supabase.storage
-        .from('staff-documents')
-        .remove([document.file_path]);
-
-    if (storageError) {
-      setError(storageError.message);
-      return;
-    }
-
-    const { error: recordError } =
-      await supabase
-        .from('staff_teaching_documents')
-        .delete()
-        .eq('id', document.id);
-
-    if (recordError) {
-      setError(recordError.message);
-      return;
-    }
-
-    setDocuments((current) =>
-      current.filter((item) => item.id !== document.id)
-    );
-
-    setMessage('Teaching document deleted successfully.');
   }
 
   function openAddDutyForm(staffId?: string) {
@@ -1220,53 +925,6 @@ export default function StaffPage() {
     staff.find(
       (person) => person.id === selectedStaffId
     ) || null;
-
-  const selectedDocuments = documents.filter(
-    (document) => document.staff_id === selectedStaffId
-  );
-
-  const selectedDuties = duties.filter(
-    (duty) => duty.staff_id === selectedStaffId
-  );
-
-  const selectedUnitDocuments =
-    selectedDocuments.filter(
-      (document) =>
-        document.document_type === 'unit_specification'
-    );
-
-  const selectedLspDocuments =
-    selectedDocuments.filter(
-      (document) =>
-        document.document_type === 'learning_session_plan'
-    );
-
-  const selectedParticularsDocuments =
-    selectedDocuments.filter(
-      (document) =>
-        document.document_type === 'particulars_of_work_done'
-    );
-
-  const selectedYearSemesters = semesters.filter(
-    (semester) =>
-      semester.academic_year_id === documentYearId
-  );
-
-  function getSemesterName(semesterId: string | null) {
-    return (
-      semesters.find(
-        (semester) => semester.id === semesterId
-      )?.name || '—'
-    );
-  }
-
-  function getYearName(yearId: string | null) {
-    return (
-      academicYears.find(
-        (year) => year.id === yearId
-      )?.name || '—'
-    );
-  }
 
   const filteredDuties = useMemo(() => {
     const query = dutySearch.trim().toLowerCase();
@@ -1610,8 +1268,8 @@ export default function StaffPage() {
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
                 Manage teaching and non-teaching staff,
-                employment details, staff status, teaching
-                documents, and staff duties from one place.
+                employment details, staff status, and staff duties
+                from one place.
               </p>
             </div>
 
@@ -1912,7 +1570,7 @@ export default function StaffPage() {
                       </div>
 
                       {/* QUICK DETAILS */}
-                      <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5 xl:min-w-[700px]">
+                      <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:min-w-[560px]">
                         <div className="rounded-xl bg-slate-50 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
                           <p className="text-xs font-medium text-slate-400">
                             Phone
@@ -1940,21 +1598,6 @@ export default function StaffPage() {
 
                           <p className="mt-1 truncate font-semibold text-slate-700">
                             {formatDate(person.employment_date)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-xl bg-slate-50 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-sm">
-                          <p className="text-xs font-medium text-slate-400">
-                            Documents
-                          </p>
-
-                          <p className="mt-1 font-semibold text-slate-700">
-                            {
-                              documents.filter(
-                                (document) =>
-                                  document.staff_id === person.id
-                              ).length
-                            }
                           </p>
                         </div>
 
@@ -3240,401 +2883,6 @@ export default function StaffPage() {
                         )}
                       </div>
                     )}
-                  </div>
-
-                  {/* TEACHING DOCUMENTS */}
-                  <div className="rounded-2xl border border-slate-200 p-5 transition duration-300 hover:shadow-md">
-
-                    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <h3 className="font-bold text-slate-900">
-                          Teaching Documents
-                        </h3>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          Upload and retrieve teaching documents for
-                          this staff member.
-                        </p>
-                      </div>
-
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                        {selectedDocuments.length} document
-                        {selectedDocuments.length === 1 ? '' : 's'}
-                      </span>
-                    </div>
-
-                    {/* UPLOAD FORM */}
-                    <form
-                      onSubmit={uploadDocument}
-                      className="rounded-2xl bg-slate-50 p-4"
-                    >
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-
-                        <Field label="Document Type">
-                          <select
-                            value={documentType}
-                            onChange={(event) =>
-                              setDocumentType(
-                                event.target.value as DocumentType
-                              )
-                            }
-                            className={inputClass}
-                          >
-                            <option value="unit_specification">
-                              Unit Specification Breakdown
-                            </option>
-
-                            <option value="learning_session_plan">
-                              Learning Session Plan
-                            </option>
-
-                            <option value="particulars_of_work_done">
-                              Particulars of Work Done
-                            </option>
-                          </select>
-                        </Field>
-
-                        <Field label="Document Title">
-                          <input
-                            value={documentTitle}
-                            onChange={(event) =>
-                              setDocumentTitle(event.target.value)
-                            }
-                            placeholder={documentLabels[documentType]}
-                            className={inputClass}
-                          />
-                        </Field>
-
-                        {documentType === 'unit_specification' && (
-                          <>
-                            <Field
-                              label="Academic Year"
-                              required
-                            >
-                              <select
-                                value={documentYearId}
-                                onChange={(event) => {
-                                  setDocumentYearId(
-                                    event.target.value
-                                  );
-                                  setDocumentSemesterId('');
-                                }}
-                                required
-                                className={inputClass}
-                              >
-                                <option value="">
-                                  Select academic year
-                                </option>
-
-                                {academicYears.map((year) => (
-                                  <option
-                                    key={year.id}
-                                    value={year.id}
-                                  >
-                                    {year.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </Field>
-
-                            <Field label="Semester" required>
-                              <select
-                                value={documentSemesterId}
-                                onChange={(event) =>
-                                  setDocumentSemesterId(
-                                    event.target.value
-                                  )
-                                }
-                                required
-                                className={inputClass}
-                                disabled={!documentYearId}
-                              >
-                                <option value="">
-                                  {documentYearId
-                                    ? 'Select semester'
-                                    : 'Select academic year first'}
-                                </option>
-
-                                {selectedYearSemesters.map(
-                                  (semester) => (
-                                    <option
-                                      key={semester.id}
-                                      value={semester.id}
-                                    >
-                                      {semester.name}
-                                    </option>
-                                  )
-                                )}
-                              </select>
-                            </Field>
-                          </>
-                        )}
-
-                        <Field label="File" required>
-                          <input
-                            type="file"
-                            onChange={(event) =>
-                              setDocumentFile(
-                                event.target.files?.[0] || null
-                              )
-                            }
-                            required
-                            className="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-bold"
-                          />
-                        </Field>
-
-                        <Field label="Notes">
-                          <input
-                            value={documentNotes}
-                            onChange={(event) =>
-                              setDocumentNotes(event.target.value)
-                            }
-                            placeholder="Optional note"
-                            className={inputClass}
-                          />
-                        </Field>
-                      </div>
-
-                      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs text-slate-400">
-                          Maximum file size: 10 MB.
-                        </p>
-
-                        <button
-                          type="submit"
-                          disabled={uploading}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800 disabled:opacity-60"
-                        >
-                          <i
-                            className={
-                              uploading
-                                ? 'fa-solid fa-spinner fa-spin'
-                                : 'fa-solid fa-cloud-arrow-up'
-                            }
-                          />
-
-                          {uploading
-                            ? 'Uploading...'
-                            : 'Upload Document'}
-                        </button>
-                      </div>
-                    </form>
-
-                    {/* DOCUMENT COUNTS */}
-                    <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-                      {[
-                        {
-                          type: 'unit_specification' as const,
-                          label: 'Unit Specification',
-                          count: selectedUnitDocuments.length,
-                        },
-                        {
-                          type: 'learning_session_plan' as const,
-                          label: 'Learning Session Plans',
-                          count: selectedLspDocuments.length,
-                        },
-                        {
-                          type: 'particulars_of_work_done' as const,
-                          label: 'Particulars of Work',
-                          count:
-                            selectedParticularsDocuments.length,
-                        },
-                      ].map((item) => (
-                        <div
-                          key={item.type}
-                          className="group rounded-xl border border-slate-200 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-md"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <i
-                              className={`${documentIcons[item.type]} text-slate-500 transition duration-300 group-hover:scale-110 group-hover:text-slate-900`}
-                            />
-
-                            <span className="text-lg font-bold text-slate-900">
-                              {item.count}
-                            </span>
-                          </div>
-
-                          <p className="mt-3 text-xs font-bold text-slate-600">
-                            {item.label}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* DOCUMENT LIST */}
-                    {selectedDocuments.length === 0 ? (
-                      <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-7 text-center text-sm text-slate-500 animate-[btiStaffFadeUp_.35s_ease-out]">
-                        <i className="fa-solid fa-folder-open mb-3 text-2xl text-slate-300" />
-                        <p>
-                          No teaching documents have been uploaded for
-                          this staff member yet.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="mt-5 space-y-3">
-                        {selectedDocuments.map(
-                          (document, index) => (
-                            <div
-                              key={document.id}
-                              style={{
-                                animationDelay: `${index * 55}ms`,
-                              }}
-                              className="bti-staff-card flex flex-col gap-3 rounded-xl border border-slate-200 p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-md sm:flex-row sm:items-center sm:justify-between"
-                            >
-                              <div className="flex min-w-0 items-center gap-3">
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition duration-300 hover:scale-110">
-                                  <i
-                                    className={
-                                      documentIcons[
-                                        document.document_type
-                                      ]
-                                    }
-                                  />
-                                </div>
-
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-bold text-slate-800">
-                                    {document.title}
-                                  </p>
-
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {
-                                      documentLabels[
-                                        document.document_type
-                                      ]
-                                    }{' '}
-                                    · {document.file_name} ·{' '}
-                                    {formatFileSize(
-                                      document.file_size
-                                    )}
-                                  </p>
-
-                                  {document.document_type ===
-                                    'unit_specification' && (
-                                    <p className="mt-1 text-xs font-medium text-slate-400">
-                                      {getYearName(
-                                        document.academic_year_id
-                                      )}{' '}
-                                      ·{' '}
-                                      {getSemesterName(
-                                        document.semester_id
-                                      )}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex shrink-0 gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openDocument(document)
-                                  }
-                                  className="group rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white transition duration-300 hover:-translate-y-0.5 hover:bg-slate-800"
-                                >
-                                  <i className="fa-solid fa-arrow-up-right-from-square mr-1 transition group-hover:scale-110" />
-                                  Open
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    deleteDocument(document)
-                                  }
-                                  className="rounded-lg px-3 py-2 text-xs font-bold text-red-600 transition duration-300 hover:-translate-y-0.5 hover:bg-red-50"
-                                >
-                                  <i className="fa-solid fa-trash" />
-                                </button>
-                              </div>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* RIGHT COLUMN */}
-                <div className="space-y-5">
-
-                  {/* UNIT SPECIFICATION COMPLIANCE */}
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 transition duration-300 hover:-translate-y-0.5 hover:shadow-md">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm">
-                        <i className="fa-solid fa-clipboard-check" />
-                      </div>
-
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                          Teaching Compliance
-                        </p>
-
-                        <h3 className="mt-1 text-lg font-bold text-slate-900">
-                          Unit Specification
-                        </h3>
-                      </div>
-                    </div>
-
-                    <p className="mt-3 text-sm leading-6 text-slate-500">
-                      Every teacher is expected to upload one Unit
-                      Specification Breakdown for each semester.
-                    </p>
-
-                    <div className="mt-5 space-y-3">
-                      {academicYears.slice(0, 4).map((year) => {
-                        const yearSemesters = semesters.filter(
-                          (semester) =>
-                            semester.academic_year_id === year.id
-                        );
-
-                        return yearSemesters.map((semester) => {
-                          const uploaded =
-                            selectedUnitDocuments.some(
-                              (document) =>
-                                document.academic_year_id ===
-                                  year.id &&
-                                document.semester_id === semester.id
-                            );
-
-                          return (
-                            <div
-                              key={`${year.id}-${semester.id}`}
-                              className="group flex items-center justify-between rounded-xl border border-white bg-white p-3 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-md"
-                            >
-                              <div>
-                                <p className="text-xs font-bold text-slate-700">
-                                  {year.name}
-                                </p>
-
-                                <p className="mt-0.5 text-xs text-slate-400">
-                                  {semester.name}
-                                </p>
-                              </div>
-
-                              <span
-                                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                                  uploaded
-                                    ? 'bg-emerald-100 text-emerald-700'
-                                    : 'bg-red-100 text-red-700'
-                                }`}
-                              >
-                                <i
-                                  className={
-                                    uploaded
-                                      ? 'fa-solid fa-circle-check'
-                                      : 'fa-solid fa-circle-xmark'
-                                  }
-                                />
-
-                                {uploaded
-                                  ? 'Uploaded'
-                                  : 'Not Uploaded'}
-                              </span>
-                            </div>
-                          );
-                        });
-                      })}
-                    </div>
                   </div>
 
                   {/* RECORD ACTIONS */}
