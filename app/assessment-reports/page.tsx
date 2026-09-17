@@ -42,6 +42,12 @@ type AssessmentRecord = {
   max_score: number | null;
   term: string;
   recorded_by?: string | null;
+  academic_year_id?: string | null;
+  term_id?: string | null;
+  subject_id?: string | null;
+  class_id?: string | null;
+  submitted_at?: string | null;
+  updated_at?: string | null;
   created_at?: string | null;
 };
 
@@ -288,6 +294,12 @@ export default function AssessmentReportsPage() {
               max_score,
               term,
               recorded_by,
+              academic_year_id,
+              term_id,
+              subject_id,
+              class_id,
+              submitted_at,
+              updated_at,
               created_at
             `
             )
@@ -429,33 +441,44 @@ export default function AssessmentReportsPage() {
     return Array.from(new Set(values)).sort();
   }, [filteredClasses]);
 
+  const yearAssessments = useMemo(() => {
+    return assessments.filter(
+      (item) =>
+        !selectedAcademicYear ||
+        item.academic_year_id === selectedAcademicYear
+    );
+  }, [assessments, selectedAcademicYear]);
+
   const terms = useMemo(() => {
-    const values = assessments
+    const values = yearAssessments
       .map((item) => item.term)
       .filter(Boolean);
 
     return Array.from(new Set(values)).sort();
-  }, [assessments]);
+  }, [yearAssessments]);
 
   const subjects = useMemo(() => {
-    const values = assessments
+    const values = yearAssessments
+      .filter((item) => !selectedTerm || item.term === selectedTerm)
       .map((item) => item.subject)
       .filter(Boolean);
 
     return Array.from(new Set(values)).sort();
-  }, [assessments]);
+  }, [yearAssessments, selectedTerm]);
 
   const assessmentTypes = useMemo(() => {
-    const values = assessments
+    const values = yearAssessments
+      .filter((item) => !selectedTerm || item.term === selectedTerm)
+      .filter((item) => !selectedSubject || item.subject === selectedSubject)
       .map((item) => item.assessment_type)
       .filter(Boolean);
 
     return Array.from(new Set(values)).sort();
-  }, [assessments]);
+  }, [yearAssessments, selectedTerm, selectedSubject]);
 
   /*
    * ---------------------------------------------------------
-   * BUILD REPORT
+   * BUILD REPORT — CANONICAL ASSESSMENT CONTEXT
    * ---------------------------------------------------------
    */
 
@@ -465,230 +488,149 @@ export default function AssessmentReportsPage() {
     setReportLoading(true);
 
     const timer = window.setTimeout(() => {
-      const studentMap = new Map(
-        students.map((student) => [student.id, student])
-      );
+      try {
+        const studentMap = new Map(
+          students.map((student) => [student.id, student])
+        );
 
-      const classMap = new Map(
-        classes.map((item) => [item.id, item])
-      );
+        const classMap = new Map(
+          classes.map((item) => [item.id, item])
+        );
 
-      const programmeMap = new Map(
-        programmes.map((programme) => [programme.id, programme])
-      );
+        const programmeMap = new Map(
+          programmes.map((programme) => [programme.id, programme])
+        );
 
-      const teacherMap = new Map(
-        teachers.map((teacher) => [teacher.id, teacher.name])
-      );
+        const teacherMap = new Map(
+          teachers.map((teacher) => [teacher.id, teacher.name])
+        );
 
-      /*
-       * The existing assessments table does not directly contain
-       * class_id/programme_id. Therefore we use the student's
-       * enrollment/class information when available.
-       *
-       * We load enrollments here and create the student -> class
-       * mapping for the selected academic year.
-       */
-      const buildRows = async () => {
-        try {
-          const enrollmentQuery = supabase
-  .from('enrollments')
-  .select(
-    `
-    student_id,
-    class_id,
-    academic_year_id,
-    programme_id,
-    status
-  `
-  );
-
-          const { data: enrollmentData, error: enrollmentError } =
-            await enrollmentQuery;
-
-          if (enrollmentError) {
-            throw enrollmentError;
-          }
-
-          const enrollments = enrollmentData || [];
-
-          const enrollmentMap = new Map<
-            string,
-            {
-              class_id?: string | null;
-              academic_year_id?: string | null;
-              programme_id?: string | null;
+        const rows: AssessmentRow[] = assessments
+          .filter((assessment) => {
+            if (
+              selectedAcademicYear &&
+              assessment.academic_year_id !== selectedAcademicYear
+            ) {
+              return false;
             }
-          >();
 
-          enrollments.forEach((enrollment: any) => {
-            if (!enrollmentMap.has(enrollment.student_id)) {
-              enrollmentMap.set(enrollment.student_id, enrollment);
+            if (selectedTerm && assessment.term !== selectedTerm) {
+              return false;
             }
 
             if (
-              selectedAcademicYear &&
-              enrollment.academic_year_id === selectedAcademicYear
+              selectedSubject &&
+              assessment.subject !== selectedSubject
             ) {
-              enrollmentMap.set(enrollment.student_id, enrollment);
+              return false;
             }
+
+            if (
+              selectedAssessmentType &&
+              assessment.assessment_type !== selectedAssessmentType
+            ) {
+              return false;
+            }
+
+            if (
+              selectedTeacher &&
+              assessment.recorded_by !== selectedTeacher
+            ) {
+              return false;
+            }
+
+            const classItem = assessment.class_id
+              ? classMap.get(assessment.class_id)
+              : undefined;
+
+            if (!classItem) return false;
+
+            if (
+              selectedProgramme &&
+              classItem.programme_id !== selectedProgramme
+            ) {
+              return false;
+            }
+
+            if (
+              selectedClass &&
+              assessment.class_id !== selectedClass
+            ) {
+              return false;
+            }
+
+            if (
+              selectedForm &&
+              getFormFromLevel(classItem.level) !== selectedForm
+            ) {
+              return false;
+            }
+
+            return true;
+          })
+          .map((assessment) => {
+            const student = studentMap.get(assessment.student_id);
+
+            const classItem = assessment.class_id
+              ? classMap.get(assessment.class_id)
+              : undefined;
+
+            const programme = classItem?.programme_id
+              ? programmeMap.get(classItem.programme_id)
+              : undefined;
+
+            const percentage = getPercentage(
+              assessment.score,
+              assessment.max_score
+            );
+
+            const recordedBy = assessment.recorded_by || '';
+
+            return {
+              id: assessment.id,
+              student_id: assessment.student_id,
+              student_name: student?.full_name || 'Unknown Student',
+              admission_number: student?.admission_number || '—',
+              subject: assessment.subject || '—',
+              assessment_type: assessment.assessment_type || '—',
+              score: Number(assessment.score || 0),
+              max_score: Number(assessment.max_score || 0),
+              percentage,
+              term: assessment.term || '—',
+              programme: programme?.name || '—',
+              form: getFormFromLevel(classItem?.level),
+              class_name: classItem?.name || '—',
+              teacher_name:
+                teacherMap.get(recordedBy) ||
+                (recordedBy
+                  ? `User ${recordedBy.slice(0, 8)}`
+                  : 'Not recorded'),
+              recorded_by: recordedBy,
+              created_at:
+                assessment.submitted_at ||
+                assessment.updated_at ||
+                assessment.created_at ||
+                '',
+            };
           });
 
-          const rows: AssessmentRow[] = assessments
-            .filter((assessment) => {
-              if (selectedTerm && assessment.term !== selectedTerm) {
-                return false;
-              }
+        rows.sort((a, b) => {
+          const dateA = new Date(a.created_at).getTime();
+          const dateB = new Date(b.created_at).getTime();
+          return dateB - dateA;
+        });
 
-              if (
-                selectedSubject &&
-                assessment.subject !== selectedSubject
-              ) {
-                return false;
-              }
-
-              if (
-                selectedAssessmentType &&
-                assessment.assessment_type !==
-                  selectedAssessmentType
-              ) {
-                return false;
-              }
-
-              if (
-                selectedTeacher &&
-                assessment.recorded_by !== selectedTeacher
-              ) {
-                return false;
-              }
-
-              const student = studentMap.get(assessment.student_id);
-
-              if (!student) return false;
-
-              const enrollment = enrollmentMap.get(
-                assessment.student_id
-              );
-
-              if (!enrollment) {
-                return false;
-              }
-
-              if (
-                selectedAcademicYear &&
-                enrollment.academic_year_id !==
-                  selectedAcademicYear
-              ) {
-                return false;
-              }
-
-              if (
-                selectedProgramme &&
-                enrollment.programme_id !== selectedProgramme
-              ) {
-                return false;
-              }
-
-              const classItem = enrollment.class_id
-                ? classMap.get(enrollment.class_id)
-                : undefined;
-
-              if (
-                selectedClass &&
-                enrollment.class_id !== selectedClass
-              ) {
-                return false;
-              }
-
-              if (selectedForm) {
-                const form = getFormFromLevel(
-                  classItem?.level
-                );
-
-                if (form !== selectedForm) {
-                  return false;
-                }
-              }
-
-              return true;
-            })
-            .map((assessment) => {
-              const student = studentMap.get(
-                assessment.student_id
-              );
-
-              const enrollment = enrollmentMap.get(
-                assessment.student_id
-              );
-
-              const classItem = enrollment?.class_id
-                ? classMap.get(enrollment.class_id)
-                : undefined;
-
-              const programme = enrollment?.programme_id
-                ? programmeMap.get(enrollment.programme_id)
-                : undefined;
-
-              const percentage = getPercentage(
-                assessment.score,
-                assessment.max_score
-              );
-
-              const recordedBy =
-                assessment.recorded_by || '';
-
-              return {
-                id: assessment.id,
-                student_id: assessment.student_id,
-                student_name:
-                  student?.full_name || 'Unknown Student',
-                admission_number:
-                  student?.admission_number || '—',
-                subject: assessment.subject || '—',
-                assessment_type:
-                  assessment.assessment_type || '—',
-                score: Number(assessment.score || 0),
-                max_score: Number(
-                  assessment.max_score || 0
-                ),
-                percentage,
-                term: assessment.term || '—',
-                programme: programme?.name || '—',
-                form: getFormFromLevel(classItem?.level),
-                class_name: classItem?.name || '—',
-                teacher_name:
-                  teacherMap.get(recordedBy) ||
-                  (recordedBy
-                    ? `User ${recordedBy.slice(0, 8)}`
-                    : 'Not recorded'),
-                recorded_by: recordedBy,
-                created_at:
-                  assessment.created_at || '',
-              };
-            });
-
-          rows.sort((a, b) => {
-            const dateA = new Date(a.created_at).getTime();
-            const dateB = new Date(b.created_at).getTime();
-
-            return dateB - dateA;
-          });
-
-          setReportRows(rows);
-        } catch (err: any) {
-          console.error(err);
-          setError(
-            err?.message ||
-              'Unable to prepare assessment report.'
-          );
-          setReportRows([]);
-        } finally {
-          setReportLoading(false);
-        }
-      };
-
-      buildRows();
-    }, 150);
+        setReportRows(rows);
+      } catch (err: any) {
+        console.error(err);
+        setError(
+          err?.message || 'Unable to prepare assessment report.'
+        );
+        setReportRows([]);
+      } finally {
+        setReportLoading(false);
+      }
+    }, 100);
 
     return () => window.clearTimeout(timer);
   }, [
@@ -1121,6 +1063,10 @@ export default function AssessmentReportsPage() {
                   setSelectedAcademicYear(
                     event.target.value
                   );
+                  setSelectedTerm('');
+                  setSelectedSubject('');
+                  setSelectedAssessmentType('');
+                  setSelectedTeacher('');
                   setSelectedProgramme('');
                   setSelectedForm('');
                   setSelectedClass('');
@@ -1153,9 +1099,12 @@ export default function AssessmentReportsPage() {
 
               <select
                 value={selectedTerm}
-                onChange={(event) =>
-                  setSelectedTerm(event.target.value)
-                }
+                onChange={(event) => {
+                  setSelectedTerm(event.target.value);
+                  setSelectedSubject('');
+                  setSelectedAssessmentType('');
+                  setSelectedTeacher('');
+                }}
                 className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">
@@ -1264,9 +1213,11 @@ export default function AssessmentReportsPage() {
 
               <select
                 value={selectedSubject}
-                onChange={(event) =>
-                  setSelectedSubject(event.target.value)
-                }
+                onChange={(event) => {
+                  setSelectedSubject(event.target.value);
+                  setSelectedAssessmentType('');
+                  setSelectedTeacher('');
+                }}
                 className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">
