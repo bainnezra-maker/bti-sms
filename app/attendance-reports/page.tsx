@@ -10,7 +10,7 @@ type AcademicYear = {
   is_current: boolean;
 };
 
-type Term = {
+type Semester = {
   id: string;
   academic_year_id: string;
   name: string;
@@ -149,6 +149,18 @@ function formLabel(form: string) {
   return '';
 }
 
+
+function getClassLetter(name: string | null) {
+  if (!name) return '';
+  const value = name.trim().toUpperCase();
+  const direct = value.match(/^[A-F]$/);
+  if (direct) return direct[0];
+  const classMatch = value.match(/(?:CLASS\s*)?([A-F])(?:\b|$)/);
+  return classMatch ? classMatch[1] : '';
+}
+
+const CLASS_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
 export default function AttendanceReportsPage() {
   const supabase = createClient();
 
@@ -158,8 +170,8 @@ export default function AttendanceReportsPage() {
   const [academicYears, setAcademicYears] =
     useState<AcademicYear[]>([]);
 
-  const [terms, setTerms] =
-    useState<Term[]>([]);
+  const [semesters, setSemesters] =
+    useState<Semester[]>([]);
 
   const [programmes, setProgrammes] =
     useState<Programme[]>([]);
@@ -176,7 +188,7 @@ export default function AttendanceReportsPage() {
   const [selectedYear, setSelectedYear] =
     useState('');
 
-  const [selectedTerm, setSelectedTerm] =
+  const [selectedSemester, setSelectedSemester] =
     useState('');
 
   const [selectedProgramme, setSelectedProgramme] =
@@ -342,10 +354,10 @@ export default function AttendanceReportsPage() {
    */
 
   useEffect(() => {
-    async function loadTerms() {
+    async function loadSemesters() {
       if (!selectedYear) {
-        setTerms([]);
-        setSelectedTerm('');
+        setSemesters([]);
+        setSelectedSemester('');
         return;
       }
 
@@ -368,6 +380,7 @@ export default function AttendanceReportsPage() {
           'academic_year_id',
           selectedYear
         )
+        .in('name', ['Semester 1', 'Semester 2'])
         .order('start_date');
 
       if (error) {
@@ -377,22 +390,22 @@ export default function AttendanceReportsPage() {
         return;
       }
 
-      const loadedTerms =
+      const loadedSemesters =
         data || [];
 
-      setTerms(loadedTerms);
+      setSemesters(loadedSemesters);
 
-      const currentTerm =
-        loadedTerms.find(
-          (term) => term.is_current
-        ) || loadedTerms[0];
+      const currentSemester =
+        loadedSemesters.find(
+          (semester) => semester.is_current
+        ) || loadedSemesters[0];
 
-      setSelectedTerm(
-        currentTerm?.id || ''
+      setSelectedSemester(
+        currentSemester?.id || ''
       );
     }
 
-    loadTerms();
+    loadSemesters();
   }, [selectedYear]);
 
   /*
@@ -521,10 +534,7 @@ export default function AttendanceReportsPage() {
     if (!selectedClass) return;
 
     const classStillValid =
-      filteredClasses.some(
-        (item) =>
-          item.id === selectedClass
-      );
+      CLASS_LETTERS.includes(selectedClass);
 
     if (!classStillValid) {
       setSelectedClass('');
@@ -545,7 +555,7 @@ export default function AttendanceReportsPage() {
       if (
         !schoolId ||
         !selectedYear ||
-        !selectedTerm ||
+        !selectedSemester ||
         !selectedClass
       ) {
         setStudents([]);
@@ -556,10 +566,10 @@ export default function AttendanceReportsPage() {
       setLoadingReport(true);
       setMessage('');
 
-      const selectedTermData =
-        terms.find(
-          (term) =>
-            term.id === selectedTerm
+      const selectedSemesterData =
+        semesters.find(
+          (semester) =>
+            semester.id === selectedSemester
         );
 
       /*
@@ -572,9 +582,9 @@ export default function AttendanceReportsPage() {
       } = await supabase
         .from('enrollments')
         .select('student_id')
-        .eq(
+        .in(
           'class_id',
-          selectedClass
+          selectedClassIds
         )
         .eq(
           'academic_year_id',
@@ -668,31 +678,31 @@ export default function AttendanceReportsPage() {
             'student_id',
             studentIds
           )
-          .eq(
+          .in(
             'class_id',
-            selectedClass
+            selectedClassIds
           )
           .order('date', {
             ascending: false,
           });
 
       if (
-        selectedTermData?.start_date
+        selectedSemesterData?.start_date
       ) {
         attendanceQuery =
           attendanceQuery.gte(
             'date',
-            selectedTermData.start_date
+            selectedSemesterData.start_date
           );
       }
 
       if (
-        selectedTermData?.end_date
+        selectedSemesterData?.end_date
       ) {
         attendanceQuery =
           attendanceQuery.lte(
             'date',
-            selectedTermData.end_date
+            selectedSemesterData.end_date
           );
       }
 
@@ -722,9 +732,9 @@ export default function AttendanceReportsPage() {
   }, [
     schoolId,
     selectedYear,
-    selectedTerm,
+    selectedSemester,
     selectedClass,
-    terms,
+    semesters,
   ]);
 
   /*
@@ -937,16 +947,15 @@ export default function AttendanceReportsPage() {
         year.id === selectedYear
     );
 
-  const selectedTermData =
-    terms.find(
-      (term) =>
-        term.id === selectedTerm
+  const selectedSemesterData =
+    semesters.find(
+      (semester) =>
+        semester.id === selectedSemester
     );
 
   const selectedClassData =
-    classes.find(
-      (item) =>
-        item.id === selectedClass
+    filteredClasses.find(
+      (item) => getClassLetter(item.name) === selectedClass
     );
 
   const reportProgrammeId =
@@ -990,7 +999,7 @@ export default function AttendanceReportsPage() {
   async function exportToExcel() {
     if (
       !selectedClass ||
-      !selectedTerm ||
+      !selectedSemester ||
       attendance.length === 0
     ) {
       setMessage(
@@ -1004,16 +1013,15 @@ export default function AttendanceReportsPage() {
 
     try {
       const className =
-        selectedClassData?.name ||
-        'Class';
+        selectedClass || 'Class';
 
       const yearName =
         selectedYearData?.name ||
         'Academic Year';
 
-      const termName =
-        selectedTermData?.name ||
-        'Term';
+      const semesterName =
+        selectedSemesterData?.name ||
+        'Semester';
 
       const programmeName =
         selectedProgrammeData?.name ||
@@ -1098,7 +1106,7 @@ export default function AttendanceReportsPage() {
               'Academic Year':
                 yearName,
               Term:
-                termName,
+                semesterName,
               Programme:
                 programmeName,
               Class:
@@ -1123,8 +1131,8 @@ export default function AttendanceReportsPage() {
           yearName,
         ],
         [
-          'Term',
-          termName,
+          'Semester',
+          semesterName,
         ],
         [
           'Programme',
@@ -1139,13 +1147,13 @@ export default function AttendanceReportsPage() {
           className,
         ],
         [
-          'Term Start',
-          selectedTermData?.start_date ||
+          'Semester Start',
+          selectedSemesterData?.start_date ||
             '',
         ],
         [
-          'Term End',
-          selectedTermData?.end_date ||
+          'Semester End',
+          selectedSemesterData?.end_date ||
             '',
         ],
         [],
@@ -1297,8 +1305,8 @@ export default function AttendanceReportsPage() {
             ''
           );
 
-      const safeTermName =
-        termName
+      const safeSemesterName =
+        semesterName
           .replace(
             /[^a-zA-Z0-9-_]+/g,
             '-'
@@ -1309,7 +1317,7 @@ export default function AttendanceReportsPage() {
           );
 
       const filename =
-        `BTI-Attendance-${safeClassName}-${safeYearName}-${safeTermName}.xlsx`;
+        `BTI-Attendance-${safeClassName}-${safeYearName}-${safeSemesterName}.xlsx`;
 
       XLSX.writeFile(
         workbook,
@@ -1551,7 +1559,7 @@ export default function AttendanceReportsPage() {
 
               </div>
 
-              {/* Term */}
+              {/* Semester */}
               <div>
 
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1563,9 +1571,9 @@ export default function AttendanceReportsPage() {
                   <i className="fa-solid fa-layer-group pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
 
                   <select
-                    value={selectedTerm}
+                    value={selectedSemester}
                     onChange={(e) =>
-                      setSelectedTerm(
+                      setSelectedSemester(
                         e.target.value
                       )
                     }
@@ -1575,17 +1583,17 @@ export default function AttendanceReportsPage() {
                     className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-9 text-sm font-medium text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <option value="">
-                      Select term
+                      Select semester
                     </option>
 
                     {terms.map(
-                      (term) => (
+                      (semester) => (
                         <option
-                          key={term.id}
-                          value={term.id}
+                          key={semester.id}
+                          value={semester.id}
                         >
-                          {term.name}
-                          {term.is_current
+                          {semester.name}
+                          {semester.is_current
                             ? ' — Current'
                             : ''}
                         </option>
@@ -1727,20 +1735,11 @@ export default function AttendanceReportsPage() {
                       Select class
                     </option>
 
-                    {filteredClasses.map(
-                      (item) => (
-                        <option
-                          key={item.id}
-                          value={item.id}
-                        >
-                          {item.name}
-                          {item.level
-                            ? ` — ${item.level}`
-                            : ''}
-                        </option>
-                      )
-                    )}
-
+                    {CLASS_LETTERS.map((letter) => (
+                      <option key={letter} value={letter}>
+                        {letter}
+                      </option>
+                    ))}
                   </select>
 
                   <i className="fa-solid fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400" />
@@ -2253,7 +2252,7 @@ export default function AttendanceReportsPage() {
                       </span>
 
                       <span className="text-right text-sm font-bold text-slate-800">
-                        {selectedTermData?.name ||
+                        {selectedSemesterData?.name ||
                           '—'}
                       </span>
                     </div>
@@ -2306,12 +2305,12 @@ export default function AttendanceReportsPage() {
 
                       <span className="text-right text-sm font-bold text-slate-800">
                         {formatDate(
-                          selectedTermData?.start_date ||
+                          selectedSemesterData?.start_date ||
                             null
                         )}
                         {' – '}
                         {formatDate(
-                          selectedTermData?.end_date ||
+                          selectedSemesterData?.end_date ||
                             null
                         )}
                       </span>
@@ -2834,7 +2833,7 @@ export default function AttendanceReportsPage() {
                         </p>
 
                         <p className="mt-1 text-sm font-bold text-slate-800">
-                          {selectedTermData?.name ||
+                          {selectedSemesterData?.name ||
                             '—'}
                         </p>
 
