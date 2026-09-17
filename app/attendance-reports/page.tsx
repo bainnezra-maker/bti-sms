@@ -573,8 +573,28 @@ export default function AttendanceReportsPage() {
         );
 
       /*
-       * ACTIVE STUDENTS IN CLASS
+       * ACTIVE STUDENTS IN SELECTED CLASS LETTER
+       *
+       * The visible Class filter is A-F, while the database stores
+       * separate class rows for each programme/form. Resolve the
+       * selected letter to all matching class IDs first.
        */
+      const selectedClassIds = filteredClasses
+        .filter(
+          (item) =>
+            getClassLetter(item.name) === selectedClass
+        )
+        .map((item) => item.id);
+
+      if (selectedClassIds.length === 0) {
+        setStudents([]);
+        setAttendance([]);
+        setMessage(
+          'There are no matching classes for the selected programme, form and class.'
+        );
+        setLoadingReport(false);
+        return;
+      }
 
       const {
         data: enrollmentData,
