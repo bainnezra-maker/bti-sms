@@ -989,7 +989,7 @@ export default function ClassesPage() {
                           {students.map((entry, index) => (
                             <Link
                               key={entry.id}
-                              href={entry.student ? \`/students/\${entry.student.id}\` : '#'}
+                              href={entry.student ? `/students/${entry.student.id}` : '#'}
                               className="group flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-indigo-50"
                             >
                               <div className="flex min-w-0 items-center gap-3">
