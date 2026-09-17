@@ -1246,589 +1246,99 @@ export default function StudentsPage() {
 
             </div>
 
-            {/* Forms */}
+            {/* Forms → Programmes → Students */}
             <div className="space-y-4">
+              {formGroups.map((form) => {
+                const formOpen = openForms.includes(form.formName);
 
-              {formGroups.map(
-                (form) => {
-                  const formOpen =
-                    openForms.includes(
-                      form.formName
-                    );
-
-                  return (
-                    <div
-                      key={form.formName}
-                      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                return (
+                  <section
+                    key={form.formName}
+                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleItem(form.formName, setOpenForms)}
+                      className="group flex w-full items-center justify-between gap-4 bg-gradient-to-r from-blue-50 to-white p-5 text-left transition hover:from-blue-100"
                     >
+                      <span className="flex items-center gap-3">
+                        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                          <FontAwesomeIcon icon={faGraduationCap} className="animate-pulse" />
+                        </span>
+                        <span>
+                          <span className="block font-black text-slate-900">{form.formName}</span>
+                          <span className="text-xs text-slate-500">{form.students.length} student(s) across {form.programmes.length} programme(s)</span>
+                        </span>
+                      </span>
+                      <FontAwesomeIcon icon={formOpen ? faChevronDown : faChevronRight} className="text-slate-400 transition-transform duration-300 group-hover:translate-x-1" />
+                    </button>
 
-                      {/* FORM */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          toggleItem(
-                            form.formName,
-                            setOpenForms
-                          )
-                        }
-                        className="group flex w-full items-center justify-between gap-4 bg-gradient-to-r from-blue-50 to-white p-5 text-left transition hover:from-blue-100"
-                      >
-                        <div className="flex min-w-0 items-center gap-4">
+                    {formOpen && (
+                      <div className="space-y-3 bg-slate-50 p-4">
+                        {form.programmes.map((programme) => {
+                          const programmeKey = `${form.formName}-${programme.programmeId}`;
+                          const programmeOpen = openProgrammes.includes(programmeKey);
 
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition-transform duration-300 group-hover:scale-105">
-                            <FontAwesomeIcon
-                              icon={
-                                faGraduationCap
-                              }
-                              className={
-                                formOpen
-                                  ? 'animate-pulse'
-                                  : ''
-                              }
-                            />
-                          </div>
+                          return (
+                            <div key={programmeKey} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                              <button
+                                type="button"
+                                onClick={() => toggleItem(programmeKey, setOpenProgrammes)}
+                                className="flex w-full items-center justify-between gap-3 p-4 text-left transition hover:bg-cyan-50"
+                              >
+                                <span className="flex items-center gap-3">
+                                  <FontAwesomeIcon icon={faLayerGroup} className="text-cyan-600 animate-pulse" />
+                                  <span>
+                                    <span className="block font-bold text-slate-900">{programme.programmeName}</span>
+                                    <span className="text-xs text-slate-500">{programme.students.length} student(s)</span>
+                                  </span>
+                                </span>
+                                <FontAwesomeIcon icon={programmeOpen ? faChevronDown : faChevronRight} className="text-slate-400" />
+                              </button>
 
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
-                              Form
-                            </p>
+                              {programmeOpen && (
+                                <div className="grid gap-3 border-t border-slate-100 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                                  {programme.students
+                                    .slice()
+                                    .sort((a, b) => a.full_name.localeCompare(b.full_name))
+                                    .map((student) => {
+                                      const academicInfo = currentAcademicInfo.get(student.id);
+                                      const className = academicInfo?.className || 'Class not assigned';
+                                      const isDay = student.resident === 'Day';
+                                      const isBoarding = student.resident === 'Boarding';
 
-                            <h2 className="truncate text-xl font-bold text-slate-900">
-                              {form.formName}
-                            </h2>
-
-                            <p className="mt-1 text-sm text-slate-500">
-                              {form.students.length}{' '}
-                              {form.students.length ===
-                              1
-                                ? 'student'
-                                : 'students'}
-                            </p>
-                          </div>
-
-                        </div>
-
-                        <FontAwesomeIcon
-                          icon={
-                            formOpen
-                              ? faChevronDown
-                              : faChevronRight
-                          }
-                          className="shrink-0 text-blue-600 transition-transform duration-300"
-                        />
-                      </button>
-
-                      {/* PROGRAMMES */}
-                      {formOpen && (
-                        <div className="border-t border-slate-100 bg-slate-50 p-3 sm:p-5">
-
-                          <div className="space-y-3">
-
-                            {form.programmes.map(
-                              (programme) => {
-                                const programmeKey =
-                                  `${form.formName}-${programme.programmeId}`;
-
-                                const programmeOpen =
-                                  openProgrammes.includes(
-                                    programmeKey
-                                  );
-
-                                return (
-                                  <div
-                                    key={
-                                      programmeKey
-                                    }
-                                    className="overflow-hidden rounded-xl border border-slate-200 bg-white"
-                                  >
-
-                                    {/* PROGRAMME */}
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        toggleItem(
-                                          programmeKey,
-                                          setOpenProgrammes
-                                        )
-                                      }
-                                      className="group flex w-full items-center justify-between gap-4 p-4 text-left transition hover:bg-slate-50"
-                                    >
-                                      <div className="flex min-w-0 items-center gap-3">
-
-                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 transition-transform duration-300 group-hover:scale-105">
-                                          <FontAwesomeIcon
-                                            icon={
-                                              faBuildingColumns
-                                            }
-                                            className={
-                                              programmeOpen
-                                                ? 'animate-pulse'
-                                                : ''
-                                            }
-                                          />
+                                      return (
+                                        <div key={student.id} className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md">
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                              <p className="truncate font-black text-slate-900">{student.full_name}</p>
+                                              <p className="mt-1 text-xs text-slate-500">{student.admission_number}</p>
+                                            </div>
+                                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700 transition group-hover:scale-105">
+                                              <FontAwesomeIcon icon={faSchool} className="animate-bounce" />
+                                              {className}
+                                            </span>
+                                          </div>
+                                          <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
+                                            <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-cyan-700">{programme.programmeName}</span>
+                                            <span className={isBoarding ? 'rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-700' : isDay ? 'rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700' : 'rounded-full bg-slate-100 px-2.5 py-1 text-slate-600'}>
+                                              <FontAwesomeIcon icon={isBoarding ? faBed : faHouse} className="mr-1" />
+                                              {student.resident || 'Residence not provided'}
+                                            </span>
+                                          </div>
                                         </div>
-
-                                        <div className="min-w-0">
-                                          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                                            Department / Programme
-                                          </p>
-
-                                          <h3 className="truncate font-bold text-slate-800">
-                                            {
-                                              programme.programmeName
-                                            }
-                                          </h3>
-
-                                          <p className="text-xs text-slate-500">
-                                            {
-                                              programme.students.length
-                                            }{' '}
-                                            {
-                                              programme.students
-                                                .length ===
-                                              1
-                                                ? 'student'
-                                                : 'students'
-                                            }
-                                          </p>
-                                        </div>
-
-                                      </div>
-
-                                      <FontAwesomeIcon
-                                        icon={
-                                          programmeOpen
-                                            ? faChevronDown
-                                            : faChevronRight
-                                        }
-                                        className="shrink-0 text-slate-400 transition-transform duration-300"
-                                      />
-                                    </button>
-
-                                    {/* CLASSES */}
-                                    {programmeOpen && (
-                                      <div className="border-t border-slate-100 bg-slate-50 p-3">
-
-                                        <div className="space-y-2">
-
-                                          {programme.classes.map(
-                                            (
-                                              schoolClass
-                                            ) => {
-                                              const classKey =
-                                                `${form.formName}-${programme.programmeId}-${schoolClass.classId}`;
-
-                                              const classOpen =
-                                                openClasses.includes(
-                                                  classKey
-                                                );
-
-                                              return (
-                                                <div
-                                                  key={
-                                                    classKey
-                                                  }
-                                                  className="overflow-hidden rounded-xl border border-slate-200 bg-white"
-                                                >
-
-                                                  {/* CLASS */}
-                                                  <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                      toggleItem(
-                                                        classKey,
-                                                        setOpenClasses
-                                                      )
-                                                    }
-                                                    className="group flex w-full items-center justify-between gap-4 p-4 text-left transition hover:bg-blue-50"
-                                                  >
-                                                    <div className="flex min-w-0 items-center gap-3">
-
-                                                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 transition-transform duration-300 group-hover:scale-110">
-                                                        <FontAwesomeIcon
-                                                          icon={
-                                                            faBookOpen
-                                                          }
-                                                          className={
-                                                            classOpen
-                                                              ? 'animate-pulse'
-                                                              : ''
-                                                          }
-                                                        />
-                                                      </div>
-
-                                                      <div className="min-w-0">
-                                                        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                                                          Class
-                                                        </p>
-
-                                                        <h4 className="truncate font-semibold text-slate-800">
-                                                          {
-                                                            schoolClass.className
-                                                          }
-                                                        </h4>
-
-                                                        <p className="text-xs text-slate-500">
-                                                          {
-                                                            schoolClass
-                                                              .students
-                                                              .length
-                                                          }{' '}
-                                                          {
-                                                            schoolClass
-                                                              .students
-                                                              .length ===
-                                                            1
-                                                              ? 'student'
-                                                              : 'students'
-                                                          }
-                                                        </p>
-                                                      </div>
-
-                                                    </div>
-
-                                                    <FontAwesomeIcon
-                                                      icon={
-                                                        classOpen
-                                                          ? faChevronDown
-                                                          : faChevronRight
-                                                      }
-                                                      className="shrink-0 text-slate-400 transition-transform duration-300"
-                                                    />
-                                                  </button>
-
-                                                  {/* STUDENTS */}
-                                                  {classOpen && (
-                                                    <div className="border-t border-slate-100 bg-slate-50 p-3">
-
-                                                      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-
-                                                        {schoolClass.students.map(
-                                                          (
-                                                            student
-                                                          ) => {
-                                                            const academicInfo =
-                                                              currentAcademicInfo.get(
-                                                                student.id
-                                                              );
-
-                                                            const isDeleting =
-                                                              deletingId ===
-                                                              student.id;
-
-                                                            const isBoarding =
-                                                              student.resident ===
-                                                              'Boarding';
-
-                                                            const isDay =
-                                                              student.resident ===
-                                                              'Day';
-
-                                                            return (
-                                                              <div
-                                                                key={
-                                                                  student.id
-                                                                }
-                                                                className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-md"
-                                                              >
-
-                                                                {/* Student Header */}
-                                                                <div className="flex items-start justify-between gap-3">
-
-                                                                  <div className="flex min-w-0 items-center gap-3">
-
-                                                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 transition-transform duration-300 group-hover:scale-105">
-                                                                      <FontAwesomeIcon
-                                                                        icon={
-                                                                          faUserGraduate
-                                                                        }
-                                                                      />
-                                                                    </div>
-
-                                                                    <div className="min-w-0">
-                                                                      <h5 className="truncate font-bold text-slate-900">
-                                                                        {
-                                                                          student.full_name
-                                                                        }
-                                                                      </h5>
-
-                                                                      <p className="text-xs text-slate-500">
-                                                                        {
-                                                                          student.admission_number
-                                                                        }
-                                                                      </p>
-                                                                    </div>
-
-                                                                  </div>
-
-                                                                  <span
-                                                                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
-                                                                      student.status ===
-                                                                      'active'
-                                                                        ? 'bg-green-100 text-green-700'
-                                                                        : student.status ===
-                                                                          'graduated'
-                                                                        ? 'bg-blue-100 text-blue-700'
-                                                                        : 'bg-orange-100 text-orange-700'
-                                                                    }`}
-                                                                  >
-                                                                    {
-                                                                      student.status
-                                                                    }
-                                                                  </span>
-
-                                                                </div>
-
-                                                                {/* Residence Badge */}
-                                                                <div className="mt-4">
-                                                                  {isBoarding ? (
-                                                                    <div className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">
-                                                                      <FontAwesomeIcon
-                                                                        icon={
-                                                                          faBed
-                                                                        }
-                                                                      />
-                                                                      Boarding Student
-                                                                    </div>
-                                                                  ) : isDay ? (
-                                                                    <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
-                                                                      <FontAwesomeIcon
-                                                                        icon={
-                                                                          faHouse
-                                                                        }
-                                                                      />
-                                                                      Day Student
-                                                                    </div>
-                                                                  ) : (
-                                                                    <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
-                                                                      <FontAwesomeIcon
-                                                                        icon={
-                                                                          faHouse
-                                                                        }
-                                                                      />
-                                                                      Residence Not Provided
-                                                                    </div>
-                                                                  )}
-                                                                </div>
-
-                                                                {/* Student Information */}
-                                                                <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
-
-                                                                  <div>
-                                                                    <p className="text-[11px] text-slate-400">
-                                                                      Gender
-                                                                    </p>
-
-                                                                    <p className="mt-1 text-xs font-medium text-slate-700">
-                                                                      {student.gender ||
-                                                                        'Not provided'}
-                                                                    </p>
-                                                                  </div>
-
-                                                                  <div>
-                                                                    <p className="text-[11px] text-slate-400">
-                                                                      Residence
-                                                                    </p>
-
-                                                                    <p
-                                                                      className={`mt-1 flex items-center gap-1.5 text-xs font-bold ${
-                                                                        isBoarding
-                                                                          ? 'text-indigo-700'
-                                                                          : isDay
-                                                                          ? 'text-emerald-700'
-                                                                          : 'text-slate-500'
-                                                                      }`}
-                                                                    >
-                                                                      <FontAwesomeIcon
-                                                                        icon={
-                                                                          isBoarding
-                                                                            ? faBed
-                                                                            : faHouse
-                                                                        }
-                                                                        className="text-[10px]"
-                                                                      />
-
-                                                                      {student.resident ||
-                                                                        'Not provided'}
-                                                                    </p>
-                                                                  </div>
-
-                                                                  <div>
-                                                                    <p className="text-[11px] text-slate-400">
-                                                                      JHS Aggregate
-                                                                    </p>
-
-                                                                    <p className="mt-1 text-xs font-semibold text-blue-700">
-                                                                      {student.jhs_aggregate !==
-                                                                        null &&
-                                                                      student.jhs_aggregate !==
-                                                                        undefined
-                                                                        ? student.jhs_aggregate
-                                                                        : 'Not provided'}
-                                                                    </p>
-                                                                  </div>
-
-                                                                  <div>
-                                                                    <p className="text-[11px] text-slate-400">
-                                                                      Guardian
-                                                                    </p>
-
-                                                                    <p className="mt-1 truncate text-xs font-medium text-slate-700">
-                                                                      {student.guardian_name ||
-                                                                        'Not provided'}
-                                                                    </p>
-                                                                  </div>
-
-                                                                  <div>
-                                                                    <p className="text-[11px] text-slate-400">
-                                                                      Guardian Phone
-                                                                    </p>
-
-                                                                    <p className="mt-1 truncate text-xs font-medium text-slate-700">
-                                                                      {student.guardian_phone ||
-                                                                        'Not provided'}
-                                                                    </p>
-                                                                  </div>
-
-                                                                </div>
-
-                                                                {/* Actions */}
-                                                                <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3">
-
-                                                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-
-                                                                    <Link
-                                                                      href={`/students/${student.id}`}
-                                                                      className="group inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                                                                    >
-                                                                      <FontAwesomeIcon
-                                                                        icon={
-                                                                          faUserGraduate
-                                                                        }
-                                                                        className="transition-transform duration-300 group-hover:scale-110"
-                                                                      />
-                                                                      View Profile
-                                                                    </Link>
-
-                                                                    <Link
-                                                                      href={`/students/edit/${student.id}`}
-                                                                      className="group inline-flex items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
-                                                                    >
-                                                                      <FontAwesomeIcon
-                                                                        icon={
-                                                                          faUserEdit
-                                                                        }
-                                                                        className="transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
-                                                                      />
-                                                                      Edit Student
-                                                                    </Link>
-
-                                                                  </div>
-
-                                                                  {student.status ===
-                                                                    'active' && (
-                                                                    <Link
-                                                                      href="/students/student-account"
-                                                                      className="group inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
-                                                                    >
-                                                                      <FontAwesomeIcon
-                                                                        icon={
-                                                                          faUserPlus
-                                                                        }
-                                                                        className="transition-transform duration-300 group-hover:scale-110"
-                                                                      />
-                                                                      Create Login
-                                                                    </Link>
-                                                                  )}
-
-                                                                  <button
-                                                                    type="button"
-                                                                    disabled={
-                                                                      isDeleting ||
-                                                                      deletingId !==
-                                                                        null
-                                                                    }
-                                                                    onClick={() =>
-                                                                      deleteStudent(
-                                                                        student.id,
-                                                                        student.full_name
-                                                                      )
-                                                                    }
-                                                                    className={`group self-start rounded-lg px-3 py-2 text-xs font-medium transition ${
-                                                                      isDeleting
-                                                                        ? 'cursor-not-allowed bg-red-50 text-red-400'
-                                                                        : 'text-red-600 hover:bg-red-50'
-                                                                    }`}
-                                                                  >
-                                                                    <FontAwesomeIcon
-                                                                      icon={
-                                                                        faTrash
-                                                                      }
-                                                                      className={`mr-2 transition-transform duration-300 ${
-                                                                        isDeleting
-                                                                          ? 'animate-pulse'
-                                                                          : 'group-hover:scale-110'
-                                                                      }`}
-                                                                    />
-
-                                                                    {isDeleting
-                                                                      ? 'Deleting...'
-                                                                      : 'Delete'}
-                                                                  </button>
-
-                                                                </div>
-
-                                                                {/* Academic Info */}
-                                                                {academicInfo?.academicYearName && (
-                                                                  <p className="mt-3 flex items-center gap-2 text-[11px] text-slate-400">
-                                                                    <FontAwesomeIcon
-                                                                      icon={
-                                                                        faCircleCheck
-                                                                      }
-                                                                      className="text-green-500"
-                                                                    />
-
-                                                                    {
-                                                                      academicInfo.academicYearName
-                                                                    }
-                                                                  </p>
-                                                                )}
-
-                                                              </div>
-                                                            );
-                                                          }
-                                                        )}
-
-                                                      </div>
-
-                                                    </div>
-                                                  )}
-
-                                                </div>
-                                              );
-                                            }
-                                          )}
-
-                                        </div>
-
-                                      </div>
-                                    )}
-
-                                  </div>
-                                );
-                              }
-                            )}
-
-                          </div>
-
-                        </div>
-                      )}
-
-                    </div>
-                  );
-                }
-              )}
-
+                                      );
+                                    })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           </div>
         )}
