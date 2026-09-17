@@ -685,17 +685,8 @@ export default function StudentImportPage() {
           return;
         }
 
-        if (row.resident && !residence) {
-          addResult({
-            row: rowNumber,
-            status: 'skipped',
-            type: 'warning',
-            message:
-              'Skipped before import: RESIDENCE must be Day or Boarding.',
-          });
-          return;
-        }
-
+        // Residence is optional during import. Leave it blank when it
+        // is not Day or Boarding so an administrator can complete it later.
         if (row.jhs_aggregate) {
           const aggregate = Number(
             String(row.jhs_aggregate).replace(/,/g, '').trim()
