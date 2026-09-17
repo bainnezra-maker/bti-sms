@@ -237,7 +237,7 @@ export default function AttendancePage() {
       }
 
       const authorized = ((data ?? []) as ClassItem[]).filter(c =>
-        yearAssignments.some(a =>
+        subjectAssignments.some(a =>
           (a.programme_ids ?? []).includes(c.programme_id ?? '') &&
           (a.forms ?? []).includes(c.level ?? '')
         )
@@ -245,7 +245,7 @@ export default function AttendancePage() {
       setClasses(authorized);
     }
     loadClasses();
-  }, [profile, selectedYear, assignedProgrammeIds.join('|'), assignedForms.join('|')]);
+  }, [profile, selectedYear, selectedSubject, assignedProgrammeIds.join('|'), assignedForms.join('|')]);
 
   const visibleClasses = useMemo(() => {
     return classes.filter(c => {
@@ -415,9 +415,9 @@ export default function AttendancePage() {
   }
 
   async function saveAttendance() {
-    if (!profile || !students.length || !selectedDate) {
+    if (!profile || !selectedSubject || !students.length || !selectedDate) {
       setMessageType('error');
-      setMessage('Select an assigned group with students before submitting attendance.');
+      setMessage('Select an assigned subject and a group with students before submitting attendance.');
       return;
     }
 
@@ -429,8 +429,10 @@ export default function AttendancePage() {
       school_id: profile.school_id,
       class_id: student.classId,
       date: selectedDate,
+      subject_id: selectedSubject,
       status: marks[student.id] ?? 'present',
       recorded_by: profile.id,
+      submitted_at: new Date().toISOString(),
     }));
 
     const { error } = await supabase
