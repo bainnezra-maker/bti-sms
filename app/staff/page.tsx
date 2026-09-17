@@ -140,6 +140,67 @@ const dutyStatusIcons: Record<DutyStatus, string> = {
   cancelled: 'fa-solid fa-circle-xmark',
 };
 
+const teachingDepartments = [
+  { code: 'BCT', name: 'Building & Construction Technology', icon: 'fa-solid fa-building' },
+  { code: 'CHT', name: 'Computer Hardware Technology', icon: 'fa-solid fa-computer' },
+  { code: 'EET', name: 'Electrical Engineering', icon: 'fa-solid fa-bolt' },
+  { code: 'FDT', name: 'Fashion Design Technology', icon: 'fa-solid fa-shirt' },
+  { code: 'HCM', name: 'Hospitality & Catering Management', icon: 'fa-solid fa-utensils' },
+  { code: 'LWT', name: 'Leatherworks Technology', icon: 'fa-solid fa-bag-shopping' },
+  { code: 'MVE', name: 'Motor Vehicle Engineering', icon: 'fa-solid fa-car' },
+  { code: 'REF', name: 'Refrigeration & Air Conditioning', icon: 'fa-solid fa-snowflake' },
+  { code: 'WFT', name: 'Welding & Fabrication Technology', icon: 'fa-solid fa-fire-flame-simple' },
+  { code: 'WCT', name: 'Wood Construction Technology', icon: 'fa-solid fa-hammer' },
+  { code: 'Generics', name: 'Generics', icon: 'fa-solid fa-book-open-reader' },
+] as const;
+
+function canonicalTeachingDepartment(value: string | null | undefined) {
+  const normalized = (value || '').trim().toLowerCase();
+  if (!normalized) return '';
+
+  const aliases: Record<string, string> = {
+    bct: 'BCT',
+    'building & construction technology': 'BCT',
+    'building and construction technology': 'BCT',
+    cht: 'CHT',
+    it: 'CHT',
+    'computer hardware technology': 'CHT',
+    eet: 'EET',
+    electrical: 'EET',
+    'electrical engineering': 'EET',
+    fdt: 'FDT',
+    fashion: 'FDT',
+    'fashion design technology': 'FDT',
+    hcm: 'HCM',
+    catering: 'HCM',
+    'hospitality & catering management': 'HCM',
+    'hospitality and catering management': 'HCM',
+    lwt: 'LWT',
+    leather: 'LWT',
+    leatherworks: 'LWT',
+    'leatherworks technology': 'LWT',
+    mve: 'MVE',
+    mv: 'MVE',
+    'motor vehicle engineering': 'MVE',
+    ref: 'REF',
+    refrigeration: 'REF',
+    'refrigeration & air conditioning technology': 'REF',
+    'refrigeration and air conditioning technology': 'REF',
+    wft: 'WFT',
+    welding: 'WFT',
+    'welding & fabrication technology': 'WFT',
+    'welding and fabrication technology': 'WFT',
+    wct: 'WCT',
+    carpentry: 'WCT',
+    'wood construction technology': 'WCT',
+    generic: 'Generics',
+    generics: 'Generics',
+    general: 'Generics',
+  };
+
+  return aliases[normalized] || value!.trim();
+}
+
 const inputClass =
   'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition duration-300 placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-100';
 
@@ -297,7 +358,7 @@ export default function StaffPage() {
   const [message, setMessage] = useState('');
 
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState<'teaching' | 'non_teaching'>('teaching');
   const [statusFilter, setStatusFilter] = useState('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
 
@@ -513,6 +574,11 @@ export default function StaffPage() {
       return;
     }
 
+    if (form.staff_category === 'teaching' && !form.department.trim()) {
+      setError('Please select a teaching department.');
+      return;
+    }
+
     setSaving(true);
 
     const payload = {
@@ -525,7 +591,10 @@ export default function StaffPage() {
       email: form.email.trim() || null,
       address: form.address.trim() || null,
       staff_category: form.staff_category,
-      department: form.department.trim() || null,
+      department:
+        form.staff_category === 'teaching'
+          ? canonicalTeachingDepartment(form.department) || null
+          : form.department.trim() || null,
       position: form.position.trim() || null,
       qualification: form.qualification.trim() || null,
       specialization: form.specialization.trim() || null,
@@ -1068,56 +1137,46 @@ export default function StaffPage() {
       });
   }
 
-  const departments = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          staff
-            .map((person) => person.department?.trim())
-            .filter(Boolean) as string[]
-        )
-      ).sort((a, b) => a.localeCompare(b)),
-    [staff]
-  );
+  const teachingDepartmentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    teachingDepartments.forEach((department) => {
+      counts[department.code] = 0;
+    });
+
+    staff.forEach((person) => {
+      if (person.staff_category !== 'teaching') return;
+      const code = canonicalTeachingDepartment(person.department);
+      if (code in counts) counts[code] += 1;
+    });
+
+    return counts;
+  }, [staff]);
 
   const filteredStaff = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return staff.filter((person) => {
+      const canonicalDepartment = canonicalTeachingDepartment(person.department);
       const matchesSearch =
         !query ||
         person.full_name.toLowerCase().includes(query) ||
         person.staff_number.toLowerCase().includes(query) ||
         (person.department || '').toLowerCase().includes(query) ||
+        canonicalDepartment.toLowerCase().includes(query) ||
         (person.position || '').toLowerCase().includes(query) ||
         (person.phone || '').toLowerCase().includes(query);
 
-      const matchesCategory =
-        categoryFilter === 'all' ||
-        person.staff_category === categoryFilter;
-
+      const matchesCategory = person.staff_category === categoryFilter;
       const matchesStatus =
-        statusFilter === 'all' ||
-        person.status === statusFilter;
-
+        statusFilter === 'all' || person.status === statusFilter;
       const matchesDepartment =
+        categoryFilter !== 'teaching' ||
         departmentFilter === 'all' ||
-        person.department === departmentFilter;
+        canonicalDepartment === departmentFilter;
 
-      return (
-        matchesSearch &&
-        matchesCategory &&
-        matchesStatus &&
-        matchesDepartment
-      );
+      return matchesSearch && matchesCategory && matchesStatus && matchesDepartment;
     });
-  }, [
-    staff,
-    search,
-    categoryFilter,
-    statusFilter,
-    departmentFilter,
-  ]);
+  }, [staff, search, categoryFilter, statusFilter, departmentFilter]);
 
   const stats = useMemo(
     () => ({
@@ -1649,61 +1708,25 @@ export default function StaffPage() {
 
           {/* SEARCH / FILTERS */}
           <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition duration-300 hover:shadow-md sm:p-5">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-              <div className="relative xl:col-span-2">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px]">
+              <div className="relative">
                 <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition duration-300" />
-
                 <input
                   value={search}
-                  onChange={(event) =>
-                    setSearch(event.target.value)
-                  }
+                  onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search name, Staff ID, department, position..."
                   className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition duration-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                 />
               </div>
 
               <select
-                value={categoryFilter}
-                onChange={(event) =>
-                  setCategoryFilter(event.target.value)
-                }
-                className={inputClass}
-              >
-                <option value="all">All Categories</option>
-                <option value="teaching">Teaching</option>
-                <option value="non_teaching">Non-Teaching</option>
-              </select>
-
-              <select
                 value={statusFilter}
-                onChange={(event) =>
-                  setStatusFilter(event.target.value)
-                }
+                onChange={(event) => setStatusFilter(event.target.value)}
                 className={inputClass}
               >
                 <option value="all">All Statuses</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
-              </select>
-
-              <select
-                value={departmentFilter}
-                onChange={(event) =>
-                  setDepartmentFilter(event.target.value)
-                }
-                className={inputClass}
-              >
-                <option value="all">All Departments</option>
-
-                {departments.map((department) => (
-                  <option
-                    key={department}
-                    value={department}
-                  >
-                    {department}
-                  </option>
-                ))}
               </select>
             </div>
           </div>
@@ -1717,8 +1740,7 @@ export default function StaffPage() {
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Showing {filteredStaff.length} of {staff.length}{' '}
-                  staff member{staff.length === 1 ? '' : 's'}
+                  Showing {filteredStaff.length} {categoryFilter === 'teaching' ? 'teaching' : 'non-teaching'} staff member{filteredStaff.length === 1 ? '' : 's'}
                 </p>
               </div>
 
@@ -1726,6 +1748,86 @@ export default function StaffPage() {
                 <i className="fa-solid fa-building-columns" />
                 BTI Staff Records
               </div>
+            </div>
+
+            <div className="border-b border-slate-200 bg-slate-50/60 p-4 sm:p-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {[
+                  { key: 'teaching', label: 'Teaching Staff', count: stats.teaching, icon: 'fa-solid fa-chalkboard-user' },
+                  { key: 'non_teaching', label: 'Non-Teaching Staff', count: stats.nonTeaching, icon: 'fa-solid fa-briefcase' },
+                ].map((item) => {
+                  const selected = categoryFilter === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => {
+                        setCategoryFilter(item.key as 'teaching' | 'non_teaching');
+                        setDepartmentFilter('all');
+                      }}
+                      className={`group flex items-center justify-between rounded-2xl border p-4 text-left transition duration-300 hover:-translate-y-1 hover:shadow-lg ${
+                        selected
+                          ? 'border-slate-900 bg-slate-900 text-white shadow-lg'
+                          : 'border-slate-200 bg-white text-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`flex h-11 w-11 items-center justify-center rounded-xl transition duration-300 group-hover:scale-110 ${selected ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-700 group-hover:bg-slate-900 group-hover:text-white'}`}>
+                          <i className={item.icon} />
+                        </div>
+                        <div>
+                          <p className="font-bold">{item.label}</p>
+                          <p className={`mt-0.5 text-xs ${selected ? 'text-slate-300' : 'text-slate-500'}`}>
+                            {item.count} staff member{item.count === 1 ? '' : 's'}
+                          </p>
+                        </div>
+                      </div>
+                      <i className={`fa-solid fa-chevron-right transition duration-300 ${selected ? 'translate-x-1' : 'group-hover:translate-x-1'}`} />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {categoryFilter === 'teaching' && (
+                <div className="mt-5 animate-[btiStaffFadeUp_.35s_ease-out]">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">Teaching Departments</h3>
+                      <p className="mt-1 text-xs text-slate-500">Select a department to view its teachers.</p>
+                    </div>
+                    {departmentFilter !== 'all' && (
+                      <button type="button" onClick={() => setDepartmentFilter('all')} className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-900 hover:text-white">
+                        <i className="fa-solid fa-layer-group" /> All Departments
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                    {teachingDepartments.map((department, index) => {
+                      const selected = departmentFilter === department.code;
+                      const count = teachingDepartmentCounts[department.code] || 0;
+                      return (
+                        <button
+                          key={department.code}
+                          type="button"
+                          style={{ animationDelay: `${index * 35}ms` }}
+                          onClick={() => setDepartmentFilter(selected ? 'all' : department.code)}
+                          className={`bti-staff-card group rounded-2xl border p-4 text-left transition duration-300 hover:-translate-y-1 hover:shadow-lg ${selected ? 'border-slate-900 bg-slate-900 text-white shadow-lg' : 'border-slate-200 bg-white'}`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition duration-300 group-hover:scale-110 group-hover:rotate-3 ${selected ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-700 group-hover:bg-slate-900 group-hover:text-white'}`}>
+                              <i className={department.icon} />
+                            </div>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${selected ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-600'}`}>{count}</span>
+                          </div>
+                          <p className="mt-3 text-sm font-extrabold">{department.code}</p>
+                          <p className={`mt-1 text-[11px] leading-4 ${selected ? 'text-slate-300' : 'text-slate-500'}`}>{department.name}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {loading ? (
@@ -2467,18 +2569,32 @@ export default function StaffPage() {
                   />
                 </Field>
 
-                <Field label="Department">
-                  <input
-                    value={form.department}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        department: event.target.value,
-                      })
-                    }
-                    placeholder="e.g. Science"
-                    className={inputClass}
-                  />
+                <Field label="Department" required={form.staff_category === 'teaching'}>
+                  {form.staff_category === 'teaching' ? (
+                    <select
+                      value={canonicalTeachingDepartment(form.department)}
+                      onChange={(event) =>
+                        setForm({ ...form, department: event.target.value })
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">Select teaching department</option>
+                      {teachingDepartments.map((department) => (
+                        <option key={department.code} value={department.code}>
+                          {department.code} — {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={form.department}
+                      onChange={(event) =>
+                        setForm({ ...form, department: event.target.value })
+                      }
+                      placeholder="e.g. Administration, Accounts, Security"
+                      className={inputClass}
+                    />
+                  )}
                 </Field>
 
                 <Field label="Position / Role">
