@@ -92,6 +92,9 @@ export default function TeacherClassesPage() {
 
   const [selectedYearId, setSelectedYearId] = useState('');
   const [search, setSearch] = useState('');
+  const [selectedForm, setSelectedForm] = useState('all');
+  const [selectedDepartment, setSelectedDepartment] = useState('all');
+  const [selectedClassName, setSelectedClassName] = useState('all');
 
   const [workspaceClasses, setWorkspaceClasses] = useState<
     ClassWorkspace[]
@@ -291,14 +294,55 @@ export default function TeacherClassesPage() {
   }
 
 
+  const assignedForms = useMemo(() => {
+    const forms = assignments
+      .filter((assignment) => assignment.academic_year_id === selectedYearId)
+      .flatMap((assignment) => assignment.forms ?? []);
+    return Array.from(new Set(forms)).sort();
+  }, [assignments, selectedYearId]);
+
+  const departmentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    workspaceClasses.forEach((item) => {
+      if (item.programmeId && item.programmeName) {
+        map.set(item.programmeId, item.programmeName);
+      }
+    });
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [workspaceClasses]);
+
+  const classOptions = useMemo(() => {
+    return Array.from(
+      new Set(workspaceClasses.map((item) => item.className))
+    ).sort((a, b) => a.localeCompare(b));
+  }, [workspaceClasses]);
+
   const filteredClasses = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) {
-      return workspaceClasses;
-    }
-
     return workspaceClasses.filter((item) => {
+      if (selectedForm !== 'all' && item.level !== selectedForm) {
+        return false;
+      }
+
+      if (
+        selectedDepartment !== 'all' &&
+        item.programmeId !== selectedDepartment
+      ) {
+        return false;
+      }
+
+      if (
+        selectedClassName !== 'all' &&
+        item.className !== selectedClassName
+      ) {
+        return false;
+      }
+
+      if (!query) return true;
+
       const subjectText = item.subjects
         .map(
           (subject) =>
@@ -310,24 +354,48 @@ export default function TeacherClassesPage() {
       return (
         item.className.toLowerCase().includes(query) ||
         (item.level ?? '').toLowerCase().includes(query) ||
-        (item.programmeName ?? '')
-          .toLowerCase()
-          .includes(query) ||
-        item.academicYearName
-          .toLowerCase()
-          .includes(query) ||
-        item.semesterName.toLowerCase().includes(query) ||
+        (item.programmeName ?? '').toLowerCase().includes(query) ||
+        item.academicYearName.toLowerCase().includes(query) ||
         subjectText.includes(query)
       );
     });
-  }, [workspaceClasses, search]);
+  }, [
+    workspaceClasses,
+    search,
+    selectedForm,
+    selectedDepartment,
+    selectedClassName,
+  ]);
 
-  const totalStudents = useMemo(() => {
-    return workspaceClasses.reduce(
-      (total, item) => total + item.studentCount,
-      0
+  const filteredStudents = useMemo(() => {
+    const map = new Map<
+      string,
+      Student & {
+        form: string | null;
+        department: string | null;
+        className: string;
+      }
+    >();
+
+    filteredClasses.forEach((item) => {
+      item.students.forEach((student) => {
+        if (!map.has(student.id)) {
+          map.set(student.id, {
+            ...student,
+            form: item.level,
+            department: item.programmeName,
+            className: item.className,
+          });
+        }
+      });
+    });
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.full_name.localeCompare(b.full_name)
     );
-  }, [workspaceClasses]);
+  }, [filteredClasses]);
+
+  const totalStudents = filteredStudents.length;
 
   const totalSubjects = useMemo(() => {
     return workspaceClasses.reduce(
@@ -879,63 +947,127 @@ export default function TeacherClassesPage() {
           </div>
         )}
 
-        {/* Filters */}
+        {/* Assignment Filters */}
         <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="mb-4">
+            <h2 className="text-base font-black text-slate-900">
+              Find My Assigned Students
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Choose a form, department or class. Leave Department or Class on All to combine students across your assigned areas.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <div>
               <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                 Academic Year
               </label>
-
-              <div className="relative">
-                <i className="fa-solid fa-calendar-days pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-
-                <select
-                  value={selectedYearId}
-                  onChange={(event) =>
-                    setSelectedYearId(event.target.value)
-                  }
-                  className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                >
-                  {academicYears.length === 0 && (
-                    <option value="">
-                      No academic years found
-                    </option>
-                  )}
-
-                  {academicYears.map((year) => (
-                    <option
-                      key={year.id}
-                      value={year.id}
-                    >
-                      {year.name}
-                      {year.is_current
-                        ? ' — Current'
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={selectedYearId}
+                onChange={(event) => {
+                  setSelectedYearId(event.target.value);
+                  setSelectedForm('all');
+                  setSelectedDepartment('all');
+                  setSelectedClassName('all');
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              >
+                {academicYears.length === 0 && (
+                  <option value="">No academic years found</option>
+                )}
+                {academicYears.map((year) => (
+                  <option key={year.id} value={year.id}>
+                    {year.name}{year.is_current ? ' — Current' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
               <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                Search Classes
+                Form
               </label>
+              <select
+                value={selectedForm}
+                onChange={(event) => {
+                  setSelectedForm(event.target.value);
+                  setSelectedDepartment('all');
+                  setSelectedClassName('all');
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              >
+                <option value="all">All Assigned Forms</option>
+                {assignedForms.map((form) => (
+                  <option key={form} value={form}>{form}</option>
+                ))}
+              </select>
+            </div>
 
+            <div>
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Department
+              </label>
+              <select
+                value={selectedDepartment}
+                onChange={(event) => setSelectedDepartment(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              >
+                <option value="all">All Departments</option>
+                {departmentOptions.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Class
+              </label>
+              <select
+                value={selectedClassName}
+                onChange={(event) => setSelectedClassName(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              >
+                <option value="all">All Classes</option>
+                {classOptions.map((className) => (
+                  <option key={className} value={className}>
+                    {className}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Search
+              </label>
               <div className="relative">
                 <i className="fa-solid fa-magnifying-glass pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-
                 <input
                   value={search}
-                  onChange={(event) =>
-                    setSearch(event.target.value)
-                  }
-                  placeholder="Class, level or subject..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Student area..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
                 />
               </div>
             </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
+            <span className="rounded-full bg-blue-50 px-3 py-1.5 text-blue-700">
+              {selectedForm === 'all' ? 'All Assigned Forms' : selectedForm}
+            </span>
+            <span className="rounded-full bg-violet-50 px-3 py-1.5 text-violet-700">
+              {selectedDepartment === 'all'
+                ? 'All Departments'
+                : departmentOptions.find((item) => item.id === selectedDepartment)?.name ?? 'Department'}
+            </span>
+            <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700">
+              {selectedClassName === 'all' ? 'All Classes' : selectedClassName}
+            </span>
           </div>
         </div>
 
@@ -995,10 +1127,53 @@ export default function TeacherClassesPage() {
             </p>
 
             <p className="mt-1 text-xs font-semibold text-slate-500">
-              Active Semester
+              Academic Year
             </p>
           </div>
         </div>
+
+        {/* Combined filtered roster */}
+        {filteredStudents.length > 0 && (
+          <div className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+              <div>
+                <h2 className="font-black text-slate-900">Filtered Student List</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  This list combines students according to the Form, Department and Class filters above.
+                </p>
+              </div>
+              <span className="w-fit rounded-full bg-slate-950 px-3 py-1.5 text-xs font-black text-white">
+                {filteredStudents.length} Students
+              </span>
+            </div>
+            <div className="max-h-[520px] overflow-auto">
+              <table className="min-w-full">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-slate-200">
+                    <th className="px-4 py-3 text-left text-[11px] font-black uppercase text-slate-400">#</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-black uppercase text-slate-400">Student</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-black uppercase text-slate-400">Admission No.</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-black uppercase text-slate-400">Form</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-black uppercase text-slate-400">Department</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-black uppercase text-slate-400">Class</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStudents.map((student, index) => (
+                    <tr key={student.id} className="border-b border-slate-100 hover:bg-blue-50/40">
+                      <td className="px-4 py-3 text-sm font-bold text-slate-400">{index + 1}</td>
+                      <td className="px-4 py-3 text-sm font-bold text-slate-800">{student.full_name}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-slate-600">{student.admission_number || '—'}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-slate-600">{student.form || '—'}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-slate-600">{student.department || '—'}</td>
+                      <td className="px-4 py-3 text-sm font-black text-blue-700">{student.className}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Classes */}
         {loadingClasses ? (
