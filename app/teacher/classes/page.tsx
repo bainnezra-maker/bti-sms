@@ -42,24 +42,16 @@ type Student = {
 type Assignment = {
   id: string;
   teacher_id: string;
-  class_id: string;
+  academic_year_id: string;
   subject_id: string;
-  term_id: string;
-  class: {
-    id: string;
-    name: string;
-    level: string | null;
-    programme_id: string | null;
-  } | null;
+  programme_ids: string[];
+  forms: string[];
+  class_id: string | null;
+  term_id: string | null;
   subject: {
     id: string;
     name: string;
     code: string | null;
-  } | null;
-  term: {
-    id: string;
-    name: string;
-    academic_year_id: string;
   } | null;
 };
 
@@ -99,7 +91,6 @@ export default function TeacherClassesPage() {
   const [semesters, setSemesters] = useState<Semester[]>([]);
 
   const [selectedYearId, setSelectedYearId] = useState('');
-  const [selectedSemesterId, setSelectedSemesterId] = useState('');
   const [search, setSearch] = useState('');
 
   const [workspaceClasses, setWorkspaceClasses] = useState<
@@ -207,24 +198,16 @@ export default function TeacherClassesPage() {
             `
               id,
               teacher_id,
-              class_id,
+              academic_year_id,
               subject_id,
+              programme_ids,
+              forms,
+              class_id,
               term_id,
-              class:classes (
-                id,
-                name,
-                level,
-                programme_id
-              ),
               subject:subjects (
                 id,
                 name,
                 code
-              ),
-              term:terms (
-                id,
-                name,
-                academic_year_id
               )
             `
           )
@@ -296,34 +279,20 @@ export default function TeacherClassesPage() {
     return rows.map((row) => ({
       id: row.id,
       teacher_id: row.teacher_id,
-      class_id: row.class_id,
+      academic_year_id: row.academic_year_id,
       subject_id: row.subject_id,
-      term_id: row.term_id,
-
-      class: Array.isArray(row.class)
-        ? row.class[0] ?? null
-        : row.class ?? null,
-
+      programme_ids: Array.isArray(row.programme_ids)
+        ? row.programme_ids.filter(Boolean)
+        : [],
+      forms: Array.isArray(row.forms) ? row.forms.filter(Boolean) : [],
+      class_id: row.class_id ?? null,
+      term_id: row.term_id ?? null,
       subject: Array.isArray(row.subject)
         ? row.subject[0] ?? null
         : row.subject ?? null,
-
-      term: Array.isArray(row.term)
-        ? row.term[0] ?? null
-        : row.term ?? null,
     }));
   }
 
-  const availableSemesters = useMemo(() => {
-    if (!selectedYearId) {
-      return [];
-    }
-
-    return semesters.filter(
-      (semester) =>
-        semester.academic_year_id === selectedYearId
-    );
-  }, [semesters, selectedYearId]);
 
   const filteredClasses = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -371,11 +340,7 @@ export default function TeacherClassesPage() {
   }, [workspaceClasses]);
 
   useEffect(() => {
-    if (
-      !profile ||
-      !selectedYearId ||
-      !selectedSemesterId
-    ) {
+    if (!profile || !selectedYearId) {
       setWorkspaceClasses([]);
       return;
     }
@@ -384,7 +349,6 @@ export default function TeacherClassesPage() {
   }, [
     profile,
     selectedYearId,
-    selectedSemesterId,
     assignments,
   ]);
 
@@ -431,34 +395,16 @@ export default function TeacherClassesPage() {
   }
 
   async function loadClassesForSelection() {
-    if (
-      !profile ||
-      !selectedYearId ||
-      !selectedSemesterId
-    ) {
-      return;
-    }
+    if (!profile || !selectedYearId) return;
 
     try {
       setLoadingClasses(true);
       setError('');
 
-      const selectedSemester = semesters.find(
-        (semester) => semester.id === selectedSemesterId
-      );
-
-      if (
-        !selectedSemester ||
-        selectedSemester.academic_year_id !== selectedYearId
-      ) {
-        setWorkspaceClasses([]);
-        return;
-      }
-
+      // The assignment itself is now the source of truth:
+      // Academic Year + Programme(s) + Form(s) + Subject.
       const relevantAssignments = assignments.filter(
-        (assignment) =>
-          assignment.term_id === selectedSemesterId &&
-          assignment.term?.academic_year_id === selectedYearId
+        (assignment) => assignment.academic_year_id === selectedYearId
       );
 
       if (relevantAssignments.length === 0) {
@@ -467,179 +413,184 @@ export default function TeacherClassesPage() {
         return;
       }
 
-      const classIds = Array.from(
+      const programmeIds = Array.from(
         new Set(
-          relevantAssignments
-            .map((assignment) => assignment.class_id)
-            .filter(Boolean)
+          relevantAssignments.flatMap((assignment) =>
+            assignment.programme_ids ?? []
+          )
         )
       );
 
-      if (classIds.length === 0) {
+      const forms = Array.from(
+        new Set(
+          relevantAssignments.flatMap((assignment) =>
+            assignment.forms ?? []
+          )
+        )
+      );
+
+      if (programmeIds.length === 0 || forms.length === 0) {
         setWorkspaceClasses([]);
+        setSelectedClass(null);
         return;
       }
 
-      const { data: classRows, error: classError } =
-        await supabase
-          .from('classes')
-          .select(
-            `
-              id,
-              name,
-              level,
-              programme_id,
-              academic_year_id,
-              programmes (
-                id,
-                name
-              )
-            `
-          )
-          .in('id', classIds)
-          .eq('school_id', profile.school_id)
-          .order('name', { ascending: true });
-
-      if (classError) {
-        throw classError;
-      }
-
-      /*
-       * IMPORTANT:
-       * We deliberately fetch enrollments separately from students.
-       *
-       * This avoids depending on the nested
-       * student:students relationship returned by Supabase.
-       */
-      const {
-        data: enrollmentRows,
-        error: enrollmentError,
-      } = await supabase
-        .from('enrollments')
+      const { data: classRows, error: classError } = await supabase
+        .from('classes')
         .select(
           `
             id,
-            student_id,
-            class_id,
-            academic_year_id
+            name,
+            level,
+            programme_id,
+            academic_year_id,
+            programmes (
+              id,
+              name
+            )
           `
         )
-        .in('class_id', classIds)
-        .eq('academic_year_id', selectedYearId);
+        .eq('school_id', profile.school_id)
+        .eq('academic_year_id', selectedYearId)
+        .in('programme_id', programmeIds)
+        .in('level', forms)
+        .order('name', { ascending: true });
 
-      if (enrollmentError) {
-        throw enrollmentError;
+      if (classError) throw classError;
+
+      // Defense in depth: a class must match at least one complete
+      // assignment tuple, not merely any selected programme/form.
+      const authorizedClassRows = (classRows ?? []).filter((row: any) =>
+        relevantAssignments.some(
+          (assignment) =>
+            assignment.programme_ids.includes(row.programme_id) &&
+            assignment.forms.includes(row.level)
+        )
+      );
+
+      const classIds = authorizedClassRows.map((row: any) => row.id);
+
+      if (classIds.length === 0) {
+        setWorkspaceClasses([]);
+        setSelectedClass(null);
+        return;
       }
 
-      const enrollments =
-        (enrollmentRows ?? []) as Enrollment[];
+      const { data: enrollmentRows, error: enrollmentError } =
+        await supabase
+          .from('enrollments')
+          .select(
+            `
+              id,
+              student_id,
+              class_id,
+              academic_year_id
+            `
+          )
+          .in('class_id', classIds)
+          .eq('academic_year_id', selectedYearId);
 
+      if (enrollmentError) throw enrollmentError;
+
+      const enrollments = (enrollmentRows ?? []) as Enrollment[];
       const studentsById =
         await loadStudentsForEnrollments(enrollments);
 
       const classMap = new Map<string, ClassWorkspace>();
 
-      (classRows ?? []).forEach((row: any) => {
+      authorizedClassRows.forEach((row: any) => {
         const programme = Array.isArray(row.programmes)
           ? row.programmes[0] ?? null
           : row.programmes ?? null;
 
-        const classAssignments =
-          relevantAssignments.filter(
-            (assignment) =>
-              assignment.class_id === row.id
-          );
+        const classAssignments = relevantAssignments.filter(
+          (assignment) =>
+            assignment.programme_ids.includes(row.programme_id) &&
+            assignment.forms.includes(row.level)
+        );
 
         const subjectMap = new Map<
           string,
-          {
-            id: string;
-            name: string;
-            code: string | null;
-          }
+          { id: string; name: string; code: string | null }
         >();
 
         classAssignments.forEach((assignment) => {
           if (assignment.subject) {
-            subjectMap.set(
-              assignment.subject.id,
-              assignment.subject
-            );
+            subjectMap.set(assignment.subject.id, assignment.subject);
           }
         });
 
         const students = enrollments
-          .filter(
-            (enrollment) =>
-              enrollment.class_id === row.id
-          )
+          .filter((enrollment) => enrollment.class_id === row.id)
           .map((enrollment) =>
             studentsById.get(enrollment.student_id)
           )
           .filter(
-            (student): student is Student =>
-              Boolean(student)
+            (student): student is Student => Boolean(student)
           );
 
-        const academicYearId =
-          row.academic_year_id || selectedYearId;
+        const semester =
+          semesters.find(
+            (item) =>
+              item.academic_year_id === selectedYearId &&
+              item.is_current
+          ) ??
+          semesters.find(
+            (item) =>
+              item.academic_year_id === selectedYearId &&
+              item.name === 'Semester 1'
+          ) ??
+          semesters.find(
+            (item) => item.academic_year_id === selectedYearId
+          ) ??
+          null;
 
         classMap.set(row.id, {
           classId: row.id,
           className: row.name,
           level: row.level ?? null,
           programmeId: row.programme_id ?? null,
-          programmeName: programme?.name ?? null,
-
-          academicYearId,
-
+          programmeName: programme?.name?.trim() ?? null,
+          academicYearId: selectedYearId,
           academicYearName:
             academicYears.find(
-              (year) => year.id === academicYearId
+              (year) => year.id === selectedYearId
             )?.name ?? 'Academic Year',
-
-          semesterId: selectedSemesterId,
-          semesterName: selectedSemester.name,
-
-          subjects: Array.from(
-            subjectMap.values()
-          ).sort((a, b) =>
+          // Semester is no longer part of teacher assignment.
+          // Keep current semester only for existing assessment links/UI.
+          semesterId: semester?.id ?? '',
+          semesterName: semester?.name ?? 'Current Semester',
+          subjects: Array.from(subjectMap.values()).sort((a, b) =>
             a.name.localeCompare(b.name)
           ),
-
           studentCount: students.length,
           students,
         });
       });
 
-      const result = Array.from(
-        classMap.values()
-      ).sort((a, b) =>
-        a.className.localeCompare(b.className)
-      );
+      const result = Array.from(classMap.values()).sort((a, b) => {
+        const programmeCompare =
+          (a.programmeName ?? '').localeCompare(
+            b.programmeName ?? ''
+          );
+        return programmeCompare || a.className.localeCompare(b.className);
+      });
 
       setWorkspaceClasses(result);
 
       if (
         selectedClass &&
         !result.some(
-          (item) =>
-            item.classId === selectedClass.classId
+          (item) => item.classId === selectedClass.classId
         )
       ) {
         setSelectedClass(null);
       }
     } catch (err: any) {
-      console.error(
-        'Loading teacher classes failed:',
-        err
-      );
-
+      console.error('Loading teacher classes failed:', err);
       setError(
-        err?.message ||
-          'Unable to load your assigned classes.'
+        err?.message || 'Unable to load your assigned classes.'
       );
-
       setWorkspaceClasses([]);
     } finally {
       setLoadingClasses(false);
@@ -933,7 +884,7 @@ export default function TeacherClassesPage() {
 
         {/* Filters */}
         <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
                 Academic Year
@@ -944,34 +895,9 @@ export default function TeacherClassesPage() {
 
                 <select
                   value={selectedYearId}
-                  onChange={(event) => {
-                    const value = event.target.value;
-
-                    setSelectedYearId(value);
-
-                    const yearSemesters =
-                      semesters.filter(
-                        (semester) =>
-                          semester.academic_year_id ===
-                          value
-                      );
-
-                    const nextSemester =
-                      yearSemesters.find(
-                        (semester) =>
-                          semester.is_current
-                      ) ??
-                      yearSemesters.find(
-                        (semester) =>
-                          semester.name ===
-                          'Semester 1'
-                      ) ??
-                      yearSemesters[0];
-
-                    setSelectedSemesterId(
-                      nextSemester?.id ?? ''
-                    );
-                  }}
+                  onChange={(event) =>
+                    setSelectedYearId(event.target.value)
+                  }
                   className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
                 >
                   {academicYears.length === 0 && (
@@ -991,46 +917,6 @@ export default function TeacherClassesPage() {
                         : ''}
                     </option>
                   ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                Semester
-              </label>
-
-              <div className="relative">
-                <i className="fa-solid fa-layer-group pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-
-                <select
-                  value={selectedSemesterId}
-                  onChange={(event) =>
-                    setSelectedSemesterId(
-                      event.target.value
-                    )
-                  }
-                  className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                >
-                  {availableSemesters.length === 0 && (
-                    <option value="">
-                      No semesters found
-                    </option>
-                  )}
-
-                  {availableSemesters.map(
-                    (semester) => (
-                      <option
-                        key={semester.id}
-                        value={semester.id}
-                      >
-                        {semester.name}
-                        {semester.is_current
-                          ? ' — Current'
-                          : ''}
-                      </option>
-                    )
-                  )}
                 </select>
               </div>
             </div>
@@ -1153,7 +1039,7 @@ export default function TeacherClassesPage() {
 
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
               There are no classes assigned to you for the
-              selected academic year and semester. If this
+              selected academic year. If this
               looks incorrect, please contact the
               administrator.
             </p>
@@ -1350,7 +1236,7 @@ export default function TeacherClassesPage() {
                   </Link>
 
                   <Link
-                    href={`/assessment?classId=${selectedClass.classId}&academicYearId=${selectedClass.academicYearId}&termId=${selectedClass.semesterId}`}
+                    href={`/assessment?classId=${selectedClass.classId}&academicYearId=${selectedClass.academicYearId}${selectedClass.semesterId ? `&termId=${selectedClass.semesterId}` : ''}`}
                     className="group rounded-2xl border border-violet-200 bg-violet-50 p-4 transition hover:-translate-y-0.5 hover:bg-violet-100"
                   >
                     <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white shadow-lg shadow-violet-600/20">
@@ -1384,7 +1270,7 @@ export default function TeacherClassesPage() {
                   </Link>
 
                   <Link
-                    href={`/attendance-reports?classId=${selectedClass.classId}&academicYearId=${selectedClass.academicYearId}&termId=${selectedClass.semesterId}`}
+                    href={`/attendance-reports?classId=${selectedClass.classId}&academicYearId=${selectedClass.academicYearId}${selectedClass.semesterId ? `&termId=${selectedClass.semesterId}` : ''}`}
                     className="group rounded-2xl border border-amber-200 bg-amber-50 p-4 transition hover:-translate-y-0.5 hover:bg-amber-100"
                   >
                     <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-600 text-white shadow-lg shadow-amber-600/20">
