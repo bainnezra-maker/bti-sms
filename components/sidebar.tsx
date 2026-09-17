@@ -95,16 +95,6 @@ const adminMenuSections: MenuSection[] = [
         href: '/academic-years',
         icon: 'fa-solid fa-calendar-days',
       },
-      {
-        name: 'Semesters',
-        href: '/terms',
-        icon: 'fa-solid fa-calendar-week',
-      },
-      {
-        name: 'Results',
-        href: '/results',
-        icon: 'fa-solid fa-chart-line',
-      },
     ],
   },
 
