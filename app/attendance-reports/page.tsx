@@ -1606,7 +1606,7 @@ export default function AttendanceReportsPage() {
                       Select semester
                     </option>
 
-                    {terms.map(
+                    {semesters.map(
                       (semester) => (
                         <option
                           key={semester.id}
