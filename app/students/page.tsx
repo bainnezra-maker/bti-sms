@@ -171,7 +171,8 @@ export default function StudentsPage() {
           'id, admission_number, full_name, gender, guardian_name, guardian_phone, admission_date, jhs_aggregate, status, resident'
         )
         .eq('school_id', schoolId)
-        .order('full_name'),
+        .order('full_name')
+        .range(0, 9999),
 
       supabase
         .from('programmes')
