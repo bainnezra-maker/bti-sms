@@ -43,15 +43,25 @@ type ImportRow = {
   jhs_aggregate: string;
 };
 
+type ImportStatus =
+  | 'success'
+  | 'partial'
+  | 'skipped'
+  | 'failed';
+
 type ResultMessage = {
   row: number;
+  status: ImportStatus;
   message: string;
-  type?: 'error' | 'warning' | 'success';
+  type: 'error' | 'warning' | 'success';
+  student_saved?: boolean;
+  assigned?: boolean;
 };
 
 type BulkResult = {
-  row: number;
-  status: 'success' | 'partial' | 'skipped' | 'failed';
+  row?: number;
+  row_number?: number;
+  status?: ImportStatus;
   message?: string;
   student_created?: boolean;
   student_existing?: boolean;
@@ -62,6 +72,18 @@ type BulkResult = {
   student_id?: string;
   class_id?: string;
   enrollment_id?: string;
+};
+
+type PreparedRow = ImportRow & {
+  row_number: number;
+};
+
+type ImportCounts = Record<ImportStatus, number> & {
+  studentSaved: number;
+  assigned: number;
+  enrollmentCreated: number;
+  enrollmentUpdated: number;
+  classCreated: number;
 };
 
 const headers = [
@@ -233,32 +255,37 @@ export default function StudentImportPage() {
       ]
     );
 
-  const successResults = useMemo(
+  const importCounts = useMemo<ImportCounts>(
     () =>
-      errors.filter(
-        (item) =>
-          item.type === 'success'
+      errors.reduce<ImportCounts>(
+        (counts, result) => {
+          counts[result.status] += 1;
+
+          if (result.student_saved) {
+            counts.studentSaved += 1;
+          }
+
+          if (result.assigned) {
+            counts.assigned += 1;
+          }
+
+          return counts;
+        },
+        {
+          success: 0,
+          partial: 0,
+          skipped: 0,
+          failed: 0,
+          studentSaved: 0,
+          assigned: 0,
+          enrollmentCreated: 0,
+          enrollmentUpdated: 0,
+          classCreated: 0,
+        }
       ),
     [errors]
   );
 
-  const warningResults = useMemo(
-    () =>
-      errors.filter(
-        (item) =>
-          item.type === 'warning'
-      ),
-    [errors]
-  );
-
-  const errorResults = useMemo(
-    () =>
-      errors.filter(
-        (item) =>
-          item.type === 'error'
-      ),
-    [errors]
-  );
 
   useEffect(() => {
     loadData();
@@ -556,10 +583,6 @@ export default function StudentImportPage() {
     setImportProgress('');
     setProgressPercent(0);
 
-    // ---------------------------------------------------------
-    // BASIC CHECKS
-    // ---------------------------------------------------------
-
     if (!rows.length) {
       setMessage(
         'Please select an Excel file containing student records.'
@@ -583,532 +606,365 @@ export default function StudentImportPage() {
 
     setImporting(true);
 
-    try {
-      // -------------------------------------------------------
-      // STEP 1 — LOCAL VALIDATION
-      // -------------------------------------------------------
+    const results: ResultMessage[] = [];
+    const counts: ImportCounts = {
+      success: 0,
+      partial: 0,
+      skipped: 0,
+      failed: 0,
+      studentSaved: 0,
+      assigned: 0,
+      enrollmentCreated: 0,
+      enrollmentUpdated: 0,
+      classCreated: 0,
+    };
 
+    const addResult = (
+      result: ResultMessage,
+      details?: BulkResult
+    ) => {
+      results.push(result);
+      counts[result.status] += 1;
+
+      if (result.student_saved) {
+        counts.studentSaved += 1;
+      }
+
+      if (result.assigned) {
+        counts.assigned += 1;
+      }
+
+      if (details?.enrollment_created) {
+        counts.enrollmentCreated += 1;
+      }
+
+      if (details?.enrollment_updated) {
+        counts.enrollmentUpdated += 1;
+      }
+
+      if (details?.class_created) {
+        counts.classCreated += 1;
+      }
+    };
+
+    const addBatchFailure = (
+      batch: PreparedRow[],
+      batchNumber: number,
+      reason: string
+    ) => {
+      batch.forEach((row) =>
+        addResult({
+          row: row.row_number,
+          status: 'failed',
+          type: 'error',
+          message: `Batch ${batchNumber} could not be processed: ${reason}`,
+        })
+      );
+    };
+
+    try {
       setImportProgress(
         `Validating ${rows.length} student record(s)...`
       );
       setProgressPercent(10);
 
-      const validationResults:
-        ResultMessage[] = [];
+      const validRows: PreparedRow[] = [];
 
-      const validRows: Array<
-        ImportRow & {
-          row_number: number;
-        }
-      > = [];
+      rows.forEach((row, index) => {
+        const rowNumber = index + 2;
+        const fullName = clean(row.full_name);
+        const residence = normalizeResidence(row.resident);
 
-      rows.forEach(
-        (row, index) => {
-          const rowNumber =
-            index + 2;
-
-          const fullName =
-            clean(
-              row.full_name
-            );
-
-          const residence =
-            normalizeResidence(
-              row.resident
-            );
-
-          if (!fullName) {
-            validationResults.push(
-              {
-                row: rowNumber,
-                type: 'error',
-                message:
-                  'FULL NAME is required.',
-              }
-            );
-
-            return;
-          }
-
-          if (
-            row.resident &&
-            !residence
-          ) {
-            validationResults.push(
-              {
-                row: rowNumber,
-                type: 'error',
-                message:
-                  'RESIDENCE must be Day or Boarding.',
-              }
-            );
-
-            return;
-          }
-
-          if (
-            row.jhs_aggregate
-          ) {
-            const aggregate =
-              Number(
-                String(
-                  row.jhs_aggregate
-                )
-                  .replace(
-                    /,/g,
-                    ''
-                  )
-                  .trim()
-              );
-
-            if (
-              !Number.isFinite(
-                aggregate
-              )
-            ) {
-              validationResults.push(
-                {
-                  row: rowNumber,
-                  type: 'error',
-                  message:
-                    'JHS AGGREGATE must be a valid number.',
-                }
-              );
-
-              return;
-            }
-          }
-
-          validRows.push({
-            ...row,
-            full_name:
-              fullName,
-            resident:
-              residence,
-            row_number:
-              rowNumber,
+        if (!fullName) {
+          addResult({
+            row: rowNumber,
+            status: 'skipped',
+            type: 'warning',
+            message: 'Skipped before import: FULL NAME is required.',
           });
+          return;
         }
-      );
 
-      // -------------------------------------------------------
-      // STEP 2 — DUPLICATE NAMES INSIDE THIS EXCEL
-      // -------------------------------------------------------
+        if (row.resident && !residence) {
+          addResult({
+            row: rowNumber,
+            status: 'skipped',
+            type: 'warning',
+            message:
+              'Skipped before import: RESIDENCE must be Day or Boarding.',
+          });
+          return;
+        }
+
+        if (row.jhs_aggregate) {
+          const aggregate = Number(
+            String(row.jhs_aggregate).replace(/,/g, '').trim()
+          );
+
+          if (!Number.isFinite(aggregate)) {
+            addResult({
+              row: rowNumber,
+              status: 'skipped',
+              type: 'warning',
+              message:
+                'Skipped before import: JHS AGGREGATE must be a valid number.',
+            });
+            return;
+          }
+        }
+
+        validRows.push({
+          ...row,
+          full_name: fullName,
+          resident: residence,
+          row_number: rowNumber,
+        });
+      });
 
       setImportProgress(
         `Checking ${validRows.length} valid record(s) for duplicate names...`
       );
       setProgressPercent(20);
 
-      const nameOccurrences =
-        new Map<
-          string,
-          number[]
-        >();
+      const names = new Map<string, PreparedRow[]>();
 
-      validRows.forEach(
-        (row) => {
-          const key =
-            normalize(
-              row.full_name
-            );
+      validRows.forEach((row) => {
+        const key = normalize(row.full_name);
+        names.set(key, [...(names.get(key) || []), row]);
+      });
 
-          if (
-            !nameOccurrences.has(
-              key
-            )
-          ) {
-            nameOccurrences.set(
-              key,
-              []
-            );
-          }
+      const rowsToImport: PreparedRow[] = [];
 
-          nameOccurrences
-            .get(key)!
-            .push(
-              row.row_number
-            );
+      names.forEach((sameNameRows) => {
+        if (sameNameRows.length === 1) {
+          rowsToImport.push(sameNameRows[0]);
+          return;
         }
-      );
 
-      const duplicateRows =
-        new Set<number>();
+        const rowNumbers = sameNameRows
+          .map((row) => row.row_number)
+          .join(', ');
+        const name = sameNameRows[0].full_name;
 
-      nameOccurrences.forEach(
-        (
-          rowNumbers,
-          key
-        ) => {
-          if (
-            rowNumbers.length >
-            1
-          ) {
-            rowNumbers.forEach(
-              (number) =>
-                duplicateRows.add(
-                  number
-                )
-            );
-
-            const duplicateName =
-              validRows.find(
-                (row) =>
-                  normalize(
-                    row.full_name
-                  ) === key
-              )?.full_name ||
-              'Unknown student';
-
-            validationResults.push(
-              {
-                row:
-                  rowNumbers[0],
-                type: 'warning',
-                message:
-                  `Duplicate student name detected: "${duplicateName}". Excel rows ${rowNumbers.join(
-                    ', '
-                  )} contain the same name. These rows were not imported automatically because the system cannot safely determine whether they represent one student or different students.`,
-              }
-            );
-          }
-        }
-      );
-
-      const rowsToImport =
-        validRows.filter(
-          (row) =>
-            !duplicateRows.has(
-              row.row_number
-            )
+        sameNameRows.forEach((row) =>
+          addResult({
+            row: row.row_number,
+            status: 'skipped',
+            type: 'warning',
+            message:
+              `Skipped before import: duplicate name "${name}" appears in Excel rows ${rowNumbers}. Import each record separately or add a distinguishing detail.`,
+          })
         );
+      });
 
-      setErrors(
-        validationResults
-      );
-
-      if (
-        !rowsToImport.length
-      ) {
+      if (!rowsToImport.length) {
+        setErrors([...results]);
         setProgressPercent(100);
         setImportProgress('');
         setMessage(
-          'Import stopped. No unambiguous student records were available for import.'
+          `Import complete: 0 successful, 0 partial, ${counts.skipped} skipped, and 0 failed. No rows were sent to the database.`
         );
         return;
       }
 
-      // -------------------------------------------------------
-      // STEP 3 — PREPARE BULK PAYLOAD
-      // -------------------------------------------------------
+      const payload = rowsToImport.map((row) => ({
+        row_number: row.row_number,
+        full_name: clean(row.full_name),
+        form: clean(row.form),
+        programme: clean(row.programme),
+        class_name: clean(row.class_name),
+        gender: clean(row.gender),
+        resident: normalizeResidence(row.resident),
+        date_of_birth: clean(row.date_of_birth),
+        guardian_name: clean(row.guardian_name),
+        guardian_phone: clean(row.guardian_phone),
+        address: clean(row.address),
+        admission_date: clean(row.admission_date),
+        jhs_aggregate: clean(row.jhs_aggregate),
+      }));
 
-      setImportProgress(
-        `Preparing ${rowsToImport.length} record(s) for secure bulk processing...`
-      );
-      setProgressPercent(30);
+      const batchSize = 50;
+      const totalBatches = Math.ceil(payload.length / batchSize);
 
-      const payload =
-        rowsToImport.map(
-          (row) => ({
-            row_number:
-              row.row_number,
-            full_name:
-              clean(
-                row.full_name
-              ),
-            form: clean(
-              row.form
-            ),
-            programme:
-              clean(
-                row.programme
-              ),
-            class_name:
-              clean(
-                row.class_name
-              ),
-            gender: clean(
-              row.gender
-            ),
-            resident:
-              normalizeResidence(
-                row.resident
-              ),
-            date_of_birth:
-              clean(
-                row.date_of_birth
-              ),
-            guardian_name:
-              clean(
-                row.guardian_name
-              ),
-            guardian_phone:
-              clean(
-                row.guardian_phone
-              ),
-            address: clean(
-              row.address
-            ),
-            admission_date:
-              clean(
-                row.admission_date
-              ),
-            jhs_aggregate:
-              clean(
-                row.jhs_aggregate
-              ),
-          })
+      for (
+        let batchIndex = 0;
+        batchIndex < totalBatches;
+        batchIndex += 1
+      ) {
+        const start = batchIndex * batchSize;
+        const batch = payload.slice(start, start + batchSize);
+        const batchRows = rowsToImport.slice(
+          start,
+          start + batchSize
         );
+        const batchNumber = batchIndex + 1;
+        const completedBeforeBatch = start;
+        const progress = 30 +
+          Math.round(
+            (completedBeforeBatch / payload.length) * 55
+          );
 
-      // -------------------------------------------------------
-      // STEP 4 — BULK SUPABASE IMPORT
-      // -------------------------------------------------------
-
-      setImportProgress(
-        `Importing and assigning ${payload.length} student record(s)...`
-      );
-      setProgressPercent(45);
-
-      const {
-        data,
-        error,
-      } = await supabase.rpc(
-        'bulk_import_students',
-        {
-          p_school_id:
-            schoolId,
-          p_academic_year_id:
-            academicYearId,
-          p_rows:
-            payload,
-        }
-      );
-
-      if (error) {
-        console.error(
-          'Bulk student import error:',
-          error
+        setImportProgress(
+          `Importing batch ${batchNumber} of ${totalBatches} (${batch.length} record(s))...`
         );
+        setProgressPercent(progress);
 
-        setImportProgress('');
-        setProgressPercent(0);
-
-        setMessage(
-          `Bulk import failed: ${
-            error.message ||
-            'Unknown Supabase error.'
-          }`
-        );
-
-        setErrors([
-          ...validationResults,
+        const { data, error } = await supabase.rpc(
+          'bulk_import_students',
           {
-            row: 0,
-            type: 'error',
-            message:
-              error.message ||
-              'The bulk student import could not be completed.',
-          },
-        ]);
-
-        return;
-      }
-
-      // -------------------------------------------------------
-      // STEP 5 — PROCESS DATABASE RESULTS
-      // -------------------------------------------------------
-
-      setImportProgress(
-        'Processing import and assignment results...'
-      );
-      setProgressPercent(75);
-
-      const databaseResults:
-        BulkResult[] =
-        Array.isArray(data)
-          ? data
-          : [];
-
-      const resultMessages:
-        ResultMessage[] = [
-        ...validationResults,
-      ];
-
-      databaseResults.forEach(
-        (result) => {
-          let resultType:
-            | 'success'
-            | 'warning'
-            | 'error';
-
-          if (
-            result.status ===
-            'success'
-          ) {
-            resultType =
-              'success';
-          } else if (
-            result.status ===
-            'partial' ||
-            result.status ===
-            'skipped'
-          ) {
-            resultType =
-              'warning';
-          } else {
-            resultType =
-              'error';
+            p_school_id: schoolId,
+            p_academic_year_id: academicYearId,
+            p_rows: batch,
           }
+        );
 
-          let resultMessage =
-            result.message ||
-            'Import processing completed.';
-
-          if (
-            result.status ===
-              'success' &&
-            result.assigned
-          ) {
-            resultMessage +=
-              ' Student assigned successfully.';
-          }
-
-          resultMessages.push({
-            row: Number(
-              result.row || 0
-            ),
-            message:
-              resultMessage,
-            type:
-              resultType,
-          });
+        if (error) {
+          addBatchFailure(
+            batchRows,
+            batchNumber,
+            error.message || 'Unknown database error.'
+          );
+          setErrors([...results]);
+          continue;
         }
-      );
 
-      setErrors(
-        resultMessages
-      );
+        if (!Array.isArray(data)) {
+          addBatchFailure(
+            batchRows,
+            batchNumber,
+            'The database returned no row-level results.'
+          );
+          setErrors([...results]);
+          continue;
+        }
 
-      // -------------------------------------------------------
-      // STEP 6 — ACCURATE COUNTS
-      // -------------------------------------------------------
+        const returnedRows = new Set<number>();
 
-      const successful =
-        databaseResults.filter(
-          (item) =>
-            item.status ===
-            'success'
-        );
+        (data as BulkResult[]).forEach((databaseResult) => {
+          const rowNumber = Number(
+            databaseResult.row ?? databaseResult.row_number ?? 0
+          );
+          const status = databaseResult.status || 'failed';
 
-      const partial =
-        databaseResults.filter(
-          (item) =>
-            item.status ===
-            'partial'
-        );
+          if (!rowNumber) {
+            return;
+          }
 
-      const skipped =
-        databaseResults.filter(
-          (item) =>
-            item.status ===
-              'skipped' ||
-            item.status ===
-              'failed'
-        );
+          returnedRows.add(rowNumber);
 
-      const newStudents =
-        successful.filter(
-          (item) =>
-            item.student_created ===
-            true
-        ).length;
+          const studentSaved =
+            databaseResult.student_created === true ||
+            databaseResult.student_existing === true ||
+            Boolean(databaseResult.student_id);
+          const assigned =
+            databaseResult.assigned === true ||
+            databaseResult.enrollment_created === true ||
+            databaseResult.enrollment_updated === true ||
+            Boolean(databaseResult.enrollment_id);
 
-      const existingStudents =
-        successful.filter(
-          (item) =>
-            item.student_existing ===
-            true
-        ).length;
+          const type =
+            status === 'success'
+              ? 'success'
+              : status === 'partial' || status === 'skipped'
+              ? 'warning'
+              : 'error';
 
-      const assignedStudents =
-        successful.filter(
-          (item) =>
-            item.assigned ===
-            true
-        ).length;
+          let message =
+            databaseResult.message ||
+            'The database did not provide a reason for this row.';
 
-      const newClasses =
-        successful.filter(
-          (item) =>
-            item.class_created ===
-            true
-        ).length;
+          const outcomes: string[] = [];
 
-      const enrollmentsCreated =
-        successful.filter(
-          (item) =>
-            item.enrollment_created ===
-            true
-        ).length;
+          if (studentSaved) {
+            outcomes.push(
+              databaseResult.student_created
+                ? 'Student record saved.'
+                : 'Student record already existed.'
+            );
+          }
 
-      const enrollmentsUpdated =
-        successful.filter(
-          (item) =>
-            item.enrollment_updated ===
-            true
-        ).length;
+          if (assigned) {
+            outcomes.push('Enrollment assigned successfully.');
+          } else if (studentSaved && status !== 'success') {
+            outcomes.push('No enrollment was assigned.');
+          }
 
-      // -------------------------------------------------------
-      // STEP 7 — REFRESH
-      // -------------------------------------------------------
+          if (databaseResult.class_created) {
+            outcomes.push('A new class was created.');
+          }
+
+          if (outcomes.length) {
+            message = `${message} ${outcomes.join(' ')}`;
+          }
+
+          addResult(
+            {
+              row: rowNumber,
+              status,
+              type,
+              message,
+              student_saved: studentSaved,
+              assigned,
+            },
+            databaseResult
+          );
+        });
+
+        batchRows
+          .filter((row) => !returnedRows.has(row.row_number))
+          .forEach((row) =>
+            addResult({
+              row: row.row_number,
+              status: 'failed',
+              type: 'error',
+              message:
+                `Batch ${batchNumber} completed without a result for this row.`,
+            })
+          );
+
+        setErrors([...results]);
+      }
 
       setImportProgress(
         'Refreshing BTI-SMS student and class data...'
       );
-      setProgressPercent(90);
+      setProgressPercent(92);
 
       await loadData();
 
-      // -------------------------------------------------------
-      // STEP 8 — COMPLETE
-      // -------------------------------------------------------
-
+      setErrors([...results]);
       setProgressPercent(100);
-
+      setImportProgress('');
       setMessage(
-        `Import complete: ${newStudents} new student(s), ${existingStudents} existing student(s) updated, ${assignedStudents} student(s) assigned, ${enrollmentsCreated} enrollment(s) created, ${enrollmentsUpdated} enrollment(s) processed, ${newClasses} class(es) created, ${partial.length} partial record(s), and ${skipped.length} skipped/failed row(s).`
+        `Import complete: ${counts.success} successful, ${counts.partial} partial, ${counts.skipped} skipped, and ${counts.failed} failed. ${counts.studentSaved} student record(s) saved or matched; ${counts.assigned} enrollment(s) assigned; ${counts.enrollmentCreated} enrollment(s) created; ${counts.enrollmentUpdated} enrollment(s) updated; ${counts.classCreated} class(es) created.`
       );
+    } catch (error: unknown) {
+      const reason =
+        error instanceof Error
+          ? error.message
+          : 'An unexpected error occurred during the import.';
 
       setImportProgress('');
-
-    } catch (error: any) {
-      console.error(
-        'Unexpected bulk import error:',
-        error
-      );
-
       setProgressPercent(0);
-      setImportProgress('');
 
-      setMessage(
-        `Import failed unexpectedly: ${
-          error?.message ||
-          'Please try again.'
-        }`
+      const unreportedRows = rows
+        .map((_, index) => index + 2)
+        .filter(
+          (rowNumber) =>
+            !results.some((result) => result.row === rowNumber)
+        );
+
+      unreportedRows.forEach((rowNumber) =>
+        addResult({
+          row: rowNumber,
+          status: 'failed',
+          type: 'error',
+          message: `Import stopped unexpectedly: ${reason}`,
+        })
       );
 
-      setErrors(
-        (previous) => [
-          ...previous,
-          {
-            row: 0,
-            type: 'error',
-            message:
-              error?.message ||
-              'An unexpected error occurred during the import.',
-          },
-        ]
-      );
+      setErrors([...results]);
+      setMessage(`Import failed unexpectedly: ${reason}`);
     } finally {
       setImporting(false);
     }
@@ -1932,99 +1788,71 @@ export default function StudentImportPage() {
 
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      {
+                        label: 'Successful',
+                        count: importCounts.success,
+                        icon: 'fa-solid fa-circle-check',
+                        card: 'border-emerald-200 bg-emerald-50',
+                        iconBox: 'bg-emerald-600',
+                        text: 'text-emerald-900',
+                        labelText: 'text-emerald-700',
+                      },
+                      {
+                        label: 'Partial',
+                        count: importCounts.partial,
+                        icon: 'fa-solid fa-circle-exclamation',
+                        card: 'border-amber-200 bg-amber-50',
+                        iconBox: 'bg-amber-500',
+                        text: 'text-amber-900',
+                        labelText: 'text-amber-700',
+                      },
+                      {
+                        label: 'Skipped',
+                        count: importCounts.skipped,
+                        icon: 'fa-solid fa-forward',
+                        card: 'border-slate-200 bg-slate-50',
+                        iconBox: 'bg-slate-600',
+                        text: 'text-slate-900',
+                        labelText: 'text-slate-700',
+                      },
+                      {
+                        label: 'Failed',
+                        count: importCounts.failed,
+                        icon: 'fa-solid fa-circle-xmark',
+                        card: 'border-red-200 bg-red-50',
+                        iconBox: 'bg-red-600',
+                        text: 'text-red-900',
+                        labelText: 'text-red-700',
+                      },
+                    ].map((card) => (
+                      <div
+                        key={card.label}
+                        className={`group rounded-2xl border p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg ${card.card}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-white transition duration-300 group-hover:scale-110 ${card.iconBox}`}>
+                            <i className={card.icon} />
+                          </div>
 
-                    {/* SUCCESS */}
+                          <div>
+                            <p className={`text-xs font-black uppercase tracking-wide ${card.labelText}`}>
+                              {card.label}
+                            </p>
 
-                    <div className="group rounded-2xl border border-emerald-200 bg-emerald-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
-
-                      <div className="flex items-center gap-3">
-
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white transition duration-300 group-hover:scale-110">
-
-                          <i className="fa-solid fa-circle-check" />
-
+                            <p className={`text-2xl font-black ${card.text}`}>
+                              {card.count}
+                            </p>
+                          </div>
                         </div>
-
-                        <div>
-
-                          <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
-                            Successful
-                          </p>
-
-                          <p className="text-2xl font-black text-emerald-900">
-                            {
-                              successResults.length
-                            }
-                          </p>
-
-                        </div>
-
                       </div>
-
-                    </div>
-
-                    {/* WARNING */}
-
-                    <div className="group rounded-2xl border border-amber-200 bg-amber-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
-
-                      <div className="flex items-center gap-3">
-
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white transition duration-300 group-hover:scale-110">
-
-                          <i className="fa-solid fa-triangle-exclamation" />
-
-                        </div>
-
-                        <div>
-
-                          <p className="text-xs font-black uppercase tracking-wide text-amber-700">
-                            Warnings
-                          </p>
-
-                          <p className="text-2xl font-black text-amber-900">
-                            {
-                              warningResults.length
-                            }
-                          </p>
-
-                        </div>
-
-                      </div>
-
-                    </div>
-
-                    {/* ERRORS */}
-
-                    <div className="group rounded-2xl border border-red-200 bg-red-50 p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg">
-
-                      <div className="flex items-center gap-3">
-
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white transition duration-300 group-hover:scale-110">
-
-                          <i className="fa-solid fa-circle-xmark" />
-
-                        </div>
-
-                        <div>
-
-                          <p className="text-xs font-black uppercase tracking-wide text-red-700">
-                            Errors
-                          </p>
-
-                          <p className="text-2xl font-black text-red-900">
-                            {
-                              errorResults.length
-                            }
-                          </p>
-
-                        </div>
-
-                      </div>
-
-                    </div>
-
+                    ))}
                   </div>
+
+                  <p className="mt-3 text-xs text-slate-500">
+                    Student records saved or matched: {importCounts.studentSaved}. Enrollments assigned: {importCounts.assigned}.
+                  </p>
 
                   {/* DETAILED RESULTS */}
 
@@ -2066,12 +1894,12 @@ export default function StudentImportPage() {
                         ) => {
 
                           const isSuccess =
-                            result.type ===
+                            result.status ===
                             'success';
 
                           const isError =
-                            result.type ===
-                            'error';
+                            result.status ===
+                            'failed';
 
                           return (
                             <div
@@ -2118,9 +1946,29 @@ export default function StudentImportPage() {
                                       : 'Import System'}
                                   </span>
 
-                                  {isSuccess && (
+                                  <span
+                                    className={
+                                      result.status === 'success'
+                                        ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700'
+                                        : result.status === 'partial'
+                                        ? 'rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase text-amber-700'
+                                        : result.status === 'skipped'
+                                        ? 'rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black uppercase text-slate-700'
+                                        : 'rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black uppercase text-red-700'
+                                    }
+                                  >
+                                    {result.status}
+                                  </span>
+
+                                  {result.student_saved && (
+                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">
+                                      Student saved
+                                    </span>
+                                  )}
+
+                                  {result.assigned && (
                                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700">
-                                      Assigned
+                                      Enrolled
                                     </span>
                                   )}
 
