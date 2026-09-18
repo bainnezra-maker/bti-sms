@@ -122,6 +122,11 @@ const adminMenuSections: MenuSection[] = [
         icon: 'fa-solid fa-users',
       },
       {
+        name: 'Portal Accounts',
+        href: '/portal-accounts',
+        icon: 'fa-solid fa-user-shield',
+      },
+      {
         name: 'Fees',
         href: '/fees',
         icon: 'fa-solid fa-money-bill-wave',
