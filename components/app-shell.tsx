@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from './sidebar';
 import BoardingGenderFilter from './boarding-gender-filter';
@@ -20,8 +21,16 @@ export default function AppShell({
       <Sidebar />
 
       <main className="min-h-screen pt-16 lg:ml-64 lg:pt-0">
-        {pathname.startsWith('/housemaster') && <BoardingGenderFilter />}
-        {children}
+        <Suspense
+          fallback={
+            <div className="flex min-h-[50vh] items-center justify-center text-sm font-semibold text-slate-500">
+              Loading portal…
+            </div>
+          }
+        >
+          {pathname.startsWith('/housemaster') && <BoardingGenderFilter />}
+          {children}
+        </Suspense>
       </main>
     </div>
   );
