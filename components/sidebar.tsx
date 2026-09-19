@@ -25,7 +25,8 @@ const adminMenuSections:MenuSection[]=[
   {name:'Academic Years',href:'/academic-years',icon:'fa-solid fa-calendar-days'}]},
  {title:'ADMINISTRATION',items:[
   {name:'Teacher Assignments',href:'/teacher-assignments',icon:'fa-solid fa-chalkboard-user'},
-  {name:'Activity Calendar',href:'/activity-calendar',icon:'fa-solid fa-calendar-days'},
+ {name:'Activity Calendar',href:'/activity-calendar',icon:'fa-solid fa-calendar-days'},
+  {name:'Boarding Dashboard',href:'/admin/boarding',icon:'fa-solid fa-building-shield'},
   {name:'Announcements',href:'/announcements',icon:'fa-solid fa-bullhorn'},
   {name:'Staff',href:'/staff',icon:'fa-solid fa-users'},
   {name:'Portal Accounts',href:'/portal-accounts',icon:'fa-solid fa-user-shield'},
@@ -39,6 +40,7 @@ const teacherMenuSections:MenuSection[]=[{title:'TEACHER',items:[
  {name:'Attendance',href:'/attendance',icon:'fa-solid fa-calendar-check'},
  {name:'Assessment',href:'/assessment',icon:'fa-solid fa-clipboard-check'},
  {name:'Results',href:'/results',icon:'fa-solid fa-chart-line'},
+ {name:'Announcements',href:'/school-announcements',icon:'fa-solid fa-bullhorn'},
  {name:'My Uploads',href:'/teacher/my-uploads',icon:'fa-solid fa-cloud-arrow-up'}]}];
 const studentMenuSections:MenuSection[]=[{title:'STUDENT',items:[{name:'Student Dashboard',href:'/student',icon:'fa-solid fa-user-graduate'}]}];
 const housemasterMenuSections:MenuSection[]=[
@@ -50,6 +52,7 @@ const housemasterMenuSections:MenuSection[]=[
   {name:'Exeat',href:'/housemaster/exiat',icon:'fa-solid fa-person-walking-arrow-right'},
   {name:'Checkout / Vacation',href:'/housemaster/checkout',icon:'fa-solid fa-suitcase-rolling'}]},
  {title:'INFORMATION',items:[
+  {name:'Announcements',href:'/school-announcements',icon:'fa-solid fa-bullhorn'},
   {name:'Student Profiles',href:'/housemaster/student-profiles',icon:'fa-solid fa-id-card'},
   {name:'Reports',href:'/housemaster/reports',icon:'fa-solid fa-chart-pie'}]}
 ];
