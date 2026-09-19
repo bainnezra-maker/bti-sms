@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import StaffPerformanceStars from '@/components/staff-performance-stars';
 
 type Profile = {
   id: string;
@@ -1774,6 +1775,8 @@ export default function TeacherDashboard() {
               </div>
             </div>
           </section>
+
+          <StaffPerformanceStars mode="teacher" />
 
           {/* KPI CARDS */}
 
