@@ -47,7 +47,7 @@ const housemasterMenuSections:MenuSection[]=[
   {name:'Boarders / Admission',href:'/housemaster/students',icon:'fa-solid fa-user-plus'},
   {name:'Boarding & Rooms',href:'/housemaster/boarding',icon:'fa-solid fa-bed'},
   {name:'Incident Reports',href:'/housemaster/incidents',icon:'fa-solid fa-triangle-exclamation'},
-  {name:'Exiat',href:'/housemaster/exiat',icon:'fa-solid fa-person-walking-arrow-right'},
+  {name:'Exeat',href:'/housemaster/exiat',icon:'fa-solid fa-person-walking-arrow-right'},
   {name:'Checkout / Vacation',href:'/housemaster/checkout',icon:'fa-solid fa-suitcase-rolling'}]},
  {title:'INFORMATION',items:[
   {name:'Student Profiles',href:'/housemaster/student-profiles',icon:'fa-solid fa-id-card'},
