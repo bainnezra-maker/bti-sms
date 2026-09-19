@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import StaffPerformanceStars from '@/components/staff-performance-stars';
 
 type Stat = {
   label: string;
@@ -532,6 +533,8 @@ export default function AdminDashboardPage() {
           </section>
 
           {/* STAT CARDS */}
+          <div className="mb-8"><StaffPerformanceStars mode="admin" /></div>
+
           <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {stats.map((stat, index) => (
               <Link
