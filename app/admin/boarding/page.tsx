@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 
@@ -7,9 +6,9 @@ export const dynamic = 'force-dynamic';
 type Student = { id:string; full_name:string; admission_number:string|null; gender:string|null; guardian_name:string|null; guardian_phone:string|null; house:string|null };
 type Allocation = { student_id:string; house_id:string; room_number:string; bed_space:string|null; status:string };
 type House = { id:string; name:string; gender:string|null };
-type Exeat = { id:string; student_id:string; expected_return_at:string; status:string; sms_status:string; sms_error:string|null; sms_recipient:string|null; guardian_contact:string|null; created_at:string };
+type Exeat = { id:string; student_id:string; reason:string; destination:string|null; departure_at:string; expected_return_at:string; returned_at:string|null; status:string; sms_status:string; sms_error:string|null; sms_recipient:string|null; guardian_contact:string|null; created_at:string };
 type Checkout = { student_id:string; expected_return_at:string|null; status:string };
-type Incident = { student_id:string; severity:string; status:string };
+type Incident = { id:string; student_id:string; incident_at:string; category:string; location:string|null; description:string; immediate_action:string|null; follow_up_action:string|null; severity:string; status:string };
 
 export default async function AdminBoardingDashboard() {
   const supabase = await createClient();
@@ -23,9 +22,9 @@ export default async function AdminBoardingDashboard() {
     supabase.from('residential_houses').select('id,name,gender').eq('school_id',profile.school_id).eq('is_active',true),
     supabase.from('residential_rooms').select('id,house_id,capacity').eq('school_id',profile.school_id).eq('is_active',true),
     supabase.from('boarding_allocations').select('student_id,house_id,room_number,bed_space,status').eq('school_id',profile.school_id).eq('status','Active'),
-    supabase.from('student_exiats').select('id,student_id,expected_return_at,status,sms_status,sms_error,sms_recipient,guardian_contact,created_at').eq('school_id',profile.school_id).order('created_at',{ascending:false}),
+    supabase.from('student_exiats').select('id,student_id,reason,destination,departure_at,expected_return_at,returned_at,status,sms_status,sms_error,sms_recipient,guardian_contact,created_at').eq('school_id',profile.school_id).order('departure_at',{ascending:false}),
     supabase.from('student_checkouts').select('student_id,expected_return_at,status').eq('school_id',profile.school_id),
-    supabase.from('student_incidents').select('student_id,severity,status').eq('school_id',profile.school_id),
+    supabase.from('student_incidents').select('id,student_id,incident_at,category,location,description,immediate_action,follow_up_action,severity,status').eq('school_id',profile.school_id).order('incident_at',{ascending:false}),
   ]);
   const error=[studentsQ,housesQ,roomsQ,allocQ,exeatsQ,checkoutsQ,incidentsQ].find(q=>q.error)?.error;
   if(error) throw error;
@@ -60,7 +59,7 @@ export default async function AdminBoardingDashboard() {
   ] as const;
 
   return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/><div className="mx-auto max-w-7xl space-y-6">
-    <header className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-6 text-white shadow-xl sm:p-8"><span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-black"><i className="fa-solid fa-building-shield mr-2"/>Administration · Boarding Oversight</span><div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"><div><h1 className="text-3xl font-black">Admin Boarding Dashboard</h1><p className="mt-2 max-w-3xl text-sm text-slate-300">School-wide boarding, movement, accommodation, welfare and guardian communication information from the Housemaster portal.</p></div><Link href="/housemaster" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-900"><i className="fa-solid fa-arrow-up-right-from-square mr-2"/>Open Operational Portal</Link></div></header>
+    <header className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-6 text-white shadow-xl sm:p-8"><span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-black"><i className="fa-solid fa-building-shield mr-2"/>Administration · Read-only Boarding Oversight</span><div className="mt-4"><h1 className="text-3xl font-black">Admin Boarding Dashboard</h1><p className="mt-2 max-w-3xl text-sm text-slate-300">School-wide boarding reports from the Housemaster portal. Administrators can monitor records here; only Housemasters can issue Exeats or create and update incident reports.</p></div></header>
 
     <section className="grid grid-cols-2 gap-3 md:grid-cols-4">{stats.map(([label,value,icon,style])=><div key={label} className="rounded-2xl border bg-white p-4 shadow-sm"><span className={`flex h-10 w-10 items-center justify-center rounded-xl ${style}`}><i className={`fa-solid ${icon}`}/></span><p className="mt-3 text-2xl font-black">{value}</p><p className="text-xs font-bold text-slate-500">{label}</p></div>)}</section>
 
@@ -69,10 +68,15 @@ export default async function AdminBoardingDashboard() {
 
     <section className="grid gap-5 lg:grid-cols-2"><AlertList title="Failed Guardian SMS" icon="fa-message" tone="red" empty="No failed Exeat SMS messages." rows={failedSms.map(x=>({id:x.id,title:studentMap.get(x.student_id)?.full_name||'Boarder',sub:x.sms_error||'SMS delivery failed',meta:x.sms_recipient||x.guardian_contact||'No number'}))}/><AlertList title="Missing Guardian Contacts" icon="fa-address-book" tone="amber" empty="Every boarder has a guardian contact." rows={missingContacts.slice(0,30).map(s=>({id:s.id,title:s.full_name,sub:s.admission_number||'No admission number',meta:s.house||'No house'}))}/></section>
 
-    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[
-      ['Boarding & Rooms','Room and bed register','/housemaster/boarding','fa-bed'],['Exeat Register','Returns and SMS delivery','/housemaster/exiat','fa-person-walking-arrow-right'],['Incidents','Welfare and follow-up','/housemaster/incidents','fa-triangle-exclamation'],['Boarding Reports','Export school-wide records','/housemaster/reports','fa-file-export']
-    ].map(([title,sub,href,icon])=><Link key={href} href={href} className="group rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"><i className={`fa-solid ${icon} text-slate-400`}/><h3 className="mt-3 font-black">{title}</h3><p className="mt-1 text-xs text-slate-500">{sub}</p><span className="mt-4 inline-block text-xs font-black text-blue-600">Open <i className="fa-solid fa-arrow-right ml-1 transition group-hover:translate-x-1"/></span></Link>)}</section>
+    <section className="grid gap-5 lg:grid-cols-2">
+      <ReportTable title="Exeat Report" icon="fa-person-walking-arrow-right" empty="No Exeat records." rows={exeats.slice(0,100).map(x=>({id:x.id,title:studentMap.get(x.student_id)?.full_name||'Boarder',badge:x.status,details:x.reason,meta:`${new Date(x.departure_at).toLocaleString('en-GB')} · Expected ${new Date(x.expected_return_at).toLocaleString('en-GB')}${x.destination?` · ${x.destination}`:''}`}))}/>
+      <ReportTable title="Incident Report" icon="fa-triangle-exclamation" empty="No incident records." rows={incidents.slice(0,100).map(x=>({id:x.id,title:studentMap.get(x.student_id)?.full_name||'Boarder',badge:`${x.severity} · ${x.status}`,details:`${x.category}: ${x.description}`,meta:`${new Date(x.incident_at).toLocaleString('en-GB')}${x.location?` · ${x.location}`:''}`}))}/>
+    </section>
   </div></main>;
+}
+
+function ReportTable({title,icon,empty,rows}:{title:string;icon:string;empty:string;rows:{id:string;title:string;badge:string;details:string;meta:string}[]}){
+  return <section className="overflow-hidden rounded-3xl border bg-white shadow-sm"><div className="border-b p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-400">Administrator report · Read only</p><h2 className="mt-1 text-lg font-black"><i className={`fa-solid ${icon} mr-2`}/>{title}</h2></div>{rows.length?<div className="max-h-[34rem] divide-y overflow-y-auto">{rows.map(r=><article key={r.id} className="p-4"><div className="flex items-start justify-between gap-3"><p className="text-sm font-black text-slate-900">{r.title}</p><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-600">{r.badge}</span></div><p className="mt-2 text-sm leading-5 text-slate-700">{r.details}</p><p className="mt-2 text-xs text-slate-400">{r.meta}</p></article>)}</div>:<p className="p-10 text-center text-sm text-slate-500"><i className="fa-solid fa-circle-check mr-2 text-emerald-500"/>{empty}</p>}</section>
 }
 
 function AlertList({title,icon,tone,empty,rows}:{title:string;icon:string;tone:'red'|'amber';empty:string;rows:{id:string;title:string;sub:string;meta:string}[]}){
