@@ -139,7 +139,7 @@ export default function Exeat() {
       if (
         !u ||
         u.is_active === false ||
-        !["housemaster", "admin"].includes(u.role)
+        u.role !== "housemaster"
       ) {
         router.replace("/login");
         return;
