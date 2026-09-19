@@ -58,7 +58,7 @@ type X = {
 const sb = createClient(),
   f =
     "h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:bg-white focus:ring-4 focus:ring-slate-100";
-export default function Exiat() {
+export default function Exeat() {
   const router = useRouter();
   const genderScope = useBoardingGender();
   const [p, setP] = useState<P | null>(null),
@@ -150,7 +150,7 @@ export default function Exiat() {
       } catch (e) {
         setMsg({
           ok: false,
-          text: e instanceof Error ? e.message : "Unable to load Exiat.",
+          text: e instanceof Error ? e.message : "Unable to load Exeat.",
         });
       } finally {
         setLoading(false);
@@ -312,7 +312,7 @@ export default function Exiat() {
       .eq("school_id", p.school_id);
     if (error) setMsg({ ok: false, text: error.message });
     else {
-      setMsg({ ok: true, text: "Boarder return recorded. Exiat closed." });
+      setMsg({ ok: true, text: "Boarder return recorded. Exeat closed." });
       await load(p.school_id);
     }
     setBusy(false);
@@ -337,7 +337,7 @@ export default function Exiat() {
             Boarders Only · Temporary Leave
           </span>
           <h1 className="relative mt-4 text-2xl font-black sm:text-3xl">
-            Exiat
+            Exeat
           </h1>
           <p className="relative mt-2 max-w-2xl text-sm leading-6 text-slate-300">
             Authorize temporary leave, track expected return and record return
@@ -357,13 +357,13 @@ export default function Exiat() {
         <section className="grid gap-3 sm:grid-cols-3">
           <Stat
             i="fa-person-walking-arrow-right"
-            l="Currently on Exiat"
+            l="Currently on Exeat"
             n={out.length}
           />
           <Stat i="fa-clock" l="Overdue Returns" n={overdue.length} />
           <Stat
             i="fa-clock-rotate-left"
-            l="Boarder Exiat Records"
+            l="Boarder Exeat Records"
             n={scopedExiats.length}
           />
         </section>
@@ -374,7 +374,7 @@ export default function Exiat() {
           >
             <h2 className="font-black">
               <i className="fa-solid fa-file-signature mr-2" />
-              Issue Boarder Exiat
+              Issue Boarder Exeat
             </h2>
             <div className="mt-5 space-y-4">
               <F l="Academic Year">
@@ -526,12 +526,12 @@ export default function Exiat() {
           </form>
           <section className="overflow-hidden rounded-3xl border bg-white shadow-sm">
             <div className="border-b p-5">
-              <h2 className="font-black">Boarder Exiat Register</h2>
+              <h2 className="font-black">Boarder Exeat Register</h2>
               <input
                 className={`${f} mt-3`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search Boarder Exiat records..."
+                placeholder="Search Boarder Exeat records..."
               />
             </div>
             <div className="divide-y">
@@ -630,7 +630,7 @@ export default function Exiat() {
               ) : (
                 <div className="p-12 text-center text-sm text-slate-500">
                   <i className="fa-solid fa-circle-check mr-2 text-emerald-500" />
-                  No Boarder Exiat records found.
+                  No Boarder Exeat records found.
                 </div>
               )}
             </div>
