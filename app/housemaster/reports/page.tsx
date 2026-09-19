@@ -282,7 +282,7 @@ export default function Reports() {
         "Bed Space": ba?.bed_space || "",
         "Campus Status": awayIds.has(s.id) ? "Away" : "On Campus",
         "Movement Type": exiatIds.has(s.id)
-          ? "Exiat"
+          ? "Exeat"
           : checkoutIds.has(s.id)
             ? "Checkout/Vacation"
             : "",
@@ -320,7 +320,7 @@ export default function Reports() {
               </span>
               <h1 className="mt-4 text-3xl font-black">Housemaster Reports</h1>
               <p className="mt-2 text-sm text-slate-300">
-                Accommodation, movement, Exiat and welfare reporting for active
+                Accommodation, movement, Exeat and welfare reporting for active
                 Boarders only.
               </p>
             </div>
@@ -381,7 +381,7 @@ export default function Reports() {
           />
           <Stat
             i="fa-person-walking-arrow-right"
-            l="On Exiat"
+            l="On Exeat"
             n={[...exiatIds].filter((x) => ids.has(x)).length}
           />
           <Stat
@@ -461,7 +461,7 @@ export default function Reports() {
                       </td>
                       <td className="px-4 py-3">
                         {exiatIds.has(s.id)
-                          ? "Exiat"
+                          ? "Exeat"
                           : checkoutIds.has(s.id)
                             ? "Checkout / Vacation"
                             : "—"}
