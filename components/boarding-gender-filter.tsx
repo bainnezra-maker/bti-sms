@@ -34,10 +34,32 @@ export default function BoardingGenderFilter() {
     ['Female', 'Girls', 'fa-person-dress'],
   ];
 
-  return <div className="sticky top-16 z-30 border-b border-slate-200 bg-white/95 px-4 py-2 shadow-sm backdrop-blur lg:top-0 lg:px-6">
-    <div className="mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto">
-      <span className="mr-1 hidden text-[10px] font-black uppercase tracking-widest text-slate-400 sm:inline">Viewing</span>
-      {options.map(([value,label,icon])=><button key={value} type="button" onClick={()=>select(value)} className={`whitespace-nowrap rounded-xl px-4 py-2 text-xs font-black transition ${scope===value?'bg-slate-900 text-white shadow-md':'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><i className={`fa-solid ${icon} mr-2`}/>{label}</button>)}
+  return (
+    <div className="sticky top-16 z-30 border-b border-slate-200 bg-white/95 px-4 py-4 shadow-md backdrop-blur lg:top-0 lg:px-6">
+      <div className="mx-auto max-w-7xl">
+        <p className="mb-2 text-center text-xs font-black uppercase tracking-[0.2em] text-slate-500 sm:text-left">
+          Select boarding view
+        </p>
+
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+          {options.map(([value, label, icon]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => select(value)}
+              aria-pressed={scope === value}
+              className={`flex min-h-16 items-center justify-center rounded-2xl border-2 px-3 py-4 text-sm font-black shadow-sm transition sm:min-h-20 sm:px-6 sm:text-lg ${
+                scope === value
+                  ? 'border-indigo-700 bg-indigo-700 text-white shadow-lg ring-4 ring-indigo-100'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-indigo-400 hover:bg-indigo-50'
+              }`}
+            >
+              <i className={`fa-solid ${icon} mr-2 text-base sm:mr-3 sm:text-xl`} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
-  </div>;
+  );
 }
