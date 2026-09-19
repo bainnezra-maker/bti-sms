@@ -13,6 +13,8 @@ type NewsCategory =
   | 'Event'
   | 'Urgent';
 
+type Audience = 'Students' | 'Teachers' | 'Housemasters' | 'Guardians' | 'Everyone';
+
 type NewsItem = {
   id: string;
   school_id: string;
@@ -24,6 +26,25 @@ type NewsItem = {
   publish_date: string;
   created_at: string;
   updated_at: string;
+  audiences: Audience[];
+  target_form: string;
+  guardian_sms_enabled: boolean;
+  sms_total: number;
+  sms_sent: number;
+  sms_failed: number;
+  sms_missing_contact: number;
+  sms_last_sent_at: string | null;
+};
+
+type SmsDelivery = {
+  id: string;
+  announcement_id: string;
+  student_name: string | null;
+  guardian_name: string | null;
+  recipient: string | null;
+  status: 'Failed' | 'Missing Contact';
+  error: string | null;
+  updated_at: string;
 };
 
 type FormState = {
@@ -33,6 +54,9 @@ type FormState = {
   is_published: boolean;
   is_urgent: boolean;
   publish_date: string;
+  audiences: Audience[];
+  target_form: string;
+  guardian_sms_enabled: boolean;
 };
 
 const supabase = createClient();
@@ -47,6 +71,8 @@ const categories: NewsCategory[] = [
   'Event',
   'Urgent',
 ];
+
+const audiences: Audience[] = ['Students', 'Teachers', 'Housemasters', 'Guardians', 'Everyone'];
 
 const categoryIcons: Record<NewsCategory, string> = {
   General: 'fa-solid fa-bullhorn',
@@ -109,6 +135,9 @@ function emptyForm(): FormState {
     is_published: true,
     is_urgent: false,
     publish_date: getToday(),
+    audiences: ['Students'],
+    target_form: 'All',
+    guardian_sms_enabled: false,
   };
 }
 
@@ -126,6 +155,7 @@ function formatDate(dateString: string) {
 
 export default function AnnouncementsPage() {
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [smsDeliveries, setSmsDeliveries] = useState<SmsDelivery[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm());
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -135,6 +165,7 @@ export default function AnnouncementsPage() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [sendingSmsId, setSendingSmsId] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] =
@@ -195,10 +226,8 @@ export default function AnnouncementsPage() {
 
       setSchoolId(profile.school_id);
 
-      const { data, error: newsError } = await supabase
-        .from('school_news')
-        .select(
-          `
+      const [newsResult, deliveryResult] = await Promise.all([
+        supabase.from('school_news').select(`
             id,
             school_id,
             title,
@@ -208,18 +237,24 @@ export default function AnnouncementsPage() {
             is_urgent,
             publish_date,
             created_at,
-            updated_at
-          `
-        )
-        .eq('school_id', profile.school_id)
-        .order('publish_date', { ascending: false })
-        .order('created_at', { ascending: false });
+            updated_at,
+            audiences,
+            target_form,
+            guardian_sms_enabled,
+            sms_total,
+            sms_sent,
+            sms_failed,
+            sms_missing_contact,
+            sms_last_sent_at
+          `).eq('school_id', profile.school_id).order('publish_date', { ascending: false }).order('created_at', { ascending: false }),
+        supabase.from('announcement_sms_deliveries').select('id,announcement_id,student_name,guardian_name,recipient,status,error,updated_at').eq('school_id', profile.school_id).in('status', ['Failed', 'Missing Contact']).order('updated_at', { ascending: false }).limit(300),
+      ]);
 
-      if (newsError) {
-        throw newsError;
-      }
+      if (newsResult.error) throw newsResult.error;
+      if (deliveryResult.error) throw deliveryResult.error;
 
-      setNews((data ?? []) as NewsItem[]);
+      setNews((newsResult.data ?? []) as NewsItem[]);
+      setSmsDeliveries((deliveryResult.data ?? []) as SmsDelivery[]);
     } catch (err) {
       console.error(err);
       setError('Unable to load announcements. Please try again.');
@@ -238,6 +273,53 @@ export default function AnnouncementsPage() {
     }));
   }
 
+  function toggleAudience(audience: Audience) {
+    setForm((current) => {
+      if (audience === 'Everyone') {
+        return { ...current, audiences: ['Everyone'], guardian_sms_enabled: current.guardian_sms_enabled };
+      }
+      const withoutEveryone = current.audiences.filter((item) => item !== 'Everyone');
+      const next = withoutEveryone.includes(audience)
+        ? withoutEveryone.filter((item) => item !== audience)
+        : [...withoutEveryone, audience];
+      return {
+        ...current,
+        audiences: next.length ? next : ['Students'],
+        guardian_sms_enabled:
+          audience === 'Guardians' && withoutEveryone.includes('Guardians')
+            ? false
+            : current.guardian_sms_enabled,
+      };
+    });
+  }
+
+  async function sendGuardianSms(announcementId: string) {
+    setSendingSmsId(announcementId);
+    let offset = 0;
+    let finalCounts = { total: 0, sent: 0, failed: 0, missing: 0, duplicate: 0 };
+    try {
+      for (let batch = 0; batch < 100; batch += 1) {
+        const response = await fetch('/api/admin/announcement-sms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ announcementId, offset }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Guardian SMS sending failed.');
+        finalCounts = result.counts;
+        if (result.complete) break;
+        offset = result.nextOffset;
+      }
+      setMessage(
+        `Guardian SMS completed: ${finalCounts.sent} sent, ${finalCounts.failed} failed, ${finalCounts.missing} missing contacts${finalCounts.duplicate ? `, ${finalCounts.duplicate} duplicate numbers skipped` : ''}.`,
+      );
+      await loadAnnouncements();
+      return true;
+    } finally {
+      setSendingSmsId(null);
+    }
+  }
+
   function startEditing(item: NewsItem) {
     setEditingId(item.id);
 
@@ -248,6 +330,9 @@ export default function AnnouncementsPage() {
       is_published: item.is_published,
       is_urgent: item.is_urgent,
       publish_date: item.publish_date,
+      audiences: item.audiences || ['Students'],
+      target_form: item.target_form || 'All',
+      guardian_sms_enabled: item.guardian_sms_enabled || false,
     });
 
     setMessage('');
@@ -311,6 +396,9 @@ export default function AnnouncementsPage() {
             is_published: form.is_published,
             is_urgent: form.is_urgent,
             publish_date: form.publish_date,
+            audiences: form.audiences,
+            target_form: form.target_form,
+            guardian_sms_enabled: form.guardian_sms_enabled,
           })
           .eq('id', editingId)
           .eq('school_id', schoolId)
@@ -325,7 +413,8 @@ export default function AnnouncementsPage() {
               is_urgent,
               publish_date,
               created_at,
-              updated_at
+              updated_at,
+              audiences,target_form,guardian_sms_enabled,sms_total,sms_sent,sms_failed,sms_missing_contact,sms_last_sent_at
             `
           )
           .single();
@@ -352,6 +441,9 @@ export default function AnnouncementsPage() {
             is_published: form.is_published,
             is_urgent: form.is_urgent,
             publish_date: form.publish_date,
+            audiences: form.audiences,
+            target_form: form.target_form,
+            guardian_sms_enabled: form.guardian_sms_enabled,
             created_by: user.id,
           })
           .select(
@@ -365,7 +457,8 @@ export default function AnnouncementsPage() {
               is_urgent,
               publish_date,
               created_at,
-              updated_at
+              updated_at,
+              audiences,target_form,guardian_sms_enabled,sms_total,sms_sent,sms_failed,sms_missing_contact,sms_last_sent_at
             `
           )
           .single();
@@ -381,6 +474,14 @@ export default function AnnouncementsPage() {
             ? 'Announcement published successfully.'
             : 'Announcement saved as a draft.'
         );
+
+        if (
+          form.is_published &&
+          form.guardian_sms_enabled &&
+          (form.audiences.includes('Guardians') || form.audiences.includes('Everyone'))
+        ) {
+          await sendGuardianSms((data as NewsItem).id);
+        }
       }
 
       setEditingId(null);
@@ -422,7 +523,8 @@ export default function AnnouncementsPage() {
             is_urgent,
             publish_date,
             created_at,
-            updated_at
+            updated_at,
+            audiences,target_form,guardian_sms_enabled,sms_total,sms_sent,sms_failed,sms_missing_contact,sms_last_sent_at
           `
         )
         .single();
@@ -524,6 +626,10 @@ export default function AnnouncementsPage() {
     (item) => item.is_urgent
   ).length;
 
+  const failedSmsCount = news.reduce((total, item) => total + (item.sms_failed || 0), 0);
+  const missingContactCount = news.reduce((total, item) => total + (item.sms_missing_contact || 0), 0);
+  const announcementTitles = new Map(news.map((item) => [item.id, item.title]));
+
   return (
     <>
       <link
@@ -576,6 +682,47 @@ export default function AnnouncementsPage() {
               </div>
             </div>
           </section>
+
+          {(failedSmsCount > 0 || missingContactCount > 0) && (
+            <section className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-7">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-amber-700">Guardian SMS Attention</p>
+                  <h2 className="mt-1 text-xl font-black text-slate-900">Some parent messages need correction</h2>
+                  <p className="mt-2 text-sm text-slate-600">Correct missing or invalid guardian numbers in the student record, then use Send / Retry SMS on the announcement.</p>
+                </div>
+                <div className="flex gap-3">
+                  <div className="rounded-2xl bg-white px-4 py-3 text-center shadow-sm"><p className="text-2xl font-black text-red-600">{failedSmsCount}</p><p className="text-[10px] font-black text-slate-500">FAILED</p></div>
+                  <div className="rounded-2xl bg-white px-4 py-3 text-center shadow-sm"><p className="text-2xl font-black text-amber-600">{missingContactCount}</p><p className="text-[10px] font-black text-slate-500">MISSING CONTACT</p></div>
+                </div>
+              </div>
+              {smsDeliveries.length > 0 && (
+                <div className="mt-5 overflow-hidden rounded-2xl border border-amber-200 bg-white">
+                  <div className="border-b border-amber-100 px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-600">
+                    Failed and missing guardian contacts
+                  </div>
+                  <div className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
+                    {smsDeliveries.map((delivery) => (
+                      <div key={delivery.id} className="grid gap-2 px-4 py-3 text-sm sm:grid-cols-[1.2fr_1fr_1.5fr] sm:items-center">
+                        <div>
+                          <p className="font-bold text-slate-900">{delivery.student_name || 'Unknown student'}</p>
+                          <p className="text-xs text-slate-500">{announcementTitles.get(delivery.announcement_id) || 'Announcement'}</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-700">{delivery.guardian_name || 'Guardian'}</p>
+                          <p className="text-xs text-slate-500">{delivery.recipient || 'No phone number'}</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${delivery.status === 'Failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{delivery.status}</span>
+                          <p className="text-xs leading-5 text-slate-600">{delivery.error || 'SMS was not delivered.'}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* ===================================================== */}
           {/* MESSAGES */}
@@ -790,6 +937,59 @@ export default function AnnouncementsPage() {
 
                 {/* MESSAGE */}
                 <div className="lg:col-span-2">
+                  <label className="mb-2 block text-sm font-bold text-slate-700">
+                    Send Announcement To
+                  </label>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                    {audiences.map((audience) => {
+                      const selected = form.audiences.includes(audience);
+                      return (
+                        <button
+                          key={audience}
+                          type="button"
+                          onClick={() => toggleAudience(audience)}
+                          className={`rounded-xl border px-3 py-3 text-xs font-black transition ${
+                            selected
+                              ? 'border-indigo-600 bg-indigo-600 text-white shadow-md'
+                              : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-white'
+                          }`}
+                        >
+                          <i className={`fa-solid ${audience === 'Guardians' ? 'fa-people-roof' : audience === 'Teachers' ? 'fa-chalkboard-user' : audience === 'Housemasters' ? 'fa-house-user' : audience === 'Everyone' ? 'fa-earth-africa' : 'fa-user-graduate'} mr-2`} />
+                          {audience}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-700">
+                    Student / Guardian Form
+                  </label>
+                  <select
+                    value={form.target_form}
+                    onChange={(event) => updateForm('target_form', event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm font-semibold outline-none focus:border-slate-900"
+                  >
+                    <option value="All">All Forms</option>
+                    <option value="Form 1">Form 1</option>
+                    <option value="Form 2">Form 2</option>
+                    <option value="Form 3">Form 3</option>
+                  </select>
+                </div>
+
+                {(form.audiences.includes('Guardians') || form.audiences.includes('Everyone')) && (
+                  <label className={`flex cursor-pointer items-center justify-between rounded-2xl border p-4 ${form.guardian_sms_enabled ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
+                    <div>
+                      <p className="text-sm font-black text-slate-900">Send Guardian SMS</p>
+                      <p className="mt-1 text-xs text-slate-500">Uses stored guardian contacts and records every result.</p>
+                    </div>
+                    <input type="checkbox" checked={form.guardian_sms_enabled} onChange={(event)=>updateForm('guardian_sms_enabled',event.target.checked)} className="h-5 w-5 accent-blue-600" />
+                  </label>
+                )}
+
+                {/* MESSAGE */}
+                <div className="lg:col-span-2">
                   <div className="mb-2 flex items-center justify-between">
                     <label className="block text-sm font-bold text-slate-700">
                       Announcement Message
@@ -836,11 +1036,11 @@ export default function AnnouncementsPage() {
 
                         <div>
                           <p className="text-sm font-bold text-slate-900">
-                            Publish to Students
+                            Publish Announcement
                           </p>
 
                           <p className="text-xs text-slate-500">
-                            Make this announcement visible.
+                            Make this visible to the selected audiences.
                           </p>
                         </div>
                       </div>
@@ -1102,6 +1302,13 @@ export default function AnnouncementsPage() {
                               >
                                 {item.category}
                               </span>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700 ring-1 ring-indigo-200">
+                                <i className="fa-solid fa-users" />
+                                {(item.audiences || ['Students']).join(', ')}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-600 ring-1 ring-slate-200">
+                                {item.target_form || 'All'}
+                              </span>
 
                               {item.is_urgent && (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-[10px] font-black text-red-700 ring-1 ring-red-200">
@@ -1139,6 +1346,15 @@ export default function AnnouncementsPage() {
                               {item.content}
                             </p>
 
+                            {(item.sms_total > 0 || item.guardian_sms_enabled) && (
+                              <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-black">
+                                <span className="rounded-lg bg-slate-100 px-2.5 py-1.5">Targeted: {item.sms_total || 0}</span>
+                                <span className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-emerald-700">Sent: {item.sms_sent || 0}</span>
+                                <span className="rounded-lg bg-red-50 px-2.5 py-1.5 text-red-700">Failed: {item.sms_failed || 0}</span>
+                                <span className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-amber-700">Missing: {item.sms_missing_contact || 0}</span>
+                              </div>
+                            )}
+
                             <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-slate-400">
                               <span className="inline-flex items-center gap-1.5">
                                 <i className="fa-solid fa-calendar-days" />
@@ -1166,6 +1382,18 @@ export default function AnnouncementsPage() {
                             <i className="fa-solid fa-pen-to-square" />
                             Edit
                           </button>
+
+                          {item.is_published && (item.audiences?.includes('Guardians') || item.audiences?.includes('Everyone')) && (
+                            <button
+                              type="button"
+                              onClick={() => sendGuardianSms(item.id).catch((err) => setError(err instanceof Error ? err.message : 'Guardian SMS failed.'))}
+                              disabled={sendingSmsId === item.id}
+                              className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-xs font-bold text-blue-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-100 disabled:opacity-50"
+                            >
+                              <i className={`fa-solid ${sendingSmsId === item.id ? 'fa-spinner animate-spin' : 'fa-paper-plane'}`} />
+                              {sendingSmsId === item.id ? 'Sending SMS...' : item.sms_total ? 'Retry Guardian SMS' : 'Send Guardian SMS'}
+                            </button>
+                          )}
 
                           <button
                             type="button"
