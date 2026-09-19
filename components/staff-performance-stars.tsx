@@ -10,6 +10,7 @@ type Slot = { teacher_assignment_id:string; day_of_week:number; status:string };
 type Attendance = { recorded_by:string|null; class_id:string|null; subject_id:string|null; date:string };
 type Assessment = { recorded_by:string|null; class_id:string|null; subject_id:string|null; assessment_type:string; submitted_at:string|null };
 type DocumentRow = { staff_id:string; document_type:string };
+type AcademicYear = { id:string; name:string; is_current:boolean|null; start_date:string };
 type Term = { id:string; academic_year_id:string; name:string; start_date:string; end_date:string; is_current:boolean|null };
 type Score = { teacher:Teacher; attendance:number; expected:number; attendancePoints:number; assessmentCount:number; assessmentPoints:number; documentCount:number; documentPoints:number; bonus:number; total:number; stars:number; badges:string[] };
 
@@ -33,12 +34,16 @@ export default function StaffPerformanceStars({mode}:{mode:Mode}){
     if(profileError||!profile||profile.is_active===false)throw new Error('Your active staff profile could not be loaded.');
     if(mode==='admin'&&profile.role!=='admin')throw new Error('Only administrators can view the school leaderboard.');
     if(mode==='teacher'&&profile.role!=='teacher')throw new Error('Only teachers can view personal performance stars.');
-    const {data:years,error:yearError}=await supabase.from('academic_years').select('id,is_current,start_date').eq('school_id',profile.school_id).order('start_date',{ascending:false});
+    const {data:years,error:yearError}=await supabase.from('academic_years').select('id,name,is_current,start_date').eq('school_id',profile.school_id).order('start_date',{ascending:false});
     if(yearError||!years?.length)throw new Error('Set an academic year to calculate staff performance.');
-    const year=years.find(y=>y.is_current)||years[0];
-    const {data:terms,error:termError}=await supabase.from('terms').select('id,academic_year_id,name,start_date,end_date,is_current').eq('academic_year_id',year.id).order('start_date',{ascending:true});
+    const academicYears=years as AcademicYear[], preferredYear=academicYears.find(y=>y.is_current)||academicYears[0];
+    const {data:terms,error:termError}=await supabase.from('terms').select('id,academic_year_id,name,start_date,end_date,is_current').in('academic_year_id',academicYears.map(y=>y.id)).order('start_date',{ascending:true});
     if(termError||!terms?.length)throw new Error('Set a semester to calculate staff performance.');
-    const current=(terms.find(t=>t.is_current)||terms[0]) as Term;setTermName(current.name);
+    const termRows=terms as Term[];
+    const yearWithTerms=academicYears.find(y=>termRows.some(t=>t.academic_year_id===y.id));
+    const current=(termRows.find(t=>t.is_current)||termRows.find(t=>t.academic_year_id===preferredYear.id)||termRows.find(t=>t.academic_year_id===yearWithTerms?.id)||termRows[0]) as Term;
+    const scoringYear=academicYears.find(y=>y.id===current.academic_year_id);
+    setTermName(`${scoringYear?.name||'Academic year'} · ${current.name}`);
     const today=new Date().toISOString().slice(0,10), effectiveEnd=today<current.end_date?today:current.end_date;
     const teacherQuery=supabase.from('users').select('id,full_name,department,staff_id').eq('school_id',profile.school_id).eq('role','teacher').eq('is_active',true).order('full_name');
     const [teachersQ,assignmentsQ,timetableQ,attendanceQ,assessmentQ,documentsQ]=await Promise.all([
