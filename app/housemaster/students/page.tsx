@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { matchesBoardingGender, useBoardingGender } from '@/components/boarding-gender-filter';
 
 const supabase = createClient();
 const input =
@@ -33,6 +34,7 @@ function Info({ label, value, icon }: { label: string; value: string; icon: stri
 
 export default function BoarderAdmission() {
   const router = useRouter();
+  const genderScope = useBoardingGender();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false);
   const [students, setStudents] = useState<Student[]>([]), [years, setYears] = useState<Year[]>([]), [terms, setTerms] = useState<Term[]>([]), [programmes, setProgrammes] = useState<Programme[]>([]), [classes, setClasses] = useState<ClassRow[]>([]), [enrol, setEnrol] = useState<Enrollment[]>([]), [houses, setHouses] = useState<House[]>([]), [alloc, setAlloc] = useState<Allocation[]>([]);
@@ -84,6 +86,7 @@ export default function BoarderAdmission() {
   }).filter(Boolean))).sort(), [students, enrol, classes, yearId]);
 
   const visible = students.filter(s => {
+    if (!matchesBoardingGender(s.gender, genderScope)) return false;
     if (scoped.some(a => a.student_id === s.id)) return false;
     const e = enrollmentFor(s.id); const c = e ? classes.find(x => x.id === e.class_id) : undefined;
     const p = programmes.find(x => x.id === (e?.programme_id || c?.programme_id));
