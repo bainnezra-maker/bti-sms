@@ -83,6 +83,15 @@ const emptyDutyForm: DutyForm = {
   status: 'scheduled',
 };
 
+function nextStaffNumber(staffNumbers: Array<string | null | undefined>) {
+  const highestNumber = staffNumbers.reduce((highest, staffNumber) => {
+    const match = (staffNumber || '').trim().match(/^BTIS(\d+)$/i);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+
+  return `BTIS${String(highestNumber + 1).padStart(3, '0')}`;
+}
+
 const dutyStatusLabels: Record<DutyStatus, string> = {
   scheduled: 'Scheduled',
   active: 'Active',
@@ -421,7 +430,12 @@ export default function StaffPage() {
 
   function openAddForm() {
     setEditingId(null);
-    setForm({ ...emptyForm });
+    setForm({
+      ...emptyForm,
+      staff_number: nextStaffNumber(
+        staff.map((person) => person.staff_number)
+      ),
+    });
     setError('');
     setMessage('');
     setShowForm(true);
@@ -464,8 +478,8 @@ export default function StaffPage() {
       return;
     }
 
-    if (!form.staff_number.trim() || !form.full_name.trim()) {
-      setError('Staff ID and full name are required.');
+    if (!form.full_name.trim()) {
+      setError('Full name is required.');
       return;
     }
 
@@ -476,9 +490,29 @@ export default function StaffPage() {
 
     setSaving(true);
 
+    let staffNumber = form.staff_number.trim();
+
+    if (!editingId) {
+      const { data: existingStaff, error: staffNumberError } = await supabase
+        .from('staff')
+        .select('staff_number')
+        .eq('school_id', schoolId);
+
+      if (staffNumberError) {
+        setError('The next Staff ID could not be generated. Please try again.');
+        setSaving(false);
+        return;
+      }
+
+      staffNumber = nextStaffNumber(
+        (existingStaff || []).map((person) => person.staff_number)
+      );
+      setForm((current) => ({ ...current, staff_number: staffNumber }));
+    }
+
     const payload = {
       school_id: schoolId,
-      staff_number: form.staff_number.trim(),
+      staff_number: staffNumber,
       full_name: form.full_name.trim(),
       gender: form.gender || null,
       date_of_birth: form.date_of_birth || null,
@@ -2119,16 +2153,18 @@ export default function StaffPage() {
                 <Field label="Staff ID" required>
                   <input
                     value={form.staff_number}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        staff_number: event.target.value,
-                      })
-                    }
-                    placeholder="e.g. BTI-ST-001"
+                    readOnly
+                    aria-readonly="true"
+                    placeholder="Generated automatically"
                     required
-                    className={inputClass}
+                    className={`${inputClass} cursor-not-allowed bg-slate-100 font-bold text-slate-700`}
                   />
+                  <p className="mt-2 text-xs font-medium text-emerald-700">
+                    <i className="fa-solid fa-wand-magic-sparkles mr-1.5" />
+                    {editingId
+                      ? 'Staff IDs are protected and cannot be changed.'
+                      : 'Automatically generated when this staff member is saved.'}
+                  </p>
                 </Field>
 
                 <Field label="Full Name" required>
