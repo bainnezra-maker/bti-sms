@@ -1,19 +1,574 @@
-'use client';
-import {useEffect,useMemo,useState} from 'react';import{useRouter}from'next/navigation';import{createClient}from'@/lib/supabase/client';
-type P={id:string;school_id:string;full_name:string;role:string;is_active:boolean|null};type S={id:string;admission_number:string|null;full_name:string;date_of_birth:string|null;gender:string|null;guardian_name:string|null;guardian_phone:string|null;address:string|null;photo_url:string|null};type Y={id:string;name:string;start_date:string;is_current:boolean|null};type E={student_id:string;academic_year_id:string;class_id:string;programme_id:string|null;status:string|null};type C={id:string;name:string;level:string|null;programme_id:string|null};type G={id:string;name:string;code:string|null};type R={student_id:string;health_insurance_number:string|null;home_location:string|null;emergency_contact_name:string|null;emergency_contact_phone:string|null;notes:string|null};type H={id:string;name:string};type M={id:string;house_id:string;room_number:string;location:string|null};type A={id:string;student_id:string;academic_year_id:string;term:string|null;house_id:string;room_id:string|null;room_number:string;bed_space:string|null;status:string;allocated_at:string;ended_at:string|null};type I={id:string;student_id:string;incident_at:string;category:string;severity:string;status:string;description:string};type O={id:string;student_id:string;checkout_type:string;checkout_at:string;destination:string|null;expected_return_at:string|null;returned_at:string|null;status:string};type X={id:string;student_id:string;reason:string;destination:string|null;departure_at:string;expected_return_at:string;returned_at:string|null;status:string};
-const sb=createClient(),input='h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:bg-white focus:ring-4 focus:ring-slate-100';
-export default function Profiles(){const router=useRouter();const[p,setP]=useState<P|null>(null),[students,setStudents]=useState<S[]>([]),[years,setYears]=useState<Y[]>([]),[en,setEn]=useState<E[]>([]),[classes,setClasses]=useState<C[]>([]),[programmes,setProgrammes]=useState<G[]>([]),[rp,setRp]=useState<R[]>([]),[houses,setHouses]=useState<H[]>([]),[rooms,setRooms]=useState<M[]>([]),[alloc,setAlloc]=useState<A[]>([]),[inc,setInc]=useState<I[]>([]),[outs,setOuts]=useState<O[]>([]),[exiats,setExiats]=useState<X[]>([]),[year,setYear]=useState(''),[search,setSearch]=useState(''),[sid,setSid]=useState(''),[loading,setLoading]=useState(true),[msg,setMsg]=useState('');
-async function load(school:string){const q=await Promise.all([sb.from('students').select('id,admission_number,full_name,date_of_birth,gender,guardian_name,guardian_phone,address,photo_url').eq('school_id',school).eq('resident','Boarding').eq('status','active').order('full_name'),sb.from('academic_years').select('id,name,start_date,is_current').eq('school_id',school).order('start_date',{ascending:false}),sb.from('classes').select('id,name,level,programme_id').eq('school_id',school),sb.from('programmes').select('id,name,code').eq('school_id',school),sb.from('student_residential_profiles').select('student_id,health_insurance_number,home_location,emergency_contact_name,emergency_contact_phone,notes').eq('school_id',school),sb.from('residential_houses').select('id,name').eq('school_id',school),sb.from('residential_rooms').select('id,house_id,room_number,location').eq('school_id',school),sb.from('student_incidents').select('id,student_id,incident_at,category,severity,status,description').eq('school_id',school).order('incident_at',{ascending:false}).limit(500),sb.from('student_checkouts').select('id,student_id,checkout_type,checkout_at,destination,expected_return_at,returned_at,status').eq('school_id',school).order('checkout_at',{ascending:false}).limit(500),sb.from('student_exiats').select('id,student_id,reason,destination,departure_at,expected_return_at,returned_at,status').eq('school_id',school).order('departure_at',{ascending:false}).limit(500),sb.from('boarding_allocations').select('id,student_id,academic_year_id,term,house_id,room_id,room_number,bed_space,status,allocated_at,ended_at').eq('school_id',school).order('allocated_at',{ascending:false}).limit(1000)]);const er=q.find(x=>x.error)?.error;if(er)throw new Error(er.message);const boarders=(q[0].data||[])as S[],ids=new Set(boarders.map(x=>x.id));setStudents(boarders);setYears((q[1].data||[])as Y[]);setClasses((q[2].data||[])as C[]);setProgrammes((q[3].data||[])as G[]);setRp((q[4].data||[])as R[]);setHouses((q[5].data||[])as H[]);setRooms((q[6].data||[])as M[]);setInc(((q[7].data||[])as I[]).filter(x=>ids.has(x.student_id)));setOuts(((q[8].data||[])as O[]).filter(x=>ids.has(x.student_id)));setExiats(((q[9].data||[])as X[]).filter(x=>ids.has(x.student_id)));setAlloc(((q[10].data||[])as A[]).filter(x=>ids.has(x.student_id)));const cy=(q[1].data||[]).find((x:any)=>x.is_current)||(q[1].data||[])[0];if(cy){setYear(cy.id);await loadYear(cy.id,boarders.map(x=>x.id))}}
-async function loadYear(y:string,ids=students.map(s=>s.id)){if(!ids.length){setEn([]);return}const{data,error}=await sb.from('enrollments').select('student_id,academic_year_id,class_id,programme_id,status').eq('academic_year_id',y).eq('status','active').in('student_id',ids);if(error)throw error;setEn((data||[])as E[])}
-useEffect(()=>{(async()=>{const{data:{user}}=await sb.auth.getUser();if(!user){router.replace('/login');return}const{data:u}=await sb.from('users').select('id,school_id,full_name,role,is_active').eq('id',user.id).maybeSingle();if(!u||u.is_active===false||!['housemaster','admin'].includes(u.role)){router.replace('/login');return}setP(u as P);try{await load(u.school_id)}catch(e){setMsg(e instanceof Error?e.message:'Unable to load Boarder profiles.')}finally{setLoading(false)}})()},[router]);
-async function changeYear(y:string){setYear(y);try{await loadYear(y)}catch(e){setMsg(e instanceof Error?e.message:'Unable to load academic year.')}}
-const cm=useMemo(()=>new Map(classes.map(x=>[x.id,x])),[classes]),gm=useMemo(()=>new Map(programmes.map(x=>[x.id,x])),[programmes]),hm=useMemo(()=>new Map(houses.map(x=>[x.id,x])),[houses]),mm=useMemo(()=>new Map(rooms.map(x=>[x.id,x])),[rooms]),em=useMemo(()=>new Map(en.map(x=>[x.student_id,x])),[en]),rpm=useMemo(()=>new Map(rp.map(x=>[x.student_id,x])),[rp]),ym=useMemo(()=>new Map(years.map(x=>[x.id,x.name])),[years]);
-const list=students.filter(s=>`${s.full_name} ${s.admission_number||''}`.toLowerCase().includes(search.toLowerCase())).slice(0,100),s=students.find(x=>x.id===sid),e=s?em.get(s.id):undefined,c=e?cm.get(e.class_id):undefined,g=e?gm.get(e.programme_id||c?.programme_id||''):undefined,r=s?rpm.get(s.id):undefined,sa=s?alloc.filter(x=>x.student_id===s.id):[],active=sa.find(x=>x.academic_year_id===year&&x.status==='Active'),h=active?hm.get(active.house_id):undefined,room=active?mm.get(active.room_id||''):undefined,si=s?inc.filter(x=>x.student_id===s.id):[],so=s?outs.filter(x=>x.student_id===s.id):[],sx=s?exiats.filter(x=>x.student_id===s.id):[],away=so.some(x=>x.status==='Checked Out')||sx.some(x=>x.status==='Out');
-if(loading&&!p)return <main className="min-h-screen bg-slate-50 p-6"><div className="h-40 animate-pulse rounded-3xl bg-slate-900"/></main>;
-return <main className="min-h-screen bg-slate-50 px-4 py-5 sm:px-6 lg:px-8"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/><div className="mx-auto max-w-7xl space-y-6"><header className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-xl sm:p-8"><div className="absolute -right-20 -top-20 h-56 w-56 animate-pulse rounded-full bg-violet-400/10"/><span className="relative rounded-full bg-white/10 px-3 py-1.5 text-xs font-black"><i className="fa-solid fa-id-card mr-2"/>360° Boarder Profile</span><h1 className="relative mt-4 text-3xl font-black">Student Profiles</h1><p className="relative mt-2 text-sm text-slate-300">Identity, academics, accommodation history, welfare and movement for active Boarders.</p></header>{msg&&<div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{msg}</div>}
-<section className="rounded-3xl border bg-white p-4 shadow-sm"><div className="grid gap-3 md:grid-cols-[220px_1fr]"><select className={input} value={year} onChange={x=>changeYear(x.target.value)}>{years.map(y=><option key={y.id} value={y.id}>{y.name}</option>)}</select><input className={input} value={search} onChange={x=>setSearch(x.target.value)} placeholder="Search Boarder or admission number..."/></div><div className="mt-3 flex max-h-48 flex-wrap gap-2 overflow-auto">{list.map(x=><button key={x.id} onClick={()=>setSid(x.id)} className={`rounded-xl border px-3 py-2 text-xs font-bold transition hover:-translate-y-0.5 ${sid===x.id?'border-slate-900 bg-slate-900 text-white':'bg-slate-50'}`}>{x.full_name} · {x.admission_number||'No ID'}</button>)}</div></section>
-{s?<><section className="animate-[fadeInUp_.3s_ease-out] rounded-3xl border bg-white p-5 shadow-sm"><div className="flex flex-col gap-5 sm:flex-row sm:items-center"><div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-3xl bg-slate-100 text-2xl font-black text-slate-500">{s.photo_url?<img src={s.photo_url} alt="" className="h-full w-full object-cover"/>:s.full_name.split(' ').map(x=>x[0]).slice(0,2).join('')}</div><div><div className="flex flex-wrap gap-2"><h2 className="text-2xl font-black">{s.full_name}</h2><B text="Boarder"/><B text={away?'Away':'On Campus'}/></div><p className="mt-2 text-sm text-slate-500">{s.admission_number||'No ID'} · {g?.code||g?.name||'No programme'} · {c?.level||'No form'} · {c?.name||'No class'}</p></div></div></section>
-<div className="grid gap-5 lg:grid-cols-2"><Card icon="fa-user" title="Personal & Guardian"><Row l="Gender" v={s.gender}/><Row l="Date of Birth" v={s.date_of_birth}/><Row l="Guardian" v={s.guardian_name}/><Row l="Guardian Phone" v={s.guardian_phone}/><Row l="Home Address" v={s.address}/></Card><Card icon="fa-house" title="Current Residential Information"><Row l="House" v={h?.name}/><Row l="Room" v={active?.room_number||room?.room_number}/><Row l="Bed Space" v={active?.bed_space}/><Row l="Health Insurance" v={r?.health_insurance_number}/><Row l="Home Location" v={r?.home_location}/><Row l="Emergency Contact" v={r?.emergency_contact_name}/><Row l="Emergency Phone" v={r?.emergency_contact_phone}/></Card></div>
-<Card icon="fa-bed" title={`Boarding History (${sa.length})`}>{sa.length?sa.map(a=><div key={a.id} className="grid gap-2 border-b py-3 text-xs sm:grid-cols-5"><b>{ym.get(a.academic_year_id)||'Academic Year'}</b><span>{a.term||'—'}</span><span>{hm.get(a.house_id)?.name||'—'} / {a.room_number||mm.get(a.room_id||'')?.room_number||'—'}</span><span>{a.bed_space||'—'}</span><B text={a.status}/></div>):<Empty text="No boarding allocation history recorded."/ >}</Card>
-<div className="grid gap-5 lg:grid-cols-3"><Card icon="fa-triangle-exclamation" title={`Incidents (${si.length})`}>{si.length?si.slice(0,10).map(x=><Mini key={x.id} title={x.category} sub={`${new Date(x.incident_at).toLocaleDateString('en-GB')} · ${x.severity} · ${x.status}`} text={x.description}/>):<Empty text="No incidents."/ >}</Card><Card icon="fa-suitcase-rolling" title={`Checkout History (${so.length})`}>{so.length?so.slice(0,10).map(x=><Mini key={x.id} title={x.checkout_type} sub={`${new Date(x.checkout_at).toLocaleString('en-GB')} · ${x.status}`} text={x.destination||'No destination'}/>):<Empty text="No checkout history."/ >}</Card><Card icon="fa-person-walking-arrow-right" title={`Exiat History (${sx.length})`}>{sx.length?sx.slice(0,10).map(x=><Mini key={x.id} title={x.reason} sub={`${new Date(x.departure_at).toLocaleString('en-GB')} · ${x.status}`} text={x.destination||'No destination'}/>):<Empty text="No Exiat history."/ >}</Card></div></>:<div className="rounded-3xl border border-dashed bg-white p-12 text-center"><i className="fa-solid fa-address-card text-3xl text-slate-300"/><h2 className="mt-4 font-black">Select a Boarder</h2><p className="mt-2 text-sm text-slate-500">Search and select a Boarder to open their 360° residential profile.</p></div>}</div></main>}
-function Card({icon,title,children}:{icon:string;title:string;children:React.ReactNode}){return <section className="group rounded-3xl border bg-white p-5 shadow-sm transition hover:shadow-md"><h3 className="font-black"><i className={`fa-solid ${icon} mr-2 transition-transform group-hover:scale-110`}/>{title}</h3><div className="mt-4">{children}</div></section>}function Row({l,v}:{l:string;v:string|null|undefined}){return <div className="flex justify-between gap-4 border-b py-2.5 text-sm last:border-0"><span className="text-slate-500">{l}</span><b className="text-right">{v||'—'}</b></div>}function B({text}:{text:string}){return <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">{text}</span>}function Empty({text}:{text:string}){return <div className="py-8 text-center text-xs font-semibold text-slate-500">{text}</div>}function Mini({title,sub,text}:{title:string;sub:string;text:string}){return <div className="border-b py-3 last:border-0"><b className="text-sm">{title}</b><p className="mt-1 text-[11px] text-slate-400">{sub}</p><p className="mt-2 text-xs text-slate-600">{text}</p></div>}
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { matchesBoardingGender, useBoardingGender } from "@/components/boarding-gender-filter";
+type P = {
+  id: string;
+  school_id: string;
+  full_name: string;
+  role: string;
+  is_active: boolean | null;
+};
+type S = {
+  id: string;
+  admission_number: string | null;
+  full_name: string;
+  date_of_birth: string | null;
+  gender: string | null;
+  guardian_name: string | null;
+  guardian_phone: string | null;
+  address: string | null;
+  photo_url: string | null;
+};
+type Y = {
+  id: string;
+  name: string;
+  start_date: string;
+  is_current: boolean | null;
+};
+type E = {
+  student_id: string;
+  academic_year_id: string;
+  class_id: string;
+  programme_id: string | null;
+  status: string | null;
+};
+type C = {
+  id: string;
+  name: string;
+  level: string | null;
+  programme_id: string | null;
+};
+type G = { id: string; name: string; code: string | null };
+type R = {
+  student_id: string;
+  health_insurance_number: string | null;
+  home_location: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  notes: string | null;
+};
+type H = { id: string; name: string };
+type M = {
+  id: string;
+  house_id: string;
+  room_number: string;
+  location: string | null;
+};
+type A = {
+  id: string;
+  student_id: string;
+  academic_year_id: string;
+  term: string | null;
+  house_id: string;
+  room_id: string | null;
+  room_number: string;
+  bed_space: string | null;
+  status: string;
+  allocated_at: string;
+  ended_at: string | null;
+};
+type I = {
+  id: string;
+  student_id: string;
+  incident_at: string;
+  category: string;
+  severity: string;
+  status: string;
+  description: string;
+};
+type O = {
+  id: string;
+  student_id: string;
+  checkout_type: string;
+  checkout_at: string;
+  destination: string | null;
+  expected_return_at: string | null;
+  returned_at: string | null;
+  status: string;
+};
+type X = {
+  id: string;
+  student_id: string;
+  reason: string;
+  destination: string | null;
+  departure_at: string;
+  expected_return_at: string;
+  returned_at: string | null;
+  status: string;
+};
+const sb = createClient(),
+  input =
+    "h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:bg-white focus:ring-4 focus:ring-slate-100";
+export default function Profiles() {
+  const router = useRouter();
+  const genderScope = useBoardingGender();
+  const [p, setP] = useState<P | null>(null),
+    [students, setStudents] = useState<S[]>([]),
+    [years, setYears] = useState<Y[]>([]),
+    [en, setEn] = useState<E[]>([]),
+    [classes, setClasses] = useState<C[]>([]),
+    [programmes, setProgrammes] = useState<G[]>([]),
+    [rp, setRp] = useState<R[]>([]),
+    [houses, setHouses] = useState<H[]>([]),
+    [rooms, setRooms] = useState<M[]>([]),
+    [alloc, setAlloc] = useState<A[]>([]),
+    [inc, setInc] = useState<I[]>([]),
+    [outs, setOuts] = useState<O[]>([]),
+    [exiats, setExiats] = useState<X[]>([]),
+    [year, setYear] = useState(""),
+    [search, setSearch] = useState(""),
+    [sid, setSid] = useState(""),
+    [loading, setLoading] = useState(true),
+    [msg, setMsg] = useState("");
+  async function load(school: string) {
+    const q = await Promise.all([
+      sb
+        .from("students")
+        .select(
+          "id,admission_number,full_name,date_of_birth,gender,guardian_name,guardian_phone,address,photo_url",
+        )
+        .eq("school_id", school)
+        .eq("resident", "Boarding")
+        .eq("status", "active")
+        .order("full_name"),
+      sb
+        .from("academic_years")
+        .select("id,name,start_date,is_current")
+        .eq("school_id", school)
+        .order("start_date", { ascending: false }),
+      sb
+        .from("classes")
+        .select("id,name,level,programme_id")
+        .eq("school_id", school),
+      sb.from("programmes").select("id,name,code").eq("school_id", school),
+      sb
+        .from("student_residential_profiles")
+        .select(
+          "student_id,health_insurance_number,home_location,emergency_contact_name,emergency_contact_phone,notes",
+        )
+        .eq("school_id", school),
+      sb.from("residential_houses").select("id,name").eq("school_id", school),
+      sb
+        .from("residential_rooms")
+        .select("id,house_id,room_number,location")
+        .eq("school_id", school),
+      sb
+        .from("student_incidents")
+        .select(
+          "id,student_id,incident_at,category,severity,status,description",
+        )
+        .eq("school_id", school)
+        .order("incident_at", { ascending: false })
+        .limit(500),
+      sb
+        .from("student_checkouts")
+        .select(
+          "id,student_id,checkout_type,checkout_at,destination,expected_return_at,returned_at,status",
+        )
+        .eq("school_id", school)
+        .order("checkout_at", { ascending: false })
+        .limit(500),
+      sb
+        .from("student_exiats")
+        .select(
+          "id,student_id,reason,destination,departure_at,expected_return_at,returned_at,status",
+        )
+        .eq("school_id", school)
+        .order("departure_at", { ascending: false })
+        .limit(500),
+      sb
+        .from("boarding_allocations")
+        .select(
+          "id,student_id,academic_year_id,term,house_id,room_id,room_number,bed_space,status,allocated_at,ended_at",
+        )
+        .eq("school_id", school)
+        .order("allocated_at", { ascending: false })
+        .limit(1000),
+    ]);
+    const er = q.find((x) => x.error)?.error;
+    if (er) throw new Error(er.message);
+    const boarders = (q[0].data || []) as S[],
+      ids = new Set(boarders.map((x) => x.id));
+    setStudents(boarders);
+    setYears((q[1].data || []) as Y[]);
+    setClasses((q[2].data || []) as C[]);
+    setProgrammes((q[3].data || []) as G[]);
+    setRp((q[4].data || []) as R[]);
+    setHouses((q[5].data || []) as H[]);
+    setRooms((q[6].data || []) as M[]);
+    setInc(((q[7].data || []) as I[]).filter((x) => ids.has(x.student_id)));
+    setOuts(((q[8].data || []) as O[]).filter((x) => ids.has(x.student_id)));
+    setExiats(((q[9].data || []) as X[]).filter((x) => ids.has(x.student_id)));
+    setAlloc(((q[10].data || []) as A[]).filter((x) => ids.has(x.student_id)));
+    const cy =
+      (q[1].data || []).find((x: any) => x.is_current) || (q[1].data || [])[0];
+    if (cy) {
+      setYear(cy.id);
+      await loadYear(
+        cy.id,
+        boarders.map((x) => x.id),
+      );
+    }
+  }
+  async function loadYear(y: string, ids = students.map((s) => s.id)) {
+    if (!ids.length) {
+      setEn([]);
+      return;
+    }
+    const { data, error } = await sb
+      .from("enrollments")
+      .select("student_id,academic_year_id,class_id,programme_id,status")
+      .eq("academic_year_id", y)
+      .eq("status", "active")
+      .in("student_id", ids);
+    if (error) throw error;
+    setEn((data || []) as E[]);
+  }
+  useEffect(() => {
+    (async () => {
+      const {
+        data: { user },
+      } = await sb.auth.getUser();
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      const { data: u } = await sb
+        .from("users")
+        .select("id,school_id,full_name,role,is_active")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (
+        !u ||
+        u.is_active === false ||
+        !["housemaster", "admin"].includes(u.role)
+      ) {
+        router.replace("/login");
+        return;
+      }
+      setP(u as P);
+      try {
+        await load(u.school_id);
+      } catch (e) {
+        setMsg(
+          e instanceof Error ? e.message : "Unable to load Boarder profiles.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [router]);
+  async function changeYear(y: string) {
+    setYear(y);
+    try {
+      await loadYear(y);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Unable to load academic year.");
+    }
+  }
+  const cm = useMemo(() => new Map(classes.map((x) => [x.id, x])), [classes]),
+    gm = useMemo(() => new Map(programmes.map((x) => [x.id, x])), [programmes]),
+    hm = useMemo(() => new Map(houses.map((x) => [x.id, x])), [houses]),
+    mm = useMemo(() => new Map(rooms.map((x) => [x.id, x])), [rooms]),
+    em = useMemo(() => new Map(en.map((x) => [x.student_id, x])), [en]),
+    rpm = useMemo(() => new Map(rp.map((x) => [x.student_id, x])), [rp]),
+    ym = useMemo(() => new Map(years.map((x) => [x.id, x.name])), [years]);
+  const scopedStudents = students.filter((student) => matchesBoardingGender(student.gender, genderScope));
+  const list = scopedStudents
+      .filter((s) =>
+        `${s.full_name} ${s.admission_number || ""}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+      )
+      .slice(0, 100),
+    s = scopedStudents.find((x) => x.id === sid),
+    e = s ? em.get(s.id) : undefined,
+    c = e ? cm.get(e.class_id) : undefined,
+    g = e ? gm.get(e.programme_id || c?.programme_id || "") : undefined,
+    r = s ? rpm.get(s.id) : undefined,
+    sa = s ? alloc.filter((x) => x.student_id === s.id) : [],
+    active = sa.find(
+      (x) => x.academic_year_id === year && x.status === "Active",
+    ),
+    h = active ? hm.get(active.house_id) : undefined,
+    room = active ? mm.get(active.room_id || "") : undefined,
+    si = s ? inc.filter((x) => x.student_id === s.id) : [],
+    so = s ? outs.filter((x) => x.student_id === s.id) : [],
+    sx = s ? exiats.filter((x) => x.student_id === s.id) : [],
+    away =
+      so.some((x) => x.status === "Checked Out") ||
+      sx.some((x) => x.status === "Out");
+  if (loading && !p)
+    return (
+      <main className="min-h-screen bg-slate-50 p-6">
+        <div className="h-40 animate-pulse rounded-3xl bg-slate-900" />
+      </main>
+    );
+  return (
+    <main className="min-h-screen bg-slate-50 px-4 py-5 sm:px-6 lg:px-8">
+      <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+      />
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-xl sm:p-8">
+          <div className="absolute -right-20 -top-20 h-56 w-56 animate-pulse rounded-full bg-violet-400/10" />
+          <span className="relative rounded-full bg-white/10 px-3 py-1.5 text-xs font-black">
+            <i className="fa-solid fa-id-card mr-2" />
+            360° Boarder Profile
+          </span>
+          <h1 className="relative mt-4 text-3xl font-black">
+            Student Profiles
+          </h1>
+          <p className="relative mt-2 text-sm text-slate-300">
+            Identity, academics, accommodation history, welfare and movement for
+            active Boarders.
+          </p>
+        </header>
+        {msg && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+            {msg}
+          </div>
+        )}
+        <section className="rounded-3xl border bg-white p-4 shadow-sm">
+          <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+            <select
+              className={input}
+              value={year}
+              onChange={(x) => changeYear(x.target.value)}
+            >
+              {years.map((y) => (
+                <option key={y.id} value={y.id}>
+                  {y.name}
+                </option>
+              ))}
+            </select>
+            <input
+              className={input}
+              value={search}
+              onChange={(x) => setSearch(x.target.value)}
+              placeholder="Search Boarder or admission number..."
+            />
+          </div>
+          <div className="mt-3 flex max-h-48 flex-wrap gap-2 overflow-auto">
+            {list.map((x) => (
+              <button
+                key={x.id}
+                onClick={() => setSid(x.id)}
+                className={`rounded-xl border px-3 py-2 text-xs font-bold transition hover:-translate-y-0.5 ${sid === x.id ? "border-slate-900 bg-slate-900 text-white" : "bg-slate-50"}`}
+              >
+                {x.full_name} · {x.admission_number || "No ID"}
+              </button>
+            ))}
+          </div>
+        </section>
+        {s ? (
+          <>
+            <section className="animate-[fadeInUp_.3s_ease-out] rounded-3xl border bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-3xl bg-slate-100 text-2xl font-black text-slate-500">
+                  {s.photo_url ? (
+                    <img
+                      src={s.photo_url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    s.full_name
+                      .split(" ")
+                      .map((x) => x[0])
+                      .slice(0, 2)
+                      .join("")
+                  )}
+                </div>
+                <div>
+                  <div className="flex flex-wrap gap-2">
+                    <h2 className="text-2xl font-black">{s.full_name}</h2>
+                    <B text="Boarder" />
+                    <B text={away ? "Away" : "On Campus"} />
+                  </div>
+                  <p className="mt-2 text-sm text-slate-500">
+                    {s.admission_number || "No ID"} ·{" "}
+                    {g?.code || g?.name || "No programme"} ·{" "}
+                    {c?.level || "No form"} · {c?.name || "No class"}
+                  </p>
+                </div>
+              </div>
+            </section>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Card icon="fa-user" title="Personal & Guardian">
+                <Row l="Gender" v={s.gender} />
+                <Row l="Date of Birth" v={s.date_of_birth} />
+                <Row l="Guardian" v={s.guardian_name} />
+                <Row l="Guardian Phone" v={s.guardian_phone} />
+                <Row l="Home Address" v={s.address} />
+              </Card>
+              <Card icon="fa-house" title="Current Residential Information">
+                <Row l="House" v={h?.name} />
+                <Row l="Room" v={active?.room_number || room?.room_number} />
+                <Row l="Bed Space" v={active?.bed_space} />
+                <Row l="Health Insurance" v={r?.health_insurance_number} />
+                <Row l="Home Location" v={r?.home_location} />
+                <Row l="Emergency Contact" v={r?.emergency_contact_name} />
+                <Row l="Emergency Phone" v={r?.emergency_contact_phone} />
+              </Card>
+            </div>
+            <Card icon="fa-bed" title={`Boarding History (${sa.length})`}>
+              {sa.length ? (
+                sa.map((a) => (
+                  <div
+                    key={a.id}
+                    className="grid gap-2 border-b py-3 text-xs sm:grid-cols-5"
+                  >
+                    <b>{ym.get(a.academic_year_id) || "Academic Year"}</b>
+                    <span>{a.term || "—"}</span>
+                    <span>
+                      {hm.get(a.house_id)?.name || "—"} /{" "}
+                      {a.room_number ||
+                        mm.get(a.room_id || "")?.room_number ||
+                        "—"}
+                    </span>
+                    <span>{a.bed_space || "—"}</span>
+                    <B text={a.status} />
+                  </div>
+                ))
+              ) : (
+                <Empty text="No boarding allocation history recorded." />
+              )}
+            </Card>
+            <div className="grid gap-5 lg:grid-cols-3">
+              <Card
+                icon="fa-triangle-exclamation"
+                title={`Incidents (${si.length})`}
+              >
+                {si.length ? (
+                  si
+                    .slice(0, 10)
+                    .map((x) => (
+                      <Mini
+                        key={x.id}
+                        title={x.category}
+                        sub={`${new Date(x.incident_at).toLocaleDateString("en-GB")} · ${x.severity} · ${x.status}`}
+                        text={x.description}
+                      />
+                    ))
+                ) : (
+                  <Empty text="No incidents." />
+                )}
+              </Card>
+              <Card
+                icon="fa-suitcase-rolling"
+                title={`Checkout History (${so.length})`}
+              >
+                {so.length ? (
+                  so
+                    .slice(0, 10)
+                    .map((x) => (
+                      <Mini
+                        key={x.id}
+                        title={x.checkout_type}
+                        sub={`${new Date(x.checkout_at).toLocaleString("en-GB")} · ${x.status}`}
+                        text={x.destination || "No destination"}
+                      />
+                    ))
+                ) : (
+                  <Empty text="No checkout history." />
+                )}
+              </Card>
+              <Card
+                icon="fa-person-walking-arrow-right"
+                title={`Exiat History (${sx.length})`}
+              >
+                {sx.length ? (
+                  sx
+                    .slice(0, 10)
+                    .map((x) => (
+                      <Mini
+                        key={x.id}
+                        title={x.reason}
+                        sub={`${new Date(x.departure_at).toLocaleString("en-GB")} · ${x.status}`}
+                        text={x.destination || "No destination"}
+                      />
+                    ))
+                ) : (
+                  <Empty text="No Exiat history." />
+                )}
+              </Card>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-3xl border border-dashed bg-white p-12 text-center">
+            <i className="fa-solid fa-address-card text-3xl text-slate-300" />
+            <h2 className="mt-4 font-black">Select a Boarder</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              Search and select a Boarder to open their 360° residential
+              profile.
+            </p>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+function Card({
+  icon,
+  title,
+  children,
+}: {
+  icon: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="group rounded-3xl border bg-white p-5 shadow-sm transition hover:shadow-md">
+      <h3 className="font-black">
+        <i
+          className={`fa-solid ${icon} mr-2 transition-transform group-hover:scale-110`}
+        />
+        {title}
+      </h3>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+function Row({ l, v }: { l: string; v: string | null | undefined }) {
+  return (
+    <div className="flex justify-between gap-4 border-b py-2.5 text-sm last:border-0">
+      <span className="text-slate-500">{l}</span>
+      <b className="text-right">{v || "—"}</b>
+    </div>
+  );
+}
+function B({ text }: { text: string }) {
+  return (
+    <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">
+      {text}
+    </span>
+  );
+}
+function Empty({ text }: { text: string }) {
+  return (
+    <div className="py-8 text-center text-xs font-semibold text-slate-500">
+      {text}
+    </div>
+  );
+}
+function Mini({
+  title,
+  sub,
+  text,
+}: {
+  title: string;
+  sub: string;
+  text: string;
+}) {
+  return (
+    <div className="border-b py-3 last:border-0">
+      <b className="text-sm">{title}</b>
+      <p className="mt-1 text-[11px] text-slate-400">{sub}</p>
+      <p className="mt-2 text-xs text-slate-600">{text}</p>
+    </div>
+  );
+}
