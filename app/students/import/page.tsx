@@ -1,181 +1,109 @@
 'use client';
 
 import { ChangeEvent, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { createClient } from '@/lib/supabase/client';
 
-type AcademicYear = { id: string; name: string; start_date: string | null; is_current?: boolean | null };
-type ImportRow = {
-  full_name: string; form: string; programme: string; class_name: string;
-  gender: string; resident: string; house: string; date_of_birth: string;
-  guardian_name: string; guardian_phone: string; address: string;
-  admission_date: string; jhs_aggregate: string;
-  health_insurance_number: string; health_insurance_expiry_date: string;
-};
-type Result = { row: number; status: 'success'|'partial'|'skipped'|'failed'; message: string; student_created?: boolean; student_existing?: boolean; assigned?: boolean; student_id?: string };
+type Programme={id:string;name:string};
+type AcademicYear={id:string;name:string;start_date:string|null};
+type SchoolClass={id:string;name:string;level:string|null;programme_id:string|null;academic_year_id:string|null};
+type ImportRow={full_name:string;form:string;programme:string;class_name:string;gender:string;resident:string;house:string;date_of_birth:string;guardian_name:string;guardian_phone:string;address:string;admission_date:string;jhs_aggregate:string;health_insurance_number:string;health_insurance_expiry_date:string};
+type ImportStatus='success'|'partial'|'skipped'|'failed';
+type ResultMessage={row:number;status:ImportStatus;message:string;type:'error'|'warning'|'success';student_saved?:boolean;assigned?:boolean};
+type BulkResult={row?:number;row_number?:number;status?:ImportStatus;message?:string;student_created?:boolean;student_existing?:boolean;enrollment_created?:boolean;enrollment_updated?:boolean;class_created?:boolean;assigned?:boolean;student_id?:string;enrollment_id?:string};
+type PreparedRow=ImportRow&{row_number:number};
 
-const headers = [
-  'FULL NAME','FORM','PROGRAMME','CLASS','GENDER','RESIDENCE','HOUSE',
-  'DATE OF BIRTH','GUARDIAN NAME','GUARDIAN PHONE','ADDRESS','ADMISSION DATE',
-  'JHS AGGREGATE','HEALTH INSURANCE NUMBER','HEALTH INSURANCE EXPIRY DATE',
-];
+const headers=['FULL NAME','FORM','PROGRAMME','CLASS','GENDER','RESIDENCE','HOUSE','DATE OF BIRTH','GUARDIAN NAME','GUARDIAN PHONE','ADDRESS','ADMISSION DATE','JHS AGGREGATE','HEALTH INSURANCE NUMBER','HEALTH INSURANCE EXPIRY DATE'];
+const clean=(v:unknown)=>String(v??'').trim();
+const normalize=(v:unknown)=>clean(v).toLowerCase().replace(/\s+/g,' ');
+const normalizeResidence=(v:unknown)=>normalize(v)==='day'?'Day':normalize(v)==='boarding'?'Boarding':'';
+const normalizeHouse=(v:unknown)=>{const m=normalize(v).replace(/\s+/g,'').match(/^house([1-4])$/);return m?`House ${m[1]}`:''};
+function excelDateToString(v:unknown){if(!v)return'';if(v instanceof Date&&!Number.isNaN(v.getTime()))return v.toISOString().slice(0,10);if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);if(d)return`${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`}const s=clean(v);const m=s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);if(m)return`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toISOString().slice(0,10)}
+function mapRow(row:Record<string,unknown>):ImportRow{const get=(n:string)=>{const k=Object.keys(row).find(x=>normalize(x)===normalize(n));return k?row[k]:''};return{full_name:clean(get('FULL NAME')),form:clean(get('FORM')),programme:clean(get('PROGRAMME')),class_name:clean(get('CLASS')),gender:clean(get('GENDER')),resident:clean(get('RESIDENCE')),house:clean(get('HOUSE')),date_of_birth:excelDateToString(get('DATE OF BIRTH')),guardian_name:clean(get('GUARDIAN NAME')),guardian_phone:clean(get('GUARDIAN PHONE')),address:clean(get('ADDRESS')),admission_date:excelDateToString(get('ADMISSION DATE')),jhs_aggregate:clean(get('JHS AGGREGATE')),health_insurance_number:clean(get('HEALTH INSURANCE NUMBER')),health_insurance_expiry_date:excelDateToString(get('HEALTH INSURANCE EXPIRY DATE'))}}
 
-const clean = (v: unknown) => String(v ?? '').trim();
-const norm = (v: unknown) => clean(v).toLowerCase().replace(/\s+/g,' ');
-const normalizeResidence = (v: unknown) => {
-  const x = norm(v); return x === 'day' ? 'Day' : x === 'boarding' ? 'Boarding' : '';
-};
-const normalizeHouse = (v: unknown) => {
-  const x = norm(v).replace(/\s+/g,'');
-  const m = x.match(/^house([1-4])$/);
-  return m ? `House ${m[1]}` : '';
-};
-function excelDate(v: unknown) {
-  if (!v) return '';
-  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0,10);
-  if (typeof v === 'number') {
-    const d = XLSX.SSF.parse_date_code(v);
-    if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+export default function StudentImportPage(){
+ const supabase=createClient();
+ const[rows,setRows]=useState<ImportRow[]>([]),[programmes,setProgrammes]=useState<Programme[]>([]),[academicYears,setAcademicYears]=useState<AcademicYear[]>([]),[classes,setClasses]=useState<SchoolClass[]>([]);
+ const[academicYearId,setAcademicYearId]=useState(''),[schoolId,setSchoolId]=useState(''),[loadingData,setLoadingData]=useState(true),[importing,setImporting]=useState(false),[message,setMessage]=useState(''),[errors,setErrors]=useState<ResultMessage[]>([]),[fileName,setFileName]=useState(''),[importProgress,setImportProgress]=useState(''),[progressPercent,setProgressPercent]=useState(0);
+ const selectedAcademicYear=useMemo(()=>academicYears.find(y=>y.id===academicYearId),[academicYears,academicYearId]);
+ const counts=useMemo(()=>errors.reduce((a,r)=>{a[r.status]++;if(r.student_saved)a.studentSaved++;if(r.assigned)a.assigned++;return a},{success:0,partial:0,skipped:0,failed:0,studentSaved:0,assigned:0}),[errors]);
+
+ useEffect(()=>{void loadData()},[]);
+ async function loadData(){
+  setLoadingData(true);setMessage('');
+  const{data:{user}}=await supabase.auth.getUser();if(!user){setMessage('You must be logged in to use the student importer.');setLoadingData(false);return}
+  const{data:profile,error:pe}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
+  if(pe||!profile?.school_id){setMessage(pe?.message||'Your BTI-SMS account is not linked to a school.');setLoadingData(false);return}
+  if(profile.role!=='admin'||profile.is_active===false){setMessage('Only an active Administrator can use the student importer.');setLoadingData(false);return}
+  setSchoolId(profile.school_id);
+  const[p,y,c]=await Promise.all([supabase.from('programmes').select('id,name').eq('school_id',profile.school_id).order('name'),supabase.from('academic_years').select('id,name,start_date').eq('school_id',profile.school_id).order('start_date',{ascending:false}),supabase.from('classes').select('id,name,level,programme_id,academic_year_id').eq('school_id',profile.school_id).order('name')]);
+  if(p.error||y.error||c.error){setMessage(p.error?.message||y.error?.message||c.error?.message||'Unable to load school data.');setLoadingData(false);return}
+  setProgrammes(p.data||[]);setAcademicYears(y.data||[]);setClasses(c.data||[]);if(y.data?.[0])setAcademicYearId(y.data[0].id);setLoadingData(false);
+ }
+ function downloadTemplate(){
+  const sample=[{'FULL NAME':'John Mensah',FORM:'Form 1',PROGRAMME:'Electrical Engineering',CLASS:'A Class',GENDER:'Male',RESIDENCE:'Boarding',HOUSE:'House 1','DATE OF BIRTH':'2010-05-12','GUARDIAN NAME':'Kwame Mensah','GUARDIAN PHONE':'0240000000',ADDRESS:'Accra','ADMISSION DATE':'2026-09-01','JHS AGGREGATE':'18','HEALTH INSURANCE NUMBER':'NHIS123456789','HEALTH INSURANCE EXPIRY DATE':'2027-08-31'}];
+  const ws=XLSX.utils.json_to_sheet(sample,{header:headers});ws['!cols']=headers.map(h=>({wch:Math.max(14,Math.min(32,h.length+4))}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Students');XLSX.writeFile(wb,'BTI-SMS-Student-Import-Template.xlsx');
+ }
+ async function handleFile(e:ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file)return;setFileName(file.name);setMessage('');setErrors([]);setRows([]);setImportProgress('');setProgressPercent(0);try{const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});if(!wb.SheetNames.length){setMessage('The selected Excel file does not contain a worksheet.');return}const data=XLSX.utils.sheet_to_json<Record<string,unknown>>(wb.Sheets[wb.SheetNames[0]],{defval:''}).map(mapRow);setRows(data);setMessage(data.length?`${data.length} student record(s) loaded and ready for import.`:'The selected Excel file contains no student records.')}catch{setMessage('Unable to read this file. Please use an Excel (.xlsx/.xls) or CSV file.')}e.target.value=''}
+ async function importStudents(){
+  if(importing)return;setErrors([]);setMessage('');setImportProgress('');setProgressPercent(0);
+  if(!rows.length){setMessage('Please select an Excel file containing student records.');return}if(!academicYearId){setMessage('Please select the academic year for this import.');return}if(!schoolId){setMessage('Your school could not be determined. Please refresh and try again.');return}
+  setImporting(true);const results:ResultMessage[]=[];const valid:PreparedRow[]=[];
+  rows.forEach((r,i)=>{const row=i+2,res=normalizeResidence(r.resident),house=normalizeHouse(r.house);if(!clean(r.full_name)){results.push({row,status:'skipped',type:'warning',message:'Skipped before import: FULL NAME is required.'});return}if(res==='Boarding'&&!house){results.push({row,status:'skipped',type:'warning',message:'Skipped before import: HOUSE is required for Boarding students and must be House 1, House 2, House 3 or House 4.'});return}if(r.jhs_aggregate&&!Number.isFinite(Number(r.jhs_aggregate.replace(/,/g,'')))){results.push({row,status:'skipped',type:'warning',message:'Skipped before import: JHS AGGREGATE must be a valid number.'});return}valid.push({...r,full_name:clean(r.full_name),resident:res,house:res==='Boarding'?house:'',row_number:row})});
+  setErrors([...results]);setImportProgress(`Validating ${rows.length} student record(s)...`);setProgressPercent(20);
+  const fingerprints=new Map<string,PreparedRow>();const send:PreparedRow[]=[];
+  valid.forEach(r=>{const fp=[r.full_name,r.form,r.programme,r.class_name,r.gender,r.resident,r.house,r.date_of_birth,r.guardian_name,r.guardian_phone,r.address,r.admission_date,r.jhs_aggregate,r.health_insurance_number,r.health_insurance_expiry_date].map(normalize).join('|');const first=fingerprints.get(fp);if(first)results.push({row:r.row_number,status:'skipped',type:'warning',message:`Skipped before import: this row is identical to Excel row ${first.row_number}.`});else{fingerprints.set(fp,r);send.push(r)}});
+  const batchSize=50,total=Math.ceil(send.length/batchSize);
+  for(let i=0;i<total;i++){const batch=send.slice(i*batchSize,(i+1)*batchSize);setImportProgress(`Importing batch ${i+1} of ${total} (${batch.length} record(s))...`);setProgressPercent(30+Math.round((i/Math.max(total,1))*60));
+   const{data,error}=await supabase.rpc('bulk_import_students_v2',{p_school_id:schoolId,p_academic_year_id:academicYearId,p_rows:batch});
+   if(error)batch.forEach(r=>results.push({row:r.row_number,status:'failed',type:'error',message:`Batch ${i+1} could not be processed: ${error.message}`}));
+   else if(Array.isArray(data))(data as BulkResult[]).forEach(d=>{const status=d.status||'failed',studentSaved=d.student_created===true||d.student_existing===true||Boolean(d.student_id),assigned=d.assigned===true||d.enrollment_created===true||d.enrollment_updated===true||Boolean(d.enrollment_id);results.push({row:Number(d.row??d.row_number??0),status,type:status==='success'?'success':status==='failed'?'error':'warning',student_saved:studentSaved,assigned,message:d.message||'The database did not provide a reason for this row.'})});
+   setErrors([...results]);
   }
-  const s = clean(v);
-  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? s : d.toISOString().slice(0,10);
-}
-function mapRow(row: Record<string,unknown>): ImportRow {
-  const get=(name:string)=>{ const k=Object.keys(row).find(x=>norm(x)===norm(name)); return k ? row[k] : ''; };
-  return {
-    full_name:clean(get('FULL NAME')), form:clean(get('FORM')), programme:clean(get('PROGRAMME')),
-    class_name:clean(get('CLASS')), gender:clean(get('GENDER')), resident:clean(get('RESIDENCE')),
-    house:clean(get('HOUSE')), date_of_birth:excelDate(get('DATE OF BIRTH')),
-    guardian_name:clean(get('GUARDIAN NAME')), guardian_phone:clean(get('GUARDIAN PHONE')),
-    address:clean(get('ADDRESS')), admission_date:excelDate(get('ADMISSION DATE')),
-    jhs_aggregate:clean(get('JHS AGGREGATE')), health_insurance_number:clean(get('HEALTH INSURANCE NUMBER')),
-    health_insurance_expiry_date:excelDate(get('HEALTH INSURANCE EXPIRY DATE')),
-  };
-}
+  setProgressPercent(100);setImportProgress('');setImporting(false);const s=results.filter(r=>r.status==='success').length,p=results.filter(r=>r.status==='partial').length,k=results.filter(r=>r.status==='skipped').length,f=results.filter(r=>r.status==='failed').length;setMessage(`Import complete: ${s} successful, ${p} partial, ${k} skipped, and ${f} failed.`);
+ }
 
-export default function StudentImportPage() {
-  const supabase=createClient();
-  const [rows,setRows]=useState<ImportRow[]>([]);
-  const [years,setYears]=useState<AcademicYear[]>([]);
-  const [yearId,setYearId]=useState('');
-  const [schoolId,setSchoolId]=useState('');
-  const [loading,setLoading]=useState(true);
-  const [importing,setImporting]=useState(false);
-  const [fileName,setFileName]=useState('');
-  const [message,setMessage]=useState('');
-  const [results,setResults]=useState<Result[]>([]);
-  const [progress,setProgress]=useState(0);
+ return <main className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8">
+  <div className="mx-auto max-w-7xl">
+   <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 p-6 text-white shadow-xl md:p-8">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between"><div className="flex items-start gap-4"><div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-2xl backdrop-blur"><i className="fa-solid fa-file-import"/></div><div><p className="text-xs font-black uppercase tracking-[.2em] text-blue-100">Student Management</p><h1 className="mt-1 text-2xl font-black md:text-3xl">Bulk Student Import</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-blue-100">Upload an Excel file to register students and automatically assign them to the correct academic class.</p></div></div>
+     <button onClick={downloadTemplate} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-black text-blue-700 shadow-lg transition duration-300 hover:-translate-y-1 hover:shadow-xl"><i className="fa-solid fa-file-arrow-down"/>Download Template</button></div>
+   </section>
 
-  useEffect(()=>{ void load(); },[]);
-  async function load(){
-    setLoading(true);
-    const {data:{user}}=await supabase.auth.getUser();
-    if(!user){setMessage('You must be logged in.');setLoading(false);return;}
-    const {data:profile,error:pe}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).single();
-    if(pe||!profile?.school_id){setMessage('Your account is not linked to a school.');setLoading(false);return;}
-    if(profile.role!=='admin'||profile.is_active===false){setMessage('Only an active Administrator can use student bulk import.');setLoading(false);return;}
-    setSchoolId(profile.school_id);
-    const {data,error}=await supabase.from('academic_years').select('id,name,start_date,is_current').eq('school_id',profile.school_id).order('start_date',{ascending:false});
-    if(error){setMessage(error.message);setLoading(false);return;}
-    const list=(data||[]) as AcademicYear[]; setYears(list);
-    setYearId(list.find(y=>y.is_current)?.id || list[0]?.id || '');
-    setLoading(false);
-  }
-
-  function downloadTemplate(){
-    const sample=[{
-      'FULL NAME':'John Mensah','FORM':'Form 1','PROGRAMME':'Electrical Engineering','CLASS':'A Class',
-      'GENDER':'Male','RESIDENCE':'Boarding','HOUSE':'House 1','DATE OF BIRTH':'2010-05-12',
-      'GUARDIAN NAME':'Kwame Mensah','GUARDIAN PHONE':'0240000000','ADDRESS':'Accra',
-      'ADMISSION DATE':'2026-09-01','JHS AGGREGATE':'18',
-      'HEALTH INSURANCE NUMBER':'NHIS123456789','HEALTH INSURANCE EXPIRY DATE':'2027-08-31'
-    }];
-    const ws=XLSX.utils.json_to_sheet(sample,{header:headers});
-    ws['!cols']=headers.map(h=>({wch:Math.max(16,Math.min(32,h.length+4))}));
-    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Students');
-    XLSX.writeFile(wb,'BTI-SMS-Student-Import-Template.xlsx');
-  }
-
-  async function handleFile(e:ChangeEvent<HTMLInputElement>){
-    const file=e.target.files?.[0]; if(!file)return;
-    setFileName(file.name);setRows([]);setResults([]);setMessage('');setProgress(0);
-    try{
-      const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const data=XLSX.utils.sheet_to_json<Record<string,unknown>>(ws,{defval:''}).map(mapRow);
-      setRows(data);setMessage(`${data.length} student record(s) loaded and ready for validation.`);
-    }catch{setMessage('Unable to read this file. Please use Excel (.xlsx/.xls) or CSV.');}
-    e.target.value='';
-  }
-
-  async function importStudents(){
-    if(importing||!rows.length||!yearId||!schoolId)return;
-    setImporting(true);setResults([]);setMessage('');setProgress(5);
-    const local:Result[]=[]; const valid:any[]=[];
-    rows.forEach((r,i)=>{
-      const row=i+2, residence=normalizeResidence(r.resident), house=normalizeHouse(r.house);
-      if(!r.full_name.trim()){local.push({row,status:'skipped',message:'FULL NAME is required.'});return;}
-      if(r.resident && !residence){local.push({row,status:'skipped',message:'RESIDENCE must be Day or Boarding.'});return;}
-      if(residence==='Boarding'&&!house){local.push({row,status:'skipped',message:'HOUSE is required for Boarding students and must be House 1, House 2, House 3 or House 4.'});return;}
-      if(r.jhs_aggregate && !Number.isFinite(Number(r.jhs_aggregate.replace(/,/g,'')))){local.push({row,status:'skipped',message:'JHS AGGREGATE must be a valid number.'});return;}
-      valid.push({...r,row_number:row,resident:residence,house:residence==='Boarding'?house:'',
-        health_insurance_expiry_date:r.health_insurance_expiry_date});
-    });
-    setResults([...local]);setProgress(20);
-    const batchSize=50;
-    for(let i=0;i<valid.length;i+=batchSize){
-      const batch=valid.slice(i,i+batchSize);
-      const {data,error}=await supabase.rpc('bulk_import_students_v2',{p_school_id:schoolId,p_academic_year_id:yearId,p_rows:batch});
-      if(error){batch.forEach((r:any)=>local.push({row:r.row_number,status:'failed',message:error.message}));}
-      else if(Array.isArray(data)){(data as Result[]).forEach(x=>local.push({...x,row:Number(x.row)}));}
-      setResults([...local]); setProgress(20+Math.round(Math.min(i+batch.length,valid.length)/Math.max(valid.length,1)*75));
-    }
-    setProgress(100);setImporting(false);
-    const success=local.filter(x=>x.status==='success').length, partial=local.filter(x=>x.status==='partial').length,
-      skipped=local.filter(x=>x.status==='skipped').length, failed=local.filter(x=>x.status==='failed').length;
-    setMessage(`Import complete: ${success} successful, ${partial} partial, ${skipped} skipped and ${failed} failed.`);
-  }
-
-  const counts=useMemo(()=>({
-    success:results.filter(r=>r.status==='success').length, partial:results.filter(r=>r.status==='partial').length,
-    skipped:results.filter(r=>r.status==='skipped').length, failed:results.filter(r=>r.status==='failed').length,
-  }),[results]);
-
-  return <main className="min-h-screen bg-slate-50 p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8">
-    <div className="mx-auto max-w-7xl">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div><div className="mb-2 flex items-center gap-2 text-sm text-slate-500"><Link href="/students" className="hover:text-blue-600">Students</Link><i className="fa-solid fa-chevron-right text-xs"/><span>Bulk Import</span></div>
-          <h1 className="text-2xl font-black text-slate-900">Bulk Student Import</h1>
-          <p className="mt-1 text-sm text-slate-500">Import students, residence, House and health insurance information from Excel.</p></div>
-        <button onClick={downloadTemplate} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-700"><i className="fa-solid fa-file-excel"/>Download Template</button>
-      </div>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div><label className="mb-2 block text-sm font-black text-slate-700">Academic Year *</label><select value={yearId} onChange={e=>setYearId(e.target.value)} disabled={loading||importing} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3"><option value="">Select academic year</option>{years.map(y=><option key={y.id} value={y.id}>{y.name}</option>)}</select></div>
-          <div><label className="mb-2 block text-sm font-black text-slate-700">Student Excel File *</label><label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 px-4 py-3 font-bold text-blue-700 hover:bg-blue-100"><i className="fa-solid fa-cloud-arrow-up"/>{fileName||'Choose Excel / CSV file'}<input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} disabled={importing} className="hidden"/></label></div>
-        </div>
-        <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-xs leading-6 text-slate-600"><b>Boarding rule:</b> enter House 1, House 2, House 3 or House 4 in HOUSE. HOUSE may be blank for Day students. Health insurance number and expiry date may be blank if not yet available.</div>
-        {message&&<div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-blue-800">{message}</div>}
-        {importing&&<div className="mt-4"><div className="mb-1 flex justify-between text-xs font-bold text-slate-600"><span>Importing...</span><span>{progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-blue-600 transition-all" style={{width:`${progress}%`}}/></div></div>}
-      </section>
-
-      {rows.length>0&&<section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black text-slate-900">Preview</h2><p className="text-sm text-slate-500">{rows.length} record(s). Showing first 50.</p></div>
-          <button onClick={importStudents} disabled={importing||!yearId} className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50"><i className={`fa-solid ${importing?'fa-spinner fa-spin':'fa-users-gear'} mr-2`}/>{importing?'Importing...':'Import & Assign Students'}</button></div>
-        <div className="overflow-x-auto rounded-2xl border border-slate-200"><table className="min-w-[1700px] text-left text-xs"><thead className="bg-slate-100"><tr>{headers.map(h=><th key={h} className="whitespace-nowrap px-3 py-3 font-black text-slate-700">{h}</th>)}</tr></thead><tbody>{rows.slice(0,50).map((r,i)=><tr key={i} className="border-t border-slate-200 hover:bg-blue-50/40">
-          <td className="px-3 py-3 font-bold">{r.full_name}</td><td className="px-3 py-3">{r.form}</td><td className="px-3 py-3">{r.programme}</td><td className="px-3 py-3">{r.class_name}</td><td className="px-3 py-3">{r.gender}</td><td className="px-3 py-3">{normalizeResidence(r.resident)||r.resident||'—'}</td><td className="px-3 py-3 font-bold text-purple-700">{normalizeHouse(r.house)||r.house||'—'}</td><td className="px-3 py-3">{r.date_of_birth||'—'}</td><td className="px-3 py-3">{r.guardian_name||'—'}</td><td className="px-3 py-3">{r.guardian_phone||'—'}</td><td className="px-3 py-3">{r.address||'—'}</td><td className="px-3 py-3">{r.admission_date||'—'}</td><td className="px-3 py-3">{r.jhs_aggregate||'—'}</td><td className="px-3 py-3">{r.health_insurance_number||'—'}</td><td className="px-3 py-3">{r.health_insurance_expiry_date||'—'}</td>
-        </tr>)}</tbody></table></div>
-      </section>}
-
-      {results.length>0&&<section className="mt-6">
-        <div className="grid gap-3 sm:grid-cols-4">{(['success','partial','skipped','failed'] as const).map(s=><div key={s} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-slate-500">{s}</p><p className="text-2xl font-black text-slate-900">{counts[s]}</p></div>)}</div>
-        <div className="mt-4 max-h-[450px] overflow-y-auto rounded-2xl border border-slate-200 bg-white">{results.sort((a,b)=>a.row-b.row).map((r,i)=><div key={`${r.row}-${i}`} className="border-b border-slate-100 p-4 text-sm last:border-0"><span className="mr-2 font-black text-slate-500">Excel Row {r.row}</span><span className="mr-2 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase">{r.status}</span><span className="text-slate-700">{r.message}</span></div>)}</div>
-      </section>}
+   <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 md:px-6"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><i className="fa-solid fa-sliders"/></div><div><h2 className="font-black text-slate-900">Import Setup</h2><p className="text-xs text-slate-500">Select the academic year and upload the completed template.</p></div></div></div>
+    <div className="p-5 md:p-6"><div className="grid gap-5 lg:grid-cols-2">
+     <div><label className="mb-2 block text-sm font-black text-slate-700">Academic Year *</label><select value={academicYearId} onChange={e=>setAcademicYearId(e.target.value)} disabled={loadingData||importing} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"><option value="">Select academic year</option>{academicYears.map(y=><option key={y.id} value={y.id}>{y.name}</option>)}</select>{selectedAcademicYear&&<p className="mt-2 text-xs text-slate-500"><i className="fa-solid fa-calendar-days mr-1"/>Students will be enrolled for {selectedAcademicYear.name}.</p>}</div>
+     <div><label className="mb-2 block text-sm font-black text-slate-700">Excel / CSV File *</label><label className="group flex cursor-pointer items-center gap-4 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/60 p-4 transition duration-300 hover:-translate-y-0.5 hover:border-blue-400 hover:bg-blue-50"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white transition group-hover:scale-110"><i className="fa-solid fa-cloud-arrow-up"/></div><div className="min-w-0"><p className="truncate text-sm font-black text-blue-900">{fileName||'Choose student file'}</p><p className="text-xs text-blue-600">.xlsx, .xls or .csv</p></div><input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} disabled={importing} className="hidden"/></label></div>
     </div>
-  </main>;
+    <div className="mt-5 rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-900"><div className="flex gap-3"><i className="fa-solid fa-house-user mt-0.5 text-purple-600"/><div><p className="font-black">Boarding House & Health Insurance</p><p className="mt-1 text-xs leading-5 text-purple-700">For Boarding students, HOUSE must be House 1, House 2, House 3 or House 4. Day students may leave HOUSE blank. Health insurance fields may be left blank when details are not yet available.</p></div></div></div>
+    {message&&<div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-800"><i className="fa-solid fa-circle-info mr-2"/>{message}</div>}
+    {importProgress&&<div className="mt-5"><div className="mb-2 flex items-center justify-between text-xs font-black text-slate-600"><span>{importProgress}</span><span>{progressPercent}%</span></div><div className="h-2.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{width:`${progressPercent}%`}}/></div></div>}
+    </div>
+   </section>
+
+   {rows.length>0&&<section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm animate-[fadeIn_0.4s_ease-out]">
+    <div className="p-5 md:p-6"><div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><h2 className="text-xl font-black text-slate-900">Student Preview</h2><p className="mt-1 text-sm text-slate-500">{rows.length} record(s) loaded. Review before importing.</p></div><button onClick={importStudents} disabled={importing||!academicYearId} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-sm transition duration-300 hover:-translate-y-1 hover:bg-blue-700 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"><i className={importing?'fa-solid fa-spinner fa-spin':'fa-solid fa-cloud-arrow-up'}/>{importing?'Processing...':'Import & Assign Students'}</button></div>
+     <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 shadow-sm"><table className="min-w-[1750px] text-left text-xs"><thead className="bg-slate-100"><tr>{headers.map(h=><th key={h} className={`whitespace-nowrap px-3 py-3.5 font-black ${h==='RESIDENCE'?'bg-blue-50 text-blue-800':h==='HOUSE'?'bg-purple-50 text-purple-800':'text-slate-700'}`}><div className="flex items-center gap-2">{h}{h==='RESIDENCE'&&<i className="fa-solid fa-house-user text-blue-600"/>}{h==='HOUSE'&&<i className="fa-solid fa-building text-purple-600"/>}</div></th>)}</tr></thead><tbody>{rows.slice(0,50).map((r,i)=><tr key={i} className="border-t border-slate-200 transition duration-200 hover:bg-blue-50/40">
+      <td className="px-3 py-3 font-bold text-slate-800">{r.full_name}</td><td className="px-3 py-3">{r.form}</td><td className="px-3 py-3">{r.programme}</td><td className="px-3 py-3">{r.class_name}</td><td className="px-3 py-3">{r.gender}</td>
+      <td className="bg-blue-50/40 px-3 py-3">{r.resident?<span className={normalizeResidence(r.resident)==='Boarding'?'inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-2.5 py-1 font-black text-purple-700':'inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 font-black text-blue-700'}><i className={normalizeResidence(r.resident)==='Boarding'?'fa-solid fa-building':'fa-solid fa-house'}/>{normalizeResidence(r.resident)||r.resident}</span>:<span className="text-slate-400">—</span>}</td>
+      <td className="bg-purple-50/30 px-3 py-3 font-bold text-purple-800">{normalizeHouse(r.house)||r.house||'—'}</td><td className="px-3 py-3">{r.date_of_birth||'—'}</td><td className="px-3 py-3">{r.guardian_name||'—'}</td><td className="px-3 py-3">{r.guardian_phone||'—'}</td><td className="px-3 py-3">{r.address||'—'}</td><td className="px-3 py-3">{r.admission_date||'—'}</td><td className="px-3 py-3">{r.jhs_aggregate||'—'}</td><td className="px-3 py-3">{r.health_insurance_number||'—'}</td><td className="px-3 py-3">{r.health_insurance_expiry_date||'—'}</td>
+     </tr>)}</tbody></table></div>{rows.length>50&&<div className="mt-3 flex items-center gap-2 text-xs text-slate-500"><i className="fa-solid fa-eye"/>Showing the first 50 rows in the preview. All {rows.length} rows will be processed.</div>}
+    </div>
+   </section>}
+
+   {errors.length>0&&<section className="mt-8 animate-[fadeIn_0.5s_ease-out]"><div className="mb-4"><h2 className="text-xl font-black text-slate-900">Import Results</h2><p className="mt-1 text-sm text-slate-500">Review exactly what happened to each Excel row.</p></div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
+     ['Successful',counts.success,'fa-circle-check','border-emerald-200 bg-emerald-50','bg-emerald-600','text-emerald-900'],
+     ['Partial',counts.partial,'fa-circle-exclamation','border-amber-200 bg-amber-50','bg-amber-500','text-amber-900'],
+     ['Skipped',counts.skipped,'fa-forward','border-slate-200 bg-slate-50','bg-slate-600','text-slate-900'],
+     ['Failed',counts.failed,'fa-circle-xmark','border-red-200 bg-red-50','bg-red-600','text-red-900']
+    ].map(c=><div key={String(c[0])} className={`group rounded-2xl border p-4 transition duration-300 hover:-translate-y-1 hover:shadow-lg ${c[3]}`}><div className="flex items-center gap-3"><div className={`flex h-10 w-10 items-center justify-center rounded-xl text-white transition group-hover:scale-110 ${c[4]}`}><i className={`fa-solid ${c[2]}`}/></div><div><p className="text-xs font-black uppercase tracking-wide">{c[0]}</p><p className={`text-2xl font-black ${c[5]}`}>{c[1]}</p></div></div></div>)}</div>
+    <p className="mt-3 text-xs text-slate-500">Student records saved or matched: {counts.studentSaved}. Enrollments assigned: {counts.assigned}.</p>
+    <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-200 bg-slate-50 px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white"><i className="fa-solid fa-list-check"/></div><div><h3 className="font-black text-slate-900">Detailed row results</h3><p className="text-xs text-slate-500">Student assignment and import status by Excel row.</p></div></div></div><div className="max-h-[500px] overflow-y-auto">{errors.map((r,i)=><div key={`${r.row}-${i}`} className={`flex gap-3 border-b px-5 py-3 last:border-b-0 hover:bg-slate-50 ${r.status==='success'?'border-emerald-100':r.status==='failed'?'border-red-100':'border-amber-100'}`}><div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs ${r.status==='success'?'bg-emerald-100 text-emerald-700':r.status==='failed'?'bg-red-100 text-red-700':'bg-amber-100 text-amber-700'}`}><i className={r.status==='success'?'fa-solid fa-check':r.status==='failed'?'fa-solid fa-xmark':'fa-solid fa-exclamation'}/></div><div><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-black uppercase tracking-wide text-slate-400">{r.row>0?`Excel Row ${r.row}`:'Import System'}</span><span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase">{r.status}</span>{r.student_saved&&<span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Student saved</span>}{r.assigned&&<span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700">Enrolled</span>}</div><p className="mt-1 text-sm leading-6 text-slate-700">{r.message}</p></div></div>)}</div></div>
+   </section>}
+
+   <section className="mt-6 overflow-hidden rounded-3xl bg-slate-950 p-5 text-white shadow-sm transition duration-300 hover:shadow-xl md:p-6"><div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between"><div className="flex items-start gap-4"><div className="flex h-12 w-12 shrink-0 animate-pulse items-center justify-center rounded-2xl bg-blue-600"><i className="fa-solid fa-house-user text-lg"/></div><div><h2 className="font-black">Residence & assignment guide</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">Enter Day or Boarding under RESIDENCE. Boarding students must also have House 1, House 2, House 3 or House 4 under HOUSE. FORM, PROGRAMME and CLASS are used to automatically place the student in the correct academic class.</p></div></div><div className="flex flex-wrap gap-2"><span className="inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-4 py-2 text-xs font-black text-blue-200 ring-1 ring-blue-400/30"><i className="fa-solid fa-house"/>Day</span><span className="inline-flex items-center gap-2 rounded-full bg-purple-500/20 px-4 py-2 text-xs font-black text-purple-200 ring-1 ring-purple-400/30"><i className="fa-solid fa-building"/>Boarding</span><span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 text-xs font-black text-emerald-200 ring-1 ring-emerald-400/30"><i className="fa-solid fa-user-check"/>Auto Assign</span></div></div></section>
+  </div>
+ </main>
 }
