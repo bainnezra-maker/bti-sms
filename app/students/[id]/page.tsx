@@ -237,6 +237,9 @@ export default function StudentProfilePage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [photoUploading, setPhotoUploading] =
     useState(false);
 
@@ -874,6 +877,49 @@ export default function StudentProfilePage() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteOrArchiveStudent() {
+    if (!student || deleteConfirmation !== 'DELETE') return;
+
+    setDeleteSaving(true);
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'admin_delete_or_archive_student',
+        { p_student_id: student.id }
+      );
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const result = data as {
+        action?: 'deleted' | 'archived';
+        message?: string;
+      } | null;
+
+      alert(
+        result?.message ||
+          (result?.action === 'archived'
+            ? 'Student archived successfully.'
+            : 'Student deleted successfully.')
+      );
+
+      setShowDeleteModal(false);
+      setDeleteConfirmation('');
+      router.push('/students');
+      router.refresh();
+    } catch (error) {
+      console.error('Student delete/archive error:', error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Unable to delete or archive this student.'
+      );
+    } finally {
+      setDeleteSaving(false);
     }
   }
 
@@ -2701,6 +2747,36 @@ export default function StudentProfilePage() {
           </div>
         </section>
 
+        {/* DANGER ZONE */}
+        <section className="rounded-2xl border border-red-200 bg-white shadow-sm">
+          <div className="p-5 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-red-700">
+                  Delete Student
+                </h2>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                  Records entered by mistake with no school history can be permanently deleted.
+                  Students who already have school history will be archived instead so their
+                  academic, attendance, financial, disciplinary and residential records are preserved.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteConfirmation('');
+                  setShowDeleteModal(true);
+                }}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
+              >
+                <i className="fa-solid fa-trash-can" />
+                Delete Student
+              </button>
+            </div>
+          </div>
+        </section>
+
         {/* FOOTER ACTIONS */}
         <div className="flex flex-col gap-3 pb-8 sm:flex-row sm:justify-between">
           <Link
@@ -2720,6 +2796,79 @@ export default function StudentProfilePage() {
           </Link>
         </div>
       </div>
+
+      {/* DELETE / ARCHIVE STUDENT MODAL */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="border-b border-red-100 bg-red-50 px-5 py-5 sm:px-6">
+              <div className="flex items-start gap-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700">
+                  <i className="fa-solid fa-triangle-exclamation" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-red-900">
+                    Delete Student
+                  </h2>
+                  <p className="mt-1 text-sm text-red-800">
+                    This action is restricted to administrators.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-5 p-5 sm:p-6">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-bold text-slate-900">{student.full_name}</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Admission No. {student.admission_number}
+                </p>
+              </div>
+
+              <p className="text-sm leading-6 text-slate-600">
+                If this student has no school history, the record will be permanently deleted.
+                If school history exists, the student will be archived instead and the history will remain intact.
+              </p>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Type <span className="font-bold text-red-700">DELETE</span> to confirm
+                </label>
+                <input
+                  value={deleteConfirmation}
+                  onChange={(event) => setDeleteConfirmation(event.target.value)}
+                  autoComplete="off"
+                  placeholder="DELETE"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button
+                type="button"
+                disabled={deleteSaving}
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteConfirmation('');
+                }}
+                className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteSaving || deleteConfirmation !== 'DELETE'}
+                onClick={deleteOrArchiveStudent}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <i className={`fa-solid ${deleteSaving ? 'fa-spinner fa-spin' : 'fa-trash-can'}`} />
+                {deleteSaving ? 'Processing...' : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DISCIPLINE MODAL */}
       {showDisciplineModal && (
