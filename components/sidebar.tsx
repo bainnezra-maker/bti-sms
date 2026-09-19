@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -57,7 +57,7 @@ const housemasterMenuSections:MenuSection[]=[
 const supabase=createClient();
 
 export default function Sidebar(){
- const pathname=usePathname(),router=useRouter();
+ const pathname=usePathname(),router=useRouter(),searchParams=useSearchParams();
  const [mobileOpen,setMobileOpen]=useState(false);
  const [role,setRole]=useState<UserRole>(null);
  const [loading,setLoading]=useState(true);
@@ -76,11 +76,12 @@ export default function Sidebar(){
  const home=role==='admin'?'/':role==='teacher'?'/teacher':role==='housemaster'?'/housemaster':'/student';
  const title=role==='admin'?'Administrator':role==='teacher'?'Teacher Workspace':role==='Student'?'Student Portal':role==='housemaster'?'Housemaster / Housemistress':'BTI-SMS';
  const active=(href:string)=>pathname===href||(href!=='/'&&pathname.startsWith(href+'/'));
+ const scopedHref=(href:string)=>{const gender=searchParams.get('gender');return role==='housemaster'&&gender?`${href}?gender=${encodeURIComponent(gender)}`:href};
  async function logout(){setMobileOpen(false);await supabase.auth.signOut();router.replace('/login');router.refresh()}
  if(loading)return <><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/><aside className="fixed bottom-0 left-0 top-0 hidden w-64 animate-pulse bg-slate-900 lg:block"/></>;
  if(!role)return null;
 
- const Nav=({mobile=false}:{mobile?:boolean})=><nav className="flex-1 px-3 py-5">{sections.map((s,si)=><div key={s.title} className="mb-6 animate-[fadeInUp_.45s_ease-out_both]" style={{animationDelay:`${si*70}ms`}}><p className="mb-2 px-3 text-[10px] font-black tracking-[.18em] text-slate-400">{s.title}</p><div className="space-y-1">{s.items.map((item,ii)=>{const a=active(item.href);return <Link key={item.href} href={item.href} onClick={()=>mobile&&setMobileOpen(false)} className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${a?'bg-slate-900 text-white shadow-lg':'text-slate-600 hover:translate-x-1 hover:bg-slate-100 hover:text-slate-950'}`} style={{animationDelay:`${(si*70)+(ii*25)}ms`}}><span className={`flex h-9 w-9 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-110 ${a?'bg-white/10':'bg-slate-100'}`}><i className={`${item.icon} text-sm`}/></span><span className="flex-1">{item.name}</span>{a&&<i className="fa-solid fa-chevron-right animate-pulse text-[9px]"/>}</Link>})}</div></div>)}</nav>;
+ const Nav=({mobile=false}:{mobile?:boolean})=><nav className="flex-1 px-3 py-5">{sections.map((s,si)=><div key={s.title} className="mb-6 animate-[fadeInUp_.45s_ease-out_both]" style={{animationDelay:`${si*70}ms`}}><p className="mb-2 px-3 text-[10px] font-black tracking-[.18em] text-slate-400">{s.title}</p><div className="space-y-1">{s.items.map((item,ii)=>{const a=active(item.href);return <Link key={item.href} href={scopedHref(item.href)} onClick={()=>mobile&&setMobileOpen(false)} className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${a?'bg-slate-900 text-white shadow-lg':'text-slate-600 hover:translate-x-1 hover:bg-slate-100 hover:text-slate-950'}`} style={{animationDelay:`${(si*70)+(ii*25)}ms`}}><span className={`flex h-9 w-9 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-110 ${a?'bg-white/10':'bg-slate-100'}`}><i className={`${item.icon} text-sm`}/></span><span className="flex-1">{item.name}</span>{a&&<i className="fa-solid fa-chevron-right animate-pulse text-[9px]"/>}</Link>})}</div></div>)}</nav>;
 
  return <><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/>
  <div className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b bg-white/95 px-4 shadow-sm backdrop-blur lg:hidden">
