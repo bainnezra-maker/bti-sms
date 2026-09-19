@@ -120,7 +120,7 @@ export default function IncidentsPage() {
       if (
         !u ||
         u.is_active === false ||
-        !["housemaster", "admin"].includes(u.role)
+        u.role !== "housemaster"
       ) {
         router.replace("/login");
         return;
