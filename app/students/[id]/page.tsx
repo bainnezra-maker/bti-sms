@@ -23,6 +23,10 @@ type Student = {
   class_teacher_remark: string | null;
   hod_remark: string | null;
   next_term_begins: string | null;
+  resident: string | null;
+  house: string | null;
+  health_insurance_number: string | null;
+  health_insurance_expiry_date: string | null;
 };
 
 type Enrollment = {
@@ -349,7 +353,11 @@ export default function StudentProfilePage() {
         promotion_status,
         class_teacher_remark,
         hod_remark,
-        next_term_begins
+        next_term_begins,
+        resident,
+        house,
+        health_insurance_number,
+        health_insurance_expiry_date
       `)
       .eq('id', studentId)
       .eq('school_id', currentSchoolId)
@@ -2039,6 +2047,35 @@ export default function StudentProfilePage() {
                     ?.name ||
                   'Not provided'
                 }
+              />
+
+              <InfoItem
+                label="Residence"
+                value={student.resident || 'Not provided'}
+              />
+
+              <InfoItem
+                label="House"
+                value={
+                  student.resident === 'Day'
+                    ? 'Not applicable'
+                    : student.house || 'Not provided'
+                }
+              />
+
+              <InfoItem
+                label="Health Insurance Number"
+                value={
+                  student.health_insurance_number ||
+                  'Not provided'
+                }
+              />
+
+              <InfoItem
+                label="Health Insurance Expiry Date"
+                value={formatDate(
+                  student.health_insurance_expiry_date
+                )}
               />
             </div>
           </div>
