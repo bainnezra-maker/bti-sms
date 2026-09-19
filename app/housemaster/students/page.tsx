@@ -21,8 +21,7 @@ type Programme = { id: string; name: string; code: string | null };
 type ClassRow = { id: string; name: string; level: string | null; programme_id: string | null; academic_year_id: string };
 type Enrollment = { student_id: string; class_id: string; academic_year_id: string; programme_id: string | null; status: string };
 type House = { id: string; name: string; gender: string | null; is_active: boolean };
-type Room = { id: string; house_id: string; room_number: string; location: string | null; capacity: number; is_active: boolean };
-type Allocation = { id: string; student_id: string; academic_year_id: string; term_id: string | null; term: string | null; house_id: string; room_id: string; bed_space: string | null; status: string; allocated_at: string };
+type Allocation = { id: string; student_id: string; academic_year_id: string; term_id: string | null; term: string | null; house_id: string; room_id: string | null; room_number: string; bed_space: string | null; status: string; allocated_at: string };
 type Residential = { id: string; health_insurance_number: string | null; home_location: string | null; emergency_contact_name: string | null; emergency_contact_phone: string | null; notes: string | null };
 
 function Field({ label, icon, children }: { label: string; icon: string; children: React.ReactNode }) {
@@ -36,10 +35,10 @@ export default function BoarderAdmission() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false);
-  const [students, setStudents] = useState<Student[]>([]), [years, setYears] = useState<Year[]>([]), [terms, setTerms] = useState<Term[]>([]), [programmes, setProgrammes] = useState<Programme[]>([]), [classes, setClasses] = useState<ClassRow[]>([]), [enrol, setEnrol] = useState<Enrollment[]>([]), [houses, setHouses] = useState<House[]>([]), [rooms, setRooms] = useState<Room[]>([]), [alloc, setAlloc] = useState<Allocation[]>([]);
+  const [students, setStudents] = useState<Student[]>([]), [years, setYears] = useState<Year[]>([]), [terms, setTerms] = useState<Term[]>([]), [programmes, setProgrammes] = useState<Programme[]>([]), [classes, setClasses] = useState<ClassRow[]>([]), [enrol, setEnrol] = useState<Enrollment[]>([]), [houses, setHouses] = useState<House[]>([]), [alloc, setAlloc] = useState<Allocation[]>([]);
   const [search, setSearch] = useState(''), [formFilter, setFormFilter] = useState(''), [studentId, setStudentId] = useState(''), [yearId, setYearId] = useState(''), [termId, setTermId] = useState(''), [termText, setTermText] = useState('Semester 1');
   const [health, setHealth] = useState(''), [home, setHome] = useState(''), [emergencyName, setEmergencyName] = useState(''), [emergencyPhone, setEmergencyPhone] = useState(''), [notes, setNotes] = useState('');
-  const [roomNumber, setRoomNumber] = useState(''), [roomId, setRoomId] = useState(''), [bed, setBed] = useState('');
+  const [roomNumber, setRoomNumber] = useState(''), [bed, setBed] = useState('');
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function load(school: string) {
@@ -51,13 +50,12 @@ export default function BoarderAdmission() {
       supabase.from('classes').select('id,name,level,programme_id,academic_year_id').eq('school_id', school),
       supabase.from('enrollments').select('student_id,class_id,academic_year_id,programme_id,status').eq('status', 'active'),
       supabase.from('residential_houses').select('id,name,gender,is_active').eq('school_id', school).eq('is_active', true).order('name'),
-      supabase.from('residential_rooms').select('id,house_id,room_number,location,capacity,is_active').eq('school_id', school).eq('is_active', true).order('room_number'),
-      supabase.from('boarding_allocations').select('id,student_id,academic_year_id,term_id,term,house_id,room_id,bed_space,status,allocated_at').eq('school_id', school).eq('status', 'Active')
+      supabase.from('boarding_allocations').select('id,student_id,academic_year_id,term_id,term,house_id,room_id,room_number,bed_space,status,allocated_at').eq('school_id', school).eq('status', 'Active')
     ]);
     const er = q.find(x => x.error)?.error; if (er) throw er;
     setStudents((q[0].data || []) as Student[]); setYears((q[1].data || []) as Year[]); setTerms((q[2].data || []) as Term[]);
     setProgrammes((q[3].data || []) as Programme[]); setClasses((q[4].data || []) as ClassRow[]); setEnrol((q[5].data || []) as Enrollment[]);
-    setHouses((q[6].data || []) as House[]); setRooms((q[7].data || []) as Room[]); setAlloc((q[8].data || []) as Allocation[]);
+    setHouses((q[6].data || []) as House[]); setAlloc((q[7].data || []) as Allocation[]);
     const cy = (q[1].data || []).find((x: any) => x.is_current) || (q[1].data || [])[0]; if (cy && !yearId) setYearId(cy.id);
   }
 
@@ -80,9 +78,6 @@ export default function BoarderAdmission() {
   const scoped = alloc.filter(a => a.academic_year_id === yearId && (termId ? a.term_id === termId : !a.term_id));
   const current = student ? scoped.find(a => a.student_id === student.id) : undefined;
   const assignedHouse = student ? houses.find(h => h.name.trim().toLowerCase() === (student.house || '').trim().toLowerCase()) : undefined;
-  const selectedRoom = rooms.find(r => r.id === roomId);
-  const occupied = (rid: string) => scoped.filter(a => a.room_id === rid).length;
-  const used = new Set(scoped.filter(a => a.room_id === roomId && a.bed_space).map(a => a.bed_space!.trim().toLowerCase()));
 
   const formOptions = useMemo(() => Array.from(new Set(students.map(s => {
     const e = enrollmentFor(s.id); return e ? classes.find(c => c.id === e.class_id)?.level || '' : '';
@@ -98,7 +93,7 @@ export default function BoarderAdmission() {
   });
 
   async function choose(id: string) {
-    setStudentId(id); setMessage(null); setHealth(''); setHome(''); setEmergencyName(''); setEmergencyPhone(''); setNotes(''); setRoomNumber(''); setRoomId(''); setBed('');
+    setStudentId(id); setMessage(null); setHealth(''); setHome(''); setEmergencyName(''); setEmergencyPhone(''); setNotes(''); setRoomNumber(''); setBed('');
     if (!profile) return;
     const selected = students.find(s => s.id === id);
     setHealth(selected?.health_insurance_number || '');
@@ -106,26 +101,14 @@ export default function BoarderAdmission() {
     if (r) { const x = r as Residential; setHealth(x.health_insurance_number || selected?.health_insurance_number || ''); setHome(x.home_location || ''); setEmergencyName(x.emergency_contact_name || ''); setEmergencyPhone(x.emergency_contact_phone || ''); setNotes(x.notes || ''); }
   }
 
-  function resolveRoom() {
-    if (!assignedHouse) throw new Error('The student’s Administration House does not match an active residential house. Please correct the House in Administration first.');
-    const typed = roomNumber.trim().toLowerCase();
-    if (!typed) throw new Error('Enter the Room Number.');
-    const matches = rooms.filter(r => r.house_id === assignedHouse.id && r.room_number.trim().toLowerCase() === typed);
-    if (!matches.length) throw new Error(`Room "${roomNumber.trim()}" does not exist under ${assignedHouse.name}. Create the room in Boarding & Rooms first.`);
-    if (matches.length > 1) throw new Error('More than one active room has that number in this House. Please correct the room records first.');
-    return matches[0];
-  }
-
   async function save(e: FormEvent) {
     e.preventDefault(); if (!profile || !student || saving) return; setSaving(true); setMessage(null);
     try {
       if (!student.house) throw new Error('This Boarder has no House assigned in Administration. Edit the student record first.');
-      const room = resolveRoom();
+      if (!assignedHouse) throw new Error('The student’s Administration House does not match an active residential house. Please correct the House in Administration first.');
       if (!yearId) throw new Error('Select an academic year.');
-      if (!bed.trim()) throw new Error('Select an available Bed Number.');
-      if (occupied(room.id) >= room.capacity) throw new Error('The selected room is already full.');
-      const roomUsed = new Set(scoped.filter(a => a.room_id === room.id && a.bed_space).map(a => a.bed_space!.trim().toLowerCase()));
-      if (roomUsed.has(bed.trim().toLowerCase())) throw new Error('That bed number is already occupied in this room for the selected academic period.');
+      if (!roomNumber.trim()) throw new Error('Enter the Room Number.');
+      if (!bed.trim()) throw new Error('Enter the Bed Number.');
 
       const { data: existing, error: lookup } = await supabase.from('student_residential_profiles').select('id').eq('school_id', profile.school_id).eq('student_id', student.id).order('updated_at', { ascending: false }).limit(1).maybeSingle();
       if (lookup) throw lookup;
@@ -133,26 +116,18 @@ export default function BoarderAdmission() {
       const pr = existing?.id ? await supabase.from('student_residential_profiles').update(payload).eq('id', existing.id).eq('school_id', profile.school_id) : await supabase.from('student_residential_profiles').insert({ ...payload, created_by: profile.id });
       if (pr.error) throw pr.error;
 
-      const { error } = await supabase.rpc('allocate_boarding_student', { p_student_id: student.id, p_academic_year_id: yearId, p_term_id: termId || null, p_term: termText, p_house_id: assignedHouse!.id, p_room_id: room.id, p_bed_space: bed.trim(), p_notes: notes.trim() || null });
+      const { error } = await supabase.rpc('allocate_boarding_student', { p_student_id: student.id, p_academic_year_id: yearId, p_term_id: termId || null, p_term: termText, p_house_id: assignedHouse.id, p_room_number: roomNumber.trim(), p_bed_space: bed.trim(), p_notes: notes.trim() || null });
       if (error) throw error;
-      setMessage({ ok: true, text: `${student.full_name} has been allocated to ${assignedHouse!.name}, Room ${room.room_number}, ${bed.trim()}.` });
-      setStudentId(''); setRoomNumber(''); setRoomId(''); setBed('');
+      setMessage({ ok: true, text: `${student.full_name} has been allocated to ${assignedHouse.name}, Room ${roomNumber.trim()}, Bed ${bed.trim()}.` });
+      setStudentId(''); setRoomNumber(''); setBed('');
       await load(profile.school_id);
     } catch (err) { setMessage({ ok: false, text: err instanceof Error ? err.message : 'Unable to save Boarder.' }); } finally { setSaving(false); }
   }
 
-  useEffect(() => {
-    if (!student || !assignedHouse || !roomNumber.trim()) { setRoomId(''); setBed(''); return; }
-    const r = rooms.find(x => x.house_id === assignedHouse.id && x.room_number.trim().toLowerCase() === roomNumber.trim().toLowerCase());
-    setRoomId(r?.id || ''); setBed('');
-  }, [roomNumber, studentId, assignedHouse?.id]);
-
-  const availableBeds = selectedRoom ? Array.from({ length: selectedRoom.capacity }, (_, i) => `Bed ${i + 1}`).filter(label => !used.has(label.toLowerCase())) : [];
-
   if (loading) return <main className="min-h-screen bg-slate-50 p-6"><div className="mx-auto max-w-7xl animate-pulse"><div className="h-44 rounded-3xl bg-slate-900" /><div className="mt-6 h-96 rounded-3xl bg-white" /></div></main>;
 
   return <main className="min-h-screen bg-slate-50 px-4 py-5 sm:px-6 lg:px-8"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" /><div className="mx-auto max-w-7xl space-y-6">
-    <header className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-xl sm:p-8"><div className="absolute -right-20 -top-20 h-56 w-56 animate-pulse rounded-full bg-indigo-400/10 blur-xl" /><div className="relative"><span className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-black"><i className="fa-solid fa-user-plus mr-2 animate-pulse" />Boarders Only</span><h1 className="mt-4 text-2xl font-black tracking-tight sm:text-3xl">Boarder Admission & Residential Record</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Boarders come directly from Administration. Their House is inherited from the master student record; assign only the room and available bed for the selected academic period.</p></div></header>
+    <header className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-xl sm:p-8"><div className="absolute -right-20 -top-20 h-56 w-56 animate-pulse rounded-full bg-indigo-400/10 blur-xl" /><div className="relative"><span className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-black"><i className="fa-solid fa-user-plus mr-2 animate-pulse" />Boarders Only</span><h1 className="mt-4 text-2xl font-black tracking-tight sm:text-3xl">Boarder Admission & Residential Record</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Boarders come directly from Administration. Their House is inherited from the master student record; type the room and bed exactly as currently assigned.</p></div></header>
     {message && <div className={`animate-[fadeInUp_.3s_ease-out] rounded-2xl border px-4 py-3 text-sm font-bold ${message.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}><i className={`fa-solid ${message.ok ? 'fa-circle-check' : 'fa-circle-exclamation'} mr-2`} />{message.text}</div>}
 
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-4 sm:grid-cols-2"><Field label="Academic Year" icon="fa-calendar"><select className={input} value={yearId} onChange={e => { setYearId(e.target.value); setStudentId(''); }}><option value="">Select academic year</option>{years.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}</select></Field><Field label="Semester" icon="fa-clock">{yearTerms.length ? <select className={input} value={termId} onChange={e => { setTermId(e.target.value); setTermText(yearTerms.find(t => t.id === e.target.value)?.name || ''); setStudentId(''); }}>{yearTerms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select> : <select className={input} value={termText} onChange={e => { setTermText(e.target.value); setStudentId(''); }}><option>Semester 1</option><option>Semester 2</option></select>}</Field></div></section>
@@ -169,10 +144,10 @@ export default function BoarderAdmission() {
 
         <section className="rounded-3xl border bg-white p-5 shadow-sm"><h3 className="font-black"><i className="fa-solid fa-notes-medical mr-2 text-emerald-600" />Residential & Health Information</h3><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="Health Insurance Number" icon="fa-shield-heart"><input className={input} value={health} onChange={e => setHealth(e.target.value)} placeholder="NHIS / insurance number" /></Field><Field label="Insurance Expiry Date" icon="fa-calendar-check"><input className={input} value={student.health_insurance_expiry_date || ''} readOnly /></Field><Field label="Home Location" icon="fa-location-dot"><input className={input} value={home} onChange={e => setHome(e.target.value)} placeholder="Town / community / district" /></Field><Field label="Emergency Contact Name" icon="fa-user-shield"><input className={input} value={emergencyName} onChange={e => setEmergencyName(e.target.value)} /></Field><Field label="Emergency Contact Phone" icon="fa-phone-volume"><input className={input} value={emergencyPhone} onChange={e => setEmergencyPhone(e.target.value)} /></Field><div className="sm:col-span-2"><Field label="Residential Notes" icon="fa-note-sticky"><textarea rows={3} className={`${input} h-auto py-3`} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Important residential information..." /></Field></div></div></section>
 
-        <section className="rounded-3xl border bg-white p-5 shadow-sm"><h3 className="font-black"><i className="fa-solid fa-house-circle-check mr-2 text-indigo-600" />Room & Bed Allocation</h3><p className="mt-1 text-xs text-slate-500">House comes from Administration. Room Number is typed and must match an existing active room in that House.</p>
+        <section className="rounded-3xl border bg-white p-5 shadow-sm"><h3 className="font-black"><i className="fa-solid fa-house-circle-check mr-2 text-indigo-600" />Room & Bed Allocation</h3><p className="mt-1 text-xs text-slate-500">House comes from Administration. Type the current room and bed exactly as assigned; no pre-created room or capacity check is required.</p>
           {!student.house ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700"><i className="fa-solid fa-triangle-exclamation mr-2" />No House has been assigned to this Boarder in Administration. Edit the student record before allocating a room.</div> :
           !assignedHouse ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800"><i className="fa-solid fa-triangle-exclamation mr-2" />{student.house} is not linked to an active residential house. Correct the residential house setup before allocating this student.</div> :
-          <div className="mt-5 grid gap-4 sm:grid-cols-3"><Field label="House (from Administration)" icon="fa-building"><input className={input} value={assignedHouse.name} readOnly /></Field><Field label="Room Number" icon="fa-door-open"><input required className={input} value={roomNumber} onChange={e => setRoomNumber(e.target.value)} placeholder="Type room number" /></Field><Field label="Bed Number" icon="fa-bed"><select required className={input} value={bed} onChange={e => setBed(e.target.value)} disabled={!selectedRoom}><option value="">{roomNumber && !selectedRoom ? 'Room not found' : 'Select available bed'}</option>{availableBeds.map(label => <option key={label} value={label}>{label}</option>)}</select></Field>{roomNumber && selectedRoom && <div className="sm:col-span-3 rounded-2xl bg-slate-50 p-4 text-xs font-bold text-slate-600"><i className="fa-solid fa-circle-check mr-2 text-emerald-600" />Room {selectedRoom.room_number} found in {assignedHouse.name}. {Math.max(0, selectedRoom.capacity - occupied(selectedRoom.id))} of {selectedRoom.capacity} spaces available.</div>}{roomNumber && !selectedRoom && <div className="sm:col-span-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-800"><i className="fa-solid fa-circle-exclamation mr-2" />No active room with this exact number exists in {assignedHouse.name}. Create it first in Boarding & Rooms or check the room number.</div>}</div>}</section>
+          <div className="mt-5 grid gap-4 sm:grid-cols-3"><Field label="House (from Administration)" icon="fa-building"><input className={input} value={assignedHouse.name} readOnly /></Field><Field label="Room Number" icon="fa-door-open"><input required className={input} value={roomNumber} onChange={e => setRoomNumber(e.target.value)} placeholder="Type room number" /></Field><Field label="Bed Number" icon="fa-bed"><input required className={input} value={bed} onChange={e => setBed(e.target.value)} placeholder="Type bed number" /></Field></div>}</section>
 
         <button disabled={saving || !student.house || !assignedHouse} className="h-12 w-full rounded-xl bg-slate-900 px-6 text-sm font-extrabold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"><i className={`fa-solid ${saving ? 'fa-spinner animate-spin' : 'fa-floppy-disk'} mr-2`} />{saving ? 'Saving...' : 'Save Boarder & Allocate Room'}</button>
       </form>}
