@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Sidebar from './sidebar';
+import BoardingGenderFilter from './boarding-gender-filter';
 
 export default function AppShell({
   children,
@@ -19,6 +20,7 @@ export default function AppShell({
       <Sidebar />
 
       <main className="min-h-screen pt-16 lg:ml-64 lg:pt-0">
+        {pathname.startsWith('/housemaster') && <BoardingGenderFilter />}
         {children}
       </main>
     </div>
