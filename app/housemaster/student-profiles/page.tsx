@@ -479,7 +479,7 @@ export default function Profiles() {
               </Card>
               <Card
                 icon="fa-person-walking-arrow-right"
-                title={`Exiat History (${sx.length})`}
+                title={`Exeat History (${sx.length})`}
               >
                 {sx.length ? (
                   sx
@@ -493,7 +493,7 @@ export default function Profiles() {
                       />
                     ))
                 ) : (
-                  <Empty text="No Exiat history." />
+                  <Empty text="No Exeat history." />
                 )}
               </Card>
             </div>
