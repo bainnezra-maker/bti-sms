@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
-type ExiatRow = {
+type ExeatRow = {
   id: string;
   school_id: string;
   student_id: string;
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: exiatError?.message || 'Exeat record not found.' }, { status: 404 });
   }
 
-  const exiat = exiatData as ExiatRow;
+  const exiat = exiatData as ExeatRow;
   if (exiat.sms_last_attempt_at) {
     const elapsed = Date.now() - new Date(exiat.sms_last_attempt_at).getTime();
     if (elapsed < 30_000) {
