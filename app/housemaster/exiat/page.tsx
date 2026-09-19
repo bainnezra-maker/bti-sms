@@ -45,6 +45,15 @@ type X = {
   authorized_by: string | null;
   processed_by: string;
   remarks: string | null;
+  guardian_message: string | null;
+  sms_status: "Not Sent" | "Pending" | "Sent" | "Failed";
+  sms_message: string | null;
+  sms_recipient: string | null;
+  sms_provider_message_id: string | null;
+  sms_attempt_count: number;
+  sms_last_attempt_at: string | null;
+  sms_sent_at: string | null;
+  sms_error: string | null;
 };
 const sb = createClient(),
   f =
@@ -67,9 +76,11 @@ export default function Exiat() {
     [depart, setDepart] = useState(() => new Date().toISOString().slice(0, 16)),
     [expected, setExpected] = useState(""),
     [guardian, setGuardian] = useState(""),
+    [guardianMessage, setGuardianMessage] = useState(""),
     [remarks, setRemarks] = useState(""),
     [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
+    [sendingId, setSendingId] = useState<string | null>(null),
     [loading, setLoading] = useState(true),
     [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   async function load(school: string) {
@@ -183,6 +194,23 @@ export default function Exiat() {
     setStudent(id);
     setGuardian(sm.get(id)?.guardian_phone || "");
   }
+  async function sendGuardianSms(exiatId: string) {
+    setSendingId(exiatId);
+    try {
+      const response = await fetch("/api/housemaster/exiat-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exiatId }),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error || "The guardian SMS could not be sent.");
+      return true;
+    } finally {
+      setSendingId(null);
+    }
+  }
   async function issue(e: FormEvent) {
     e.preventDefault();
     if (!p || !student || !year || !reason.trim() || !expected) return;
@@ -198,7 +226,7 @@ export default function Exiat() {
       setBusy(false);
       return;
     }
-    const { error } = await sb
+    const { data: created, error } = await sb
       .from("student_exiats")
       .insert({
         school_id: p.school_id,
@@ -215,23 +243,60 @@ export default function Exiat() {
         authorized_by: p.id,
         processed_by: p.id,
         remarks: remarks.trim() || null,
-      });
+        guardian_message: guardianMessage.trim() || null,
+        sms_status: guardian.trim() ? "Not Sent" : "Failed",
+        sms_recipient: guardian.trim() || null,
+        sms_error: guardian.trim() ? null : "Guardian phone number is missing.",
+      })
+      .select("id")
+      .single();
     if (error) setMsg({ ok: false, text: error.message });
     else {
-      setMsg({
-        ok: true,
-        text: "Boarder Exiat issued and departure recorded.",
-      });
+      let smsSent = false;
+      let smsError = "";
+      if (guardian.trim() && created?.id) {
+        try {
+          smsSent = await sendGuardianSms(created.id);
+        } catch (sendError) {
+          smsError = sendError instanceof Error ? sendError.message : "Guardian SMS failed.";
+        }
+      }
+      setMsg(
+        smsSent
+          ? { ok: true, text: "Exeat issued successfully and the guardian SMS was sent." }
+          : {
+              ok: !smsError,
+              text: smsError
+                ? `Exeat saved successfully, but the SMS was not sent: ${smsError}`
+                : "Exeat saved successfully. Add a valid guardian phone number to send an SMS.",
+            },
+      );
       setStudent("");
       setFind("");
       setReason("");
       setDest("");
       setExpected("");
       setGuardian("");
+      setGuardianMessage("");
       setRemarks("");
       await load(p.school_id);
     }
     setBusy(false);
+  }
+  async function retrySms(x: X) {
+    if (!p) return;
+    setMsg(null);
+    try {
+      await sendGuardianSms(x.id);
+      setMsg({ ok: true, text: "Guardian SMS sent successfully." });
+    } catch (error) {
+      setMsg({
+        ok: false,
+        text: error instanceof Error ? error.message : "Guardian SMS could not be sent.",
+      });
+    } finally {
+      await load(p.school_id);
+    }
   }
   async function returned(x: X) {
     if (!p || !confirm("Confirm this Boarder has returned to campus?")) return;
@@ -413,13 +478,33 @@ export default function Exiat() {
                   />
                 </F>
               </div>
-              <F l="Guardian Contact">
+              <F l="Guardian Contact *">
                 <input
+                  required
+                  type="tel"
                   className={f}
                   value={guardian}
                   onChange={(e) => setGuardian(e.target.value)}
+                  placeholder="e.g. 024 000 0000"
                 />
               </F>
+              <F l="Short Message to Guardian">
+                <textarea
+                  rows={3}
+                  maxLength={120}
+                  className={`${f} h-auto py-3`}
+                  value={guardianMessage}
+                  onChange={(e) => setGuardianMessage(e.target.value)}
+                  placeholder="Optional note, e.g. Please expect your ward this evening."
+                />
+                <span className="mt-1 block text-right text-[10px] font-bold text-slate-400">
+                  {guardianMessage.length}/120
+                </span>
+              </F>
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+                <i className="fa-solid fa-message mr-2" />
+                The exeat will be saved first. The guardian will then receive an automatic SMS with the Boarder&apos;s name, reason, departure and expected return.
+              </div>
               <F l="Remarks">
                 <textarea
                   rows={2}
@@ -435,7 +520,7 @@ export default function Exiat() {
                 <i
                   className={`fa-solid ${busy ? "fa-spinner animate-spin" : "fa-stamp"} mr-2`}
                 />
-                {busy ? "Processing..." : "Authorize & Record Departure"}
+                {busy ? "Saving & Sending SMS..." : "Issue Exeat & Notify Guardian"}
               </button>
             </div>
           </form>
@@ -475,6 +560,7 @@ export default function Exiat() {
                                 Overdue
                               </span>
                             )}
+                            <SmsBadge status={x.sms_status || "Not Sent"} />
                           </div>
                           <p className="mt-1 text-xs text-slate-500">
                             {s?.admission_number || "No ID"} · Boarder
@@ -496,17 +582,47 @@ export default function Exiat() {
                               ? ` · Returned: ${new Date(x.returned_at).toLocaleString("en-GB")}`
                               : ""}
                           </p>
+                          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                            <p>
+                              <i className="fa-solid fa-mobile-screen-button mr-2 text-slate-400" />
+                              Guardian: {maskPhone(x.sms_recipient || x.guardian_contact)}
+                            </p>
+                            {x.sms_sent_at && (
+                              <p>
+                                Sent: {new Date(x.sms_sent_at).toLocaleString("en-GB")}
+                              </p>
+                            )}
+                            {x.sms_error && x.sms_status === "Failed" && (
+                              <p className="font-semibold text-red-600">{x.sms_error}</p>
+                            )}
+                          </div>
                         </div>
-                        {x.status === "Out" && (
-                          <button
-                            disabled={busy}
-                            onClick={() => returned(x)}
-                            className="rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white transition hover:-translate-y-0.5"
-                          >
-                            <i className="fa-solid fa-person-circle-check mr-2" />
-                            Record Return
-                          </button>
-                        )}
+                        <div className="flex flex-col gap-2 sm:items-end">
+                          {x.sms_status !== "Sent" && (
+                            <button
+                              type="button"
+                              disabled={sendingId === x.id || busy}
+                              onClick={() => retrySms(x)}
+                              className="rounded-xl border-2 border-blue-600 bg-white px-4 py-2.5 text-xs font-black text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
+                            >
+                              <i
+                                className={`fa-solid ${sendingId === x.id ? "fa-spinner animate-spin" : "fa-paper-plane"} mr-2`}
+                              />
+                              {sendingId === x.id ? "Sending..." : "Send / Retry SMS"}
+                            </button>
+                          )}
+                          {x.status === "Out" && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => returned(x)}
+                              className="rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white transition hover:-translate-y-0.5"
+                            >
+                              <i className="fa-solid fa-person-circle-check mr-2" />
+                              Record Return
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </article>
                   );
@@ -541,5 +657,33 @@ function F({ l, children }: { l: string; children: React.ReactNode }) {
       <span className="mb-1.5 block text-xs font-bold text-slate-600">{l}</span>
       {children}
     </label>
+  );
+}
+
+function maskPhone(value: string | null) {
+  if (!value) return "Not available";
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 7) return value;
+  return `${digits.slice(0, 3)}•••${digits.slice(-4)}`;
+}
+
+function SmsBadge({ status }: { status: X["sms_status"] }) {
+  const styles = {
+    Sent: "bg-emerald-50 text-emerald-700",
+    Pending: "bg-amber-50 text-amber-700",
+    Failed: "bg-red-50 text-red-700",
+    "Not Sent": "bg-slate-100 text-slate-600",
+  } as const;
+  const icons = {
+    Sent: "fa-circle-check",
+    Pending: "fa-clock",
+    Failed: "fa-circle-exclamation",
+    "Not Sent": "fa-minus-circle",
+  } as const;
+  return (
+    <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${styles[status]}`}>
+      <i className={`fa-solid ${icons[status]} mr-1`} />
+      SMS {status}
+    </span>
   );
 }
