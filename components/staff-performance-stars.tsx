@@ -33,7 +33,7 @@ export default function StaffPerformanceStars({mode}:{mode:Mode}){
     const {data:{user}}=await supabase.auth.getUser();if(!user)throw new Error('Sign in to view Staff Performance Stars.');setViewerId(user.id);
     const {data:profile,error:profileError}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
     if(profileError||!profile||profile.is_active===false)throw new Error('Your active staff profile could not be loaded.');
-    if(mode==='admin'&&profile.role!=='admin')throw new Error('Only administrators can view the school leaderboard.');
+    if(mode==='admin'&&!['admin','owner'].includes(profile.role))throw new Error('Only administrators and the system owner can view the school leaderboard.');
     if(mode==='teacher'&&profile.role!=='teacher')throw new Error('Only teachers can view personal performance stars.');
     const {data:years,error:yearError}=await supabase.from('academic_years').select('id,name,is_current,start_date,end_date').eq('school_id',profile.school_id).order('start_date',{ascending:false});
     if(yearError||!years?.length)throw new Error('Set an academic year to calculate staff performance.');

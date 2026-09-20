@@ -5,7 +5,8 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-type UserRole = 'admin' | 'teacher' | 'Student' | 'staff' | 'housemaster' | null;
+type UserRole = 'owner' | 'principal' | 'admin' | 'teacher' | 'Student' | 'staff' | 'housemaster' | null;
+type OwnerView = 'admin' | 'housemaster';
 type MenuItem={name:string;href:string;icon:string};
 type MenuSection={title:string;items:MenuItem[]};
 
@@ -63,6 +64,7 @@ export default function Sidebar(){
  const pathname=usePathname(),router=useRouter(),searchParams=useSearchParams();
  const [mobileOpen,setMobileOpen]=useState(false);
  const [role,setRole]=useState<UserRole>(null);
+ const [ownerView,setOwnerView]=useState<OwnerView>('admin');
  const [loading,setLoading]=useState(true);
 
  useEffect(()=>{let mounted=true;(async()=>{
@@ -74,17 +76,20 @@ export default function Sidebar(){
   if(!user){if(mounted){setRole(null);setLoading(false)};return}
   const {data:p}=await supabase.from('users').select('role,is_active').eq('id',user.id).maybeSingle();
   if(!mounted)return;
-  if(p&&p.is_active!==false&&['admin','teacher','Student','staff','housemaster'].includes(p.role))setRole(p.role as UserRole);
+  if(p&&p.is_active!==false&&['owner','principal','admin','teacher','Student','staff','housemaster'].includes(p.role))setRole(p.role as UserRole);
   else setRole(null);
   setLoading(false);
  })();return()=>{mounted=false}},[]);
 
- const sections=role==='admin'?adminMenuSections:role==='teacher'?teacherMenuSections:role==='Student'?studentMenuSections:role==='housemaster'?housemasterMenuSections:[];
- const home=role==='admin'?'/':role==='teacher'?'/teacher':role==='housemaster'?'/housemaster':'/student';
- const title=role==='admin'?'Administrator':role==='teacher'?'Teacher Workspace':role==='Student'?'Student Portal':role==='housemaster'?'Housemaster / Housemistress':'BIRITECH SMS';
+ useEffect(()=>{if(role==='owner'){const saved=window.localStorage.getItem('biritech-owner-view');if(saved==='admin'||saved==='housemaster')setOwnerView(saved)}},[role]);
+ const effectiveRole=role==='owner'?ownerView:role;
+ const sections=effectiveRole==='admin'?adminMenuSections:effectiveRole==='teacher'?teacherMenuSections:effectiveRole==='Student'?studentMenuSections:effectiveRole==='housemaster'?housemasterMenuSections:[];
+ const home=role==='owner'?'/':effectiveRole==='admin'?'/':effectiveRole==='teacher'?'/teacher':effectiveRole==='housemaster'?'/housemaster':'/student';
+ const title=role==='owner'?`Owner · ${ownerView==='admin'?'Administration':'Boarding'}`:role==='principal'?'Principal':role==='admin'?'Administrator':role==='teacher'?'Teacher Workspace':role==='Student'?'Student Portal':role==='housemaster'?'Housemaster / Housemistress':'BIRITECH SMS';
  const active=(href:string)=>pathname===href||(href!=='/'&&pathname.startsWith(href+'/'));
  const scopedHref=(href:string)=>{const gender=searchParams.get('gender');return role==='housemaster'&&gender?`${href}?gender=${encodeURIComponent(gender)}`:href};
  async function logout(){setMobileOpen(false);await supabase.auth.signOut();router.replace('/login');router.refresh()}
+ function switchOwnerView(view:OwnerView){setOwnerView(view);window.localStorage.setItem('biritech-owner-view',view);setMobileOpen(false);router.push(view==='admin'?'/':'/housemaster')}
  if(loading)return <><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/><aside className="fixed bottom-0 left-0 top-0 hidden w-64 animate-pulse bg-slate-900 lg:block"/></>;
  if(!role)return null;
 
@@ -99,10 +104,12 @@ export default function Sidebar(){
  {mobileOpen&&<button aria-label="Close menu" onClick={()=>setMobileOpen(false)} className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[2px] lg:hidden"/>}
  <aside className={`fixed bottom-0 left-0 top-0 z-50 flex w-72 max-w-[88vw] flex-col bg-white shadow-2xl transition-transform duration-300 lg:hidden ${mobileOpen?'translate-x-0':'-translate-x-full'}`}>
   <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white"><Link href={home} onClick={()=>setMobileOpen(false)} className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-amber-400 bg-white shadow-lg"><img src="/biritech-logo.png" alt="Biriwa Technical Institute crest" className="h-full w-full scale-110 object-cover"/></span><div><p className="text-xl font-black">BIRITECH SMS</p><p className="text-[11px] text-slate-300">{title}</p></div></Link></div>
+  {role==='owner'&&<div className="mx-4 mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3"><p className="mb-2 text-[10px] font-black uppercase tracking-widest text-amber-800">Switch portal</p><div className="grid grid-cols-2 gap-2"><button onClick={()=>switchOwnerView('admin')} className={`rounded-lg px-2 py-2 text-xs font-bold ${ownerView==='admin'?'bg-slate-900 text-white':'bg-white text-slate-700'}`}>Admin</button><button onClick={()=>switchOwnerView('housemaster')} className={`rounded-lg px-2 py-2 text-xs font-bold ${ownerView==='housemaster'?'bg-slate-900 text-white':'bg-white text-slate-700'}`}>Boarding</button></div></div>}
   <Nav mobile/><div className="border-t p-4"><button onClick={logout} className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-600 hover:bg-red-50 hover:text-red-600"><i className="fa-solid fa-right-from-bracket mr-3"/>Logout</button></div>
  </aside>
  <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 flex-col overflow-y-auto border-r bg-white shadow-sm lg:flex">
   <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white"><Link href={home} className="flex items-center gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-amber-400 bg-white shadow-lg transition-transform hover:scale-110"><img src="/biritech-logo.png" alt="Biriwa Technical Institute crest" className="h-full w-full scale-110 object-cover"/></span><div><p className="text-xl font-black">BIRITECH SMS</p><p className="text-[11px] text-slate-300">{title}</p></div></Link></div>
+  {role==='owner'&&<div className="mx-4 mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3"><p className="mb-2 text-[10px] font-black uppercase tracking-widest text-amber-800">Owner portal switcher</p><div className="grid grid-cols-2 gap-2"><button onClick={()=>switchOwnerView('admin')} className={`rounded-lg px-2 py-2 text-xs font-bold ${ownerView==='admin'?'bg-slate-900 text-white shadow':'bg-white text-slate-700'}`}>Admin</button><button onClick={()=>switchOwnerView('housemaster')} className={`rounded-lg px-2 py-2 text-xs font-bold ${ownerView==='housemaster'?'bg-slate-900 text-white shadow':'bg-white text-slate-700'}`}>Boarding</button></div></div>}
   <Nav/><div className="border-t p-4"><button onClick={logout} className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-600 hover:bg-red-50 hover:text-red-600"><i className="fa-solid fa-right-from-bracket mr-3"/>Logout</button></div>
  </aside></>
 }
