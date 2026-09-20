@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 
 type Mode = 'admin' | 'teacher';
 type Teacher = { id:string; full_name:string; department:string|null; staff_id:string|null };
-type Assignment = { id:string; teacher_id:string; class_id:string; subject_id:string; term_id:string|null; academic_year_id:string|null };
+type Assignment = { id:string; teacher_id:string; class_id:string; subject_id:string; term_id:string|null; academic_year_id:string|null; programme_ids:string[]|null };
+type Programme = { id:string; code:string|null; name:string };
 type Slot = { teacher_assignment_id:string; day_of_week:number; status:string };
 type Attendance = { recorded_by:string|null; class_id:string|null; subject_id:string|null; date:string };
 type Assessment = { recorded_by:string|null; class_id:string|null; subject_id:string|null; assessment_type:string; submitted_at:string|null };
@@ -48,22 +49,29 @@ export default function StaffPerformanceStars({mode}:{mode:Mode}){
     setTermName(current?`${scoringYear.name} · ${current.name}`:`${scoringYear.name} · Full academic year`);
     const today=new Date().toISOString().slice(0,10), effectiveEnd=today<periodEnd?today:periodEnd;
     const teacherQuery=supabase.from('users').select('id,full_name,department,staff_id').eq('school_id',profile.school_id).eq('role','teacher').eq('is_active',true).order('full_name');
-    let assignmentQuery=supabase.from('teacher_assignments').select('id,teacher_id,class_id,subject_id,term_id,academic_year_id').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id);
+    let assignmentQuery=supabase.from('teacher_assignments').select('id,teacher_id,class_id,subject_id,term_id,academic_year_id,programme_ids').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id);
     let assessmentQuery=supabase.from('assessments').select('recorded_by,class_id,subject_id,assessment_type,submitted_at').eq('school_id',profile.school_id).gte('submitted_at',`${periodStart}T00:00:00`).lte('submitted_at',`${effectiveEnd}T23:59:59`);
     let documentQuery=supabase.from('staff_teaching_documents').select('staff_id,document_type').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id);
     if(current){assessmentQuery=assessmentQuery.eq('term_id',current.id);documentQuery=documentQuery.eq('semester_id',current.id)}
-    const [teachersQ,assignmentsQ,timetableQ,attendanceQ,assessmentQ,documentsQ]=await Promise.all([
+    const [teachersQ,assignmentsQ,programmesQ,timetableQ,attendanceQ,assessmentQ,documentsQ]=await Promise.all([
       mode==='teacher'?teacherQuery.eq('id',user.id):teacherQuery,
       assignmentQuery,
+      supabase.from('programmes').select('id,code,name').eq('school_id',profile.school_id).order('name'),
       supabase.from('timetable').select('teacher_assignment_id,day_of_week,status').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id).eq('status','scheduled'),
       supabase.from('attendance').select('recorded_by,class_id,subject_id,date').eq('school_id',profile.school_id).gte('date',periodStart).lte('date',effectiveEnd),
       assessmentQuery,
       documentQuery,
     ]);
-    const queryError=[teachersQ,assignmentsQ,timetableQ,attendanceQ,assessmentQ,documentsQ].find(q=>q.error)?.error;if(queryError)throw queryError;
-    const teachers=(teachersQ.data||[]) as Teacher[], assignments=(assignmentsQ.data||[]) as Assignment[], slots=(timetableQ.data||[]) as Slot[], attendance=(attendanceQ.data||[]) as Attendance[], assessments=(assessmentQ.data||[]) as Assessment[], docs=(documentsQ.data||[]) as DocumentRow[];
+    const queryError=[teachersQ,assignmentsQ,programmesQ,timetableQ,attendanceQ,assessmentQ,documentsQ].find(q=>q.error)?.error;if(queryError)throw queryError;
+    const teachers=(teachersQ.data||[]) as Teacher[], assignments=(assignmentsQ.data||[]) as Assignment[], programmes=(programmesQ.data||[]) as Programme[], slots=(timetableQ.data||[]) as Slot[], attendance=(attendanceQ.data||[]) as Attendance[], assessments=(assessmentQ.data||[]) as Assessment[], docs=(documentsQ.data||[]) as DocumentRow[];
+    const programmeMap=new Map(programmes.map(programme=>[programme.id,programme.code||programme.name]));
     const calculated=teachers.map(teacher=>{
       const mine=assignments.filter(a=>a.teacher_id===teacher.id), mineIds=new Set(mine.map(a=>a.id));
+      const assignedProgrammeIds=[...new Set(mine.flatMap(a=>a.programme_ids||[]))];
+      const assignmentDepartment=assignedProgrammeIds.length===programmes.length&&programmes.length>0
+        ? 'All departments'
+        : assignedProgrammeIds.map(id=>programmeMap.get(id)).filter(Boolean).join(', ');
+      const displayTeacher={...teacher,department:teacher.department||assignmentDepartment||null};
       const expected=slots.filter(s=>mineIds.has(s.teacher_assignment_id)).reduce((n,s)=>n+scheduledOccurrences(s.day_of_week,periodStart,effectiveEnd),0);
       const sessions=new Set(attendance.filter(a=>a.recorded_by===teacher.id).map(a=>`${a.date}|${a.class_id}|${a.subject_id}`));
       const completed=Math.min(expected,sessions.size), rate=pct(completed,expected);
@@ -73,7 +81,7 @@ export default function StaffPerformanceStars({mode}:{mode:Mode}){
       const bonus=rate>=95&&expected>0?25:rate>=80&&expected>0?15:rate>=60&&expected>0?5:0;
       const total=attendancePoints+assessmentPoints+documentPoints+bonus;
       const badges:string[]=[];if(rate>=95&&expected>0)badges.push('Attendance Champion');if(assessmentGroups.size>=3)badges.push('Assessment Star');if(staffDocs.size===3)badges.push('Document Complete');if(bonus>=25)badges.push('Consistency Champion');
-      return{teacher,attendance:completed,expected,attendancePoints,assessmentCount:assessmentGroups.size,assessmentPoints,documentCount:staffDocs.size,documentPoints,bonus,total,stars:starsFor(total),badges};
+      return{teacher:displayTeacher,attendance:completed,expected,attendancePoints,assessmentCount:assessmentGroups.size,assessmentPoints,documentCount:staffDocs.size,documentPoints,bonus,total,stars:starsFor(total),badges};
     }).sort((a,b)=>b.total-a.total||b.attendance-a.attendance||a.teacher.full_name.localeCompare(b.teacher.full_name));
     setScores(calculated);
   }catch(e){setError(e instanceof Error?e.message:'Performance information could not be loaded.')}finally{setLoading(false)}})()},[mode]);
