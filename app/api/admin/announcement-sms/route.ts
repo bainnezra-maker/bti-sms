@@ -15,7 +15,7 @@ export async function POST(request:Request){
   const {data:{user}}=await supabase.auth.getUser();
   if(!user)return NextResponse.json({error:'You are not signed in.'},{status:401});
   const {data:profile}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
-  if(!profile||profile.role!=='admin'||profile.is_active===false)return NextResponse.json({error:'Only an active administrator can send guardian announcements.'},{status:403});
+  if(!profile||!['admin','owner'].includes(profile.role)||profile.is_active===false)return NextResponse.json({error:'Only an active administrator or owner can send guardian announcements.'},{status:403});
   let body:{announcementId?:string;offset?:number};try{body=await request.json()}catch{return NextResponse.json({error:'Invalid request.'},{status:400})}
   if(!body.announcementId)return NextResponse.json({error:'Select an announcement.'},{status:400});
   const offset=Math.max(0,Number(body.offset)||0);
