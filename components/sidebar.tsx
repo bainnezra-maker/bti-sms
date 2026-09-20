@@ -66,14 +66,18 @@ export default function Sidebar(){
  const [loading,setLoading]=useState(true);
 
  useEffect(()=>{let mounted=true;(async()=>{
-  const {data:{user}}=await supabase.auth.getUser();
+  // The sidebar only needs the locally cached session to choose its menu.
+  // Individual pages still perform their own secure role checks. Avoiding a
+  // network user lookup here makes navigation between portal pages immediate.
+  const {data:{session}}=await supabase.auth.getSession();
+  const user=session?.user;
   if(!user){if(mounted){setRole(null);setLoading(false)};return}
   const {data:p}=await supabase.from('users').select('role,is_active').eq('id',user.id).maybeSingle();
   if(!mounted)return;
   if(p&&p.is_active!==false&&['admin','teacher','Student','staff','housemaster'].includes(p.role))setRole(p.role as UserRole);
   else setRole(null);
   setLoading(false);
- })();return()=>{mounted=false}},[pathname]);
+ })();return()=>{mounted=false}},[]);
 
  const sections=role==='admin'?adminMenuSections:role==='teacher'?teacherMenuSections:role==='Student'?studentMenuSections:role==='housemaster'?housemasterMenuSections:[];
  const home=role==='admin'?'/':role==='teacher'?'/teacher':role==='housemaster'?'/housemaster':'/student';
