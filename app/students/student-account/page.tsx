@@ -120,7 +120,7 @@ export default function StudentAccountPage() {
 
           <p className="mt-2 text-slate-500">
             Give an existing active student access to
-            the BTI-SMS Student Portal.
+            the BIRITECH SMS Student Portal.
           </p>
         </div>
 
@@ -133,7 +133,7 @@ export default function StudentAccountPage() {
             Students will sign in with their
             <strong> admission number + password</strong>.
             Their internal email account is managed
-            automatically by BTI-SMS and is not used as
+            automatically by BIRITECH SMS and is not used as
             their visible login credential.
           </p>
         </div>
@@ -261,7 +261,7 @@ export default function StudentAccountPage() {
           <p className="mt-2 leading-6">
             Keep the password you give the student
             secure. The password is never stored in
-            the BTI-SMS database as plain text.
+            the BIRITECH SMS database as plain text.
           </p>
         </div>
 
