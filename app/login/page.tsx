@@ -226,7 +226,7 @@ export default function LoginPage() {
     /*
      * Administrator.
      */
-    if (profile.role === 'admin') {
+    if (profile.role === 'admin' || profile.role === 'owner') {
       if (loginMode !== 'admin') { await supabase.auth.signOut(); setLoading(false); setError('Please use the Administrator login option.'); return; }
       router.replace('/'); return;
     }
