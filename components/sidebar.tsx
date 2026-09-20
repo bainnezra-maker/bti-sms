@@ -77,7 +77,7 @@ export default function Sidebar(){
 
  const sections=role==='admin'?adminMenuSections:role==='teacher'?teacherMenuSections:role==='Student'?studentMenuSections:role==='housemaster'?housemasterMenuSections:[];
  const home=role==='admin'?'/':role==='teacher'?'/teacher':role==='housemaster'?'/housemaster':'/student';
- const title=role==='admin'?'Administrator':role==='teacher'?'Teacher Workspace':role==='Student'?'Student Portal':role==='housemaster'?'Housemaster / Housemistress':'BTI-SMS';
+ const title=role==='admin'?'Administrator':role==='teacher'?'Teacher Workspace':role==='Student'?'Student Portal':role==='housemaster'?'Housemaster / Housemistress':'BIRITECH SMS';
  const active=(href:string)=>pathname===href||(href!=='/'&&pathname.startsWith(href+'/'));
  const scopedHref=(href:string)=>{const gender=searchParams.get('gender');return role==='housemaster'&&gender?`${href}?gender=${encodeURIComponent(gender)}`:href};
  async function logout(){setMobileOpen(false);await supabase.auth.signOut();router.replace('/login');router.refresh()}
@@ -89,16 +89,16 @@ export default function Sidebar(){
  return <><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/>
  <div className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b bg-white/95 px-4 shadow-sm backdrop-blur lg:hidden">
   <button onClick={()=>setMobileOpen(v=>!v)} className="flex h-10 w-10 items-center justify-center rounded-xl border"><i className={`fa-solid ${mobileOpen?'fa-xmark':'fa-bars'} transition-transform duration-300`}/></button>
-  <Link href={home} className="flex items-center gap-2 font-black"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white"><i className="fa-solid fa-school"/></span>BTI-SMS</Link>
+  <Link href={home} className="flex items-center gap-2 font-black"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white"><i className="fa-solid fa-school"/></span>BIRITECH SMS</Link>
   <span className="flex h-10 w-10 items-center justify-center text-slate-500"><i className={role==='housemaster'?'fa-solid fa-house-user':'fa-solid fa-user-shield'}/></span>
  </div>
  {mobileOpen&&<button aria-label="Close menu" onClick={()=>setMobileOpen(false)} className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[2px] lg:hidden"/>}
  <aside className={`fixed bottom-0 left-0 top-0 z-50 flex w-72 max-w-[88vw] flex-col bg-white shadow-2xl transition-transform duration-300 lg:hidden ${mobileOpen?'translate-x-0':'-translate-x-full'}`}>
-  <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white"><Link href={home} onClick={()=>setMobileOpen(false)} className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10"><i className="fa-solid fa-school"/></span><div><p className="text-xl font-black">BTI-SMS</p><p className="text-[11px] text-slate-300">{title}</p></div></Link></div>
+  <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white"><Link href={home} onClick={()=>setMobileOpen(false)} className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10"><i className="fa-solid fa-school"/></span><div><p className="text-xl font-black">BIRITECH SMS</p><p className="text-[11px] text-slate-300">{title}</p></div></Link></div>
   <Nav mobile/><div className="border-t p-4"><button onClick={logout} className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-600 hover:bg-red-50 hover:text-red-600"><i className="fa-solid fa-right-from-bracket mr-3"/>Logout</button></div>
  </aside>
  <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 flex-col overflow-y-auto border-r bg-white shadow-sm lg:flex">
-  <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white"><Link href={home} className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 transition-transform hover:scale-110"><i className="fa-solid fa-school"/></span><div><p className="text-xl font-black">BTI-SMS</p><p className="text-[11px] text-slate-300">{title}</p></div></Link></div>
+  <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white"><Link href={home} className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 transition-transform hover:scale-110"><i className="fa-solid fa-school"/></span><div><p className="text-xl font-black">BIRITECH SMS</p><p className="text-[11px] text-slate-300">{title}</p></div></Link></div>
   <Nav/><div className="border-t p-4"><button onClick={logout} className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-600 hover:bg-red-50 hover:text-red-600"><i className="fa-solid fa-right-from-bracket mr-3"/>Logout</button></div>
  </aside></>
 }
