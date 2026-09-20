@@ -206,7 +206,7 @@ export default function LoginPage() {
       await supabase.auth.signOut();
       setLoading(false);
       setError(
-        'Your account has not been registered in the BTI School Management System.'
+        'Your account has not been registered in BIRITECH SMS.'
       );
       return;
     }
@@ -264,7 +264,7 @@ export default function LoginPage() {
     setLoading(false);
 
     setError(
-      'Your account does not have a valid BTI-SMS login role. Please contact the administrator.'
+      'Your account does not have a valid BIRITECH SMS login role. Please contact the administrator.'
     );
   }
 
@@ -336,7 +336,7 @@ export default function LoginPage() {
             </h1>
 
             <p className="mt-2 text-sm font-medium text-slate-400">
-              BTI School Management System
+              BIRITECH SMS
             </p>
           </div>
 
@@ -665,7 +665,7 @@ export default function LoginPage() {
             </p>
 
             <p className="mt-1 text-[11px] text-slate-600">
-              BTI School Management System
+              BIRITECH SMS
             </p>
           </div>
         </div>
