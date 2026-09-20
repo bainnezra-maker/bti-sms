@@ -966,7 +966,7 @@ export default function AssessmentReportsPage() {
 
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-blue-200 font-semibold">
-                    BTI-SMS
+                    BIRITECH SMS
                   </p>
 
                   <p className="text-sm text-blue-100">
@@ -1892,7 +1892,7 @@ export default function AssessmentReportsPage() {
         {/* FOOTER */}
         <footer className="mt-8 text-center">
           <p className="text-xs text-slate-400">
-            BTI-SMS Assessment Reports • Read-only
+            BIRITECH SMS Assessment Reports • Read-only
             administrator analytics
           </p>
 
