@@ -30,7 +30,7 @@ const adminMenuSections:MenuSection[]=[
   {name:'Announcements',href:'/announcements',icon:'fa-solid fa-bullhorn'},
   {name:'Staff',href:'/staff',icon:'fa-solid fa-users'},
   {name:'Portal Accounts',href:'/portal-accounts',icon:'fa-solid fa-user-shield'},
-  {name:'Fees',href:'/fees',icon:'fa-solid fa-money-bill-wave'},
+  {name:'Billing',href:'/fees',icon:'fa-solid fa-file-invoice-dollar'},
   {name:'Reports',href:'/reports',icon:'fa-solid fa-file-lines'}]},
  {title:'SYSTEM',items:[{name:'Settings',href:'/settings',icon:'fa-solid fa-gear'}]}
 ];
