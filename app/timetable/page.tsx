@@ -230,7 +230,7 @@ export default function TimetablePage() {
       );
     }
 
-    if (profile.role !== 'admin') {
+    if (!['admin','owner'].includes(profile.role)) {
       throw new Error(
         'Only administrators can manage the timetable.'
       );
