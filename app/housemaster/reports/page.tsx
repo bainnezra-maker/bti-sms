@@ -188,7 +188,7 @@ export default function Reports() {
       if (
         !u ||
         u.is_active === false ||
-        !["housemaster", "admin"].includes(u.role)
+        !["housemaster", "admin", "owner"].includes(u.role)
       ) {
         router.replace("/login");
         return;
