@@ -879,7 +879,7 @@ export default function PromotionPage() {
               </p>
 
               <p className="mt-1 text-sm leading-6 text-blue-800">
-                Select Form 1, Form 2 or Form 3. You no longer need to select individual classes. BTI-SMS uses the existing Form and programme information to determine the students to promote.
+                Select Form 1, Form 2 or Form 3. You no longer need to select individual classes. BIRITECH SMS uses the existing Form and programme information to determine the students to promote.
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
