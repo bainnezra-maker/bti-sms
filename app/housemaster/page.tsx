@@ -12,7 +12,7 @@ export default async function HousemasterDashboardPage({searchParams}:{searchPar
 
   const { data: profile } = await supabase.from('users')
     .select('school_id,full_name,role,is_active').eq('id', user.id).maybeSingle();
-  if (!profile || profile.is_active === false || profile.role !== 'housemaster' || !profile.school_id) redirect('/login');
+  if (!profile || profile.is_active === false || !['housemaster','owner'].includes(profile.role) || !profile.school_id) redirect('/login');
   const schoolId = profile.school_id;
 
   const { data: currentYear } = await supabase.from('academic_years')
