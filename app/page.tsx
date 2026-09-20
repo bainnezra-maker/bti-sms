@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import StaffPerformanceStars from '@/components/staff-performance-stars';
 
 type AcademicYear = {
   id: string;
@@ -502,6 +503,11 @@ export default async function DashboardPage() {
 
               </div>
 
+            </div>
+
+            {/* STAFF PERFORMANCE */}
+            <div className="mt-6">
+              <StaffPerformanceStars mode="admin" />
             </div>
 
             {/* ==================================================
