@@ -23,7 +23,7 @@ type Account = {
   role: string;
   is_active: boolean | null;
 };
-type PortalRole = 'housemaster' | 'teacher';
+type PortalRole = 'admin' | 'housemaster' | 'teacher';
 type Administrator = { id: string; school_id: string };
 const roleLabels: Record<string, string> = {
   admin: 'Administrator', teacher: 'Teacher',
@@ -197,7 +197,7 @@ export default function PortalAccountsPage() {
       <header className="rounded-3xl bg-slate-900 p-6 text-white sm:p-8">
         <p className="text-xs font-bold uppercase tracking-widest text-slate-300">Administration</p>
         <h1 className="mt-2 text-3xl font-bold">Portal Accounts</h1>
-        <p className="mt-3 max-w-2xl text-sm text-slate-300">Create staff login accounts and manage access to the Teacher and Housemaster / Housemistress portals.</p>
+        <p className="mt-3 max-w-2xl text-sm text-slate-300">Create login accounts for Administrators, Teachers and Housemasters / Housemistresses, and manage staff portal access.</p>
         <Link href="/staff" className="mt-4 inline-block text-sm font-semibold underline underline-offset-4">Open Staff Management</Link>
       </header>
 
@@ -237,7 +237,7 @@ export default function PortalAccountsPage() {
                   }}><option value="">Select staff member</option>{eligibleStaff.map((person) => <option key={person.id} value={person.id}>{person.full_name} — {person.staff_number}</option>)}</select>
                 </label>
                 <label className="text-sm font-semibold text-slate-700">Portal role
-                  <select value={role} className={inputClass} onChange={(event) => setRole(event.target.value as PortalRole)}><option value="housemaster">Housemaster / Housemistress</option><option value="teacher">Teacher</option></select>
+                  <select value={role} className={inputClass} onChange={(event) => setRole(event.target.value as PortalRole)}><option value="admin">Administrator</option><option value="housemaster">Housemaster / Housemistress</option><option value="teacher">Teacher</option></select>
                 </label>
                 {selectedStaff && <p className="text-sm text-slate-500 sm:col-span-2">{selectedStaff.department || 'No department'} · {selectedStaff.position || 'No position'}</p>}
                 <label className="text-sm font-semibold text-slate-700">Login email
@@ -281,4 +281,3 @@ export default function PortalAccountsPage() {
     </div>
   );
 }
-
