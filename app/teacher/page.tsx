@@ -702,6 +702,26 @@ export default function TeacherDashboard() {
           (studentData ?? []) as Student[];
       }
 
+      // Render the teacher workspace as soon as its essential data is ready.
+      // Assessment and attendance histories can be very large, so they load
+      // below without holding the entire dashboard behind a loading screen.
+      if (!mounted) return;
+
+      setProfile(userProfile as Profile);
+      setAssignments(assignmentRows);
+      setClasses(classRows);
+      setSubjects(subjectRows);
+      setSemesters(semesterRows);
+      setAcademicYears(yearRows);
+      setEnrollments(enrollmentRows);
+      setStudents(studentRows);
+      setTimetableRows(timetableDataRows);
+      setStaffId(staffMatch?.id ?? null);
+      setDocuments(teacherDocuments);
+      setDocumentYearId(currentYear?.id ?? '');
+      setDocumentSemesterId(currentTerm?.id ?? '');
+      setLoading(false);
+
       /*
        * --------------------------------------------------
        * ASSESSMENT ANALYTICS
@@ -713,12 +733,8 @@ export default function TeacherDashboard() {
           (subject) => subject.name
         );
 
-      let assessmentRows: AssessmentRecord[] =
-        [];
-
-      try {
-        assessmentRows =
-          await fetchPagedAssessments({
+      const [assessmentRows, attendance] = await Promise.all([
+        fetchPagedAssessments({
             studentIds:
               studentRows.map(
                 (student) => student.id
@@ -729,61 +745,17 @@ export default function TeacherDashboard() {
               currentTerm?.name ?? null,
             subjects:
               teacherSubjectNames,
-          });
-      } catch (assessmentError) {
-        if (mounted) {
-          setError(
-            assessmentError instanceof Error
-              ? assessmentError.message
-              : 'Unable to load assessment analytics.'
-          );
-
-          setLoading(false);
-        }
-
-        return;
-      }
-
-      /*
-       * --------------------------------------------------
-       * ATTENDANCE ANALYTICS
-       * --------------------------------------------------
-       */
-
-      const attendance =
-        await fetchPagedAttendance(
+          }).catch(() => [] as AssessmentRecord[]),
+        fetchPagedAttendance(
           studentRows.map(
             (student) => student.id
           )
-        );
+        ).catch(() => [] as AttendanceRow[]),
+      ]);
 
       if (!mounted) return;
-
-      setProfile(
-        userProfile as Profile
-      );
-
-      setAssignments(
-        assignmentRows
-      );
-
-      setClasses(classRows);
-      setSubjects(subjectRows);
-      setSemesters(semesterRows);
-      setAcademicYears(yearRows);
-      setEnrollments(enrollmentRows);
-      setStudents(studentRows);
       setAssessmentRows(assessmentRows);
       setAttendanceRows(attendance);
-      setTimetableRows(
-        timetableDataRows
-      );
-      setStaffId(staffMatch?.id ?? null);
-      setDocuments(teacherDocuments);
-      setDocumentYearId(currentYear?.id ?? '');
-      setDocumentSemesterId(currentTerm?.id ?? '');
-
-      setLoading(false);
     }
 
     load();
