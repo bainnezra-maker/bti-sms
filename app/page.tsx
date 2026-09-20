@@ -74,10 +74,7 @@ export default async function DashboardPage() {
 
     supabase
       .from('classes')
-      .select('*', {
-        count: 'exact',
-        head: true,
-      })
+      .select('name, level, academic_year_id')
       .eq('school_id', schoolId),
 
     supabase
@@ -130,9 +127,6 @@ export default async function DashboardPage() {
   const staffCount =
     staffResult.count || 0;
 
-  const classCount =
-    classResult.count || 0;
-
   const subjectCount =
     subjectResult.count || 0;
 
@@ -153,6 +147,24 @@ export default async function DashboardPage() {
     academicYears.find(
       (year) => year.is_current
     );
+
+  // A physical class (for example, Form 2 A) can contain students from
+  // several departments. Count that room/class once instead of counting
+  // every department-specific database record as another school class.
+  const currentYearClasses =
+    (classResult.data || []).filter(
+      (classItem) =>
+        !currentAcademicYear ||
+        classItem.academic_year_id === currentAcademicYear.id
+    );
+
+  const classCount = new Set(
+    currentYearClasses.map((classItem) => {
+      const level = (classItem.level || '').trim().toLowerCase();
+      const name = (classItem.name || '').trim().toUpperCase();
+      return `${level}|${name}`;
+    })
+  ).size;
 
   // --------------------------------------------------
   // QUICK ACTIONS
