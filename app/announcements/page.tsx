@@ -661,7 +661,7 @@ export default function AnnouncementsPage() {
 
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
                   Publish important school information directly to the
-                  BTI-SMS student portal.
+                  BIRITECH SMS student portal.
                 </p>
               </div>
 
@@ -1157,7 +1157,7 @@ export default function AnnouncementsPage() {
                   </h2>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Manage messages currently stored in BTI-SMS.
+                    Manage messages currently stored in BIRITECH SMS.
                   </p>
                 </div>
 
