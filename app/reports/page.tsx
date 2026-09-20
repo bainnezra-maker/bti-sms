@@ -1,0 +1,28 @@
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+
+const reportGroups = [
+  { title:'Academic Performance', description:'Assessment results, class performance and learners needing support.', href:'/assessment-reports', icon:'fa-chart-line', tone:'blue', items:['Subject and class performance','Pass rates and learner progress','Assessment completion'] },
+  { title:'Attendance', description:'Monitor student attendance and missing attendance records.', href:'/attendance-reports', icon:'fa-calendar-check', tone:'emerald', items:['Daily and term summaries','Absence and lateness patterns','Teacher recording compliance'] },
+  { title:'Staff Performance', description:'Review teaching activity, documents, points, stars and recognition.', href:'/#staff-performance', icon:'fa-star', tone:'amber', items:['Performance Stars leaderboard','Attendance and assessment points','USB, LSP and POWD completion'] },
+  { title:'Boarding', description:'Read-only room, Exeat, incident and guardian communication reports.', href:'/admin/boarding', icon:'fa-building-shield', tone:'indigo', items:['Room and bed allocation','Exeat and incident registers','Failed SMS and missing contacts'] },
+  { title:'Billing', description:'See paid, outstanding and overdue school bills.', href:'/fees', icon:'fa-file-invoice-dollar', tone:'rose', items:['Amounts billed and paid','Outstanding balances','Overdue accounts'] },
+  { title:'Communication', description:'Review announcements and guardian SMS delivery outcomes.', href:'/announcements', icon:'fa-bullhorn', tone:'violet', items:['Published announcements','Audience and form targeting','Sent, failed and missing contacts'] },
+];
+
+export default async function ReportsPage(){
+  const supabase=await createClient();
+  const {data:{user}}=await supabase.auth.getUser(); if(!user)redirect('/login');
+  const {data:profile}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
+  if(!profile||profile.role!=='admin'||profile.is_active===false||!profile.school_id)redirect('/login');
+  const count=(table:string)=>supabase.from(table).select('*',{count:'exact',head:true}).eq('school_id',profile.school_id);
+  const [students,attendance,assessments,staff,boarders,news]=await Promise.all([count('students'),count('attendance'),count('assessments'),count('staff'),supabase.from('students').select('*',{count:'exact',head:true}).eq('school_id',profile.school_id).eq('student_type','Boarder'),count('school_news')]);
+  const stats=[['Students',students.count||0,'fa-user-graduate'],['Attendance records',attendance.count||0,'fa-calendar-check'],['Assessments',assessments.count||0,'fa-clipboard-check'],['Staff',staff.count||0,'fa-users'],['Boarders',boarders.count||0,'fa-bed'],['Announcements',news.count||0,'fa-bullhorn']];
+  return <main className="min-h-screen bg-slate-50 px-4 pb-12 pt-20 sm:px-6 lg:px-10 lg:pt-10"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/><div className="mx-auto max-w-7xl space-y-6">
+    <header className="rounded-3xl bg-gradient-to-br from-slate-950 via-blue-950 to-indigo-950 p-7 text-white shadow-xl"><p className="text-xs font-black uppercase tracking-[.2em] text-blue-300">Administration Intelligence</p><h1 className="mt-2 text-3xl font-black"><i className="fa-solid fa-file-lines mr-3 text-cyan-300"/>Reports Centre</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">A read-only centre for school-wide academic, operational, boarding, staff, billing and communication reports.</p></header>
+    <section className="grid grid-cols-2 gap-3 lg:grid-cols-6">{stats.map(([label,value,icon])=><div key={String(label)} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><i className={`fa-solid ${icon} text-blue-600`}/><p className="mt-3 text-2xl font-black text-slate-950">{Number(value).toLocaleString()}</p><p className="text-xs font-bold text-slate-500">{label}</p></div>)}</section>
+    <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{reportGroups.map(group=><Link href={group.href} key={group.title} className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-blue-300 hover:shadow-xl"><div className="flex items-start justify-between"><span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600"><i className={`fa-solid ${group.icon}`}/></span><i className="fa-solid fa-arrow-up-right-from-square text-slate-300 transition group-hover:text-blue-600"/></div><h2 className="mt-5 text-xl font-black text-slate-950">{group.title}</h2><p className="mt-2 text-sm leading-6 text-slate-500">{group.description}</p><ul className="mt-4 space-y-2">{group.items.map(item=><li key={item} className="text-xs font-semibold text-slate-600"><i className="fa-solid fa-circle-check mr-2 text-emerald-500"/>{item}</li>)}</ul><p className="mt-5 text-sm font-black text-blue-600">Open report <i className="fa-solid fa-arrow-right ml-1"/></p></Link>)}</section>
+    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-black text-slate-950"><i className="fa-solid fa-filter mr-2 text-blue-600"/>Report controls</h2><p className="mt-2 text-sm text-slate-500">Each detailed report uses the relevant academic-year, semester, date, programme, class, gender and status filters already available in its module. Export and print functions can be added to each detailed report as the next reporting phase.</p></section>
+  </div></main>;
+}
