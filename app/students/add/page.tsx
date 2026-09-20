@@ -47,7 +47,7 @@ export default function AddStudentPage() {
       const { data: profile, error: profileError } = await supabase
         .from('users').select('school_id, role, is_active').eq('id', user.id).single();
       if (profileError || !profile?.school_id) throw new Error('Your account is not linked to a school.');
-      if (profile.is_active === false || profile.role !== 'admin') throw new Error('Only an active Administrator can register students.');
+      if (profile.is_active === false || !['admin','owner'].includes(profile.role)) throw new Error('Only an active Administrator or Owner can register students.');
 
       const { error: studentError } = await supabase.from('students').insert({
         school_id: profile.school_id,
