@@ -12,7 +12,7 @@ const groups=[
 
 export default async function SettingsPage(){
   const supabase=await createClient(); const {data:{user}}=await supabase.auth.getUser(); if(!user)redirect('/login');
-  const {data:profile}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle(); if(!profile||profile.role!=='admin'||profile.is_active===false||!profile.school_id)redirect('/login');
+  const {data:profile}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle(); if(!profile||!['admin','owner'].includes(profile.role)||profile.is_active===false||!profile.school_id)redirect('/login');
   const [{data:years},{data:terms},{count:accounts},{count:staff}]=await Promise.all([
     supabase.from('academic_years').select('id,name,is_current,start_date').eq('school_id',profile.school_id).order('start_date',{ascending:false}),
     supabase.from('terms').select('id,name,is_current,academic_year_id').order('start_date',{ascending:true}),
