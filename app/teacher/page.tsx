@@ -2999,7 +2999,7 @@ export default function TeacherDashboard() {
           <footer className="border-t border-slate-200 pt-5 pb-4 text-center text-[11px] text-slate-400 sm:flex sm:justify-between">
             <span>
               <i className="fa-solid fa-shield-halved mr-1.5" />
-              BTI-SMS Teacher Workspace
+              BIRITECH SMS Teacher Workspace
             </span>
 
             <span>
