@@ -15,7 +15,7 @@ export default async function ReportsPage(){
   const supabase=await createClient();
   const {data:{user}}=await supabase.auth.getUser(); if(!user)redirect('/login');
   const {data:profile}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
-  if(!profile||profile.role!=='admin'||profile.is_active===false||!profile.school_id)redirect('/login');
+  if(!profile||!['admin','owner'].includes(profile.role)||profile.is_active===false||!profile.school_id)redirect('/login');
   const count=(table:string)=>supabase.from(table).select('*',{count:'exact',head:true}).eq('school_id',profile.school_id);
   const [students,attendance,assessments,staff,boarders,news]=await Promise.all([count('students'),count('attendance'),count('assessments'),count('staff'),supabase.from('students').select('*',{count:'exact',head:true}).eq('school_id',profile.school_id).eq('student_type','Boarder'),count('school_news')]);
   const stats=[['Students',students.count||0,'fa-user-graduate'],['Attendance records',attendance.count||0,'fa-calendar-check'],['Assessments',assessments.count||0,'fa-clipboard-check'],['Staff',staff.count||0,'fa-users'],['Boarders',boarders.count||0,'fa-bed'],['Announcements',news.count||0,'fa-bullhorn']];
