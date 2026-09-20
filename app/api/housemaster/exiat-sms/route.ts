@@ -72,7 +72,7 @@ export async function POST(request: Request) {
   if (
     !profile ||
     profile.is_active === false ||
-    !['housemaster', 'admin'].includes(profile.role)
+    !['housemaster', 'admin', 'owner'].includes(profile.role)
   ) {
     return NextResponse.json({ error: 'You are not authorized to send guardian SMS messages.' }, { status: 403 });
   }
