@@ -140,7 +140,7 @@ export default function TeacherAssignmentsPage() {
       throw new Error(profileError.message);
     }
 
-    if (profile?.role !== 'admin') {
+    if (!profile || !['admin','owner'].includes(profile.role)) {
       throw new Error(
         'Only administrators can manage teacher assignments.'
       );
