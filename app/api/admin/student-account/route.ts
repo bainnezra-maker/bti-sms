@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     if (
       adminProfileError ||
       !adminProfile ||
-      adminProfile.role !== 'admin' ||
+      !['admin','owner'].includes(adminProfile.role) ||
       adminProfile.is_active === false
     ) {
       return NextResponse.json(
