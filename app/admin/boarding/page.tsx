@@ -15,7 +15,7 @@ export default async function AdminBoardingDashboard() {
   const { data:{ user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
   const { data:profile } = await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
-  if (!profile || profile.role !== 'admin' || profile.is_active === false) redirect('/login');
+  if (!profile || !['admin','owner'].includes(profile.role) || profile.is_active === false) redirect('/login');
 
   const [studentsQ,housesQ,roomsQ,allocQ,exeatsQ,checkoutsQ,incidentsQ] = await Promise.all([
     supabase.from('students').select('id,full_name,admission_number,gender,guardian_name,guardian_phone,house').eq('school_id',profile.school_id).eq('resident','Boarding').eq('status','active'),
