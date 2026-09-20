@@ -1877,7 +1877,7 @@ export default function ActivityCalendarPage() {
                   </h3>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Download the official BTI-SMS activity calendar
+                    Download the official BIRITECH SMS activity calendar
                     Excel template.
                   </p>
                 </div>
