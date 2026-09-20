@@ -34,7 +34,7 @@ export default function StudentImportPage(){
   const{data:{user}}=await supabase.auth.getUser();if(!user){setMessage('You must be logged in to use the student importer.');setLoadingData(false);return}
   const{data:profile,error:pe}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
   if(pe||!profile?.school_id){setMessage(pe?.message||'Your BIRITECH SMS account is not linked to a school.');setLoadingData(false);return}
-  if(profile.role!=='admin'||profile.is_active===false){setMessage('Only an active Administrator can use the student importer.');setLoadingData(false);return}
+  if(!['admin','owner'].includes(profile.role)||profile.is_active===false){setMessage('Only an active Administrator or Owner can use the student importer.');setLoadingData(false);return}
   setSchoolId(profile.school_id);
   const[p,y,c]=await Promise.all([supabase.from('programmes').select('id,name').eq('school_id',profile.school_id).order('name'),supabase.from('academic_years').select('id,name,start_date').eq('school_id',profile.school_id).order('start_date',{ascending:false}),supabase.from('classes').select('id,name,level,programme_id,academic_year_id').eq('school_id',profile.school_id).order('name')]);
   if(p.error||y.error||c.error){setMessage(p.error?.message||y.error?.message||c.error?.message||'Unable to load school data.');setLoadingData(false);return}
