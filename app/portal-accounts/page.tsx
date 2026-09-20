@@ -79,7 +79,7 @@ export default function PortalAccountsPage() {
     const { data: profile, error: profileError } = await supabase.from('users')
       .select('id, school_id, role, is_active').eq('id', auth.user.id).maybeSingle();
     if (profileError) throw new Error(profileError.message);
-    if (!profile || profile.role !== 'admin' || profile.is_active !== true || !profile.school_id) {
+    if (!profile || !['admin', 'owner'].includes(profile.role) || profile.is_active !== true || !profile.school_id) {
       throw new Error('An active Administrator account is required.');
     }
     return { id: profile.id as string, school_id: profile.school_id as string };
