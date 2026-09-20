@@ -506,7 +506,7 @@ export default async function DashboardPage() {
             </div>
 
             {/* STAFF PERFORMANCE */}
-            <div className="mt-6">
+            <div id="staff-performance" className="mt-6 scroll-mt-6">
               <StaffPerformanceStars mode="admin" />
             </div>
 
