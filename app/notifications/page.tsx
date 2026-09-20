@@ -666,7 +666,7 @@ export default function NotificationsPage() {
         {/* Footer */}
         <footer className="mt-8 flex flex-col gap-2 border-t border-white/5 py-6 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
           <span>
-            BTI-SMS Notification Center
+            BIRITECH SMS Notification Center
           </span>
 
           <Link
