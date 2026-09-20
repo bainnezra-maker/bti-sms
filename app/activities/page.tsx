@@ -382,7 +382,7 @@ export default function ActivitiesPage() {
       if (
         !profile ||
         profile.is_active === false ||
-        profile.role !== 'admin'
+        !['admin','owner'].includes(profile.role)
       ) {
         setNotice({
           type: 'error',
