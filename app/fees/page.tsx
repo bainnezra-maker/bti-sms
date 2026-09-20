@@ -38,7 +38,7 @@ export default async function BillingPage() {
     .eq('id', user.id)
     .maybeSingle();
 
-  if (!profile || profile.role !== 'admin' || profile.is_active === false || !profile.school_id) {
+  if (!profile || !['admin','owner'].includes(profile.role) || profile.is_active === false || !profile.school_id) {
     redirect('/login');
   }
 
