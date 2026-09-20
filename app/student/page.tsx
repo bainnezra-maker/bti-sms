@@ -92,6 +92,8 @@ type NewsItem = {
   created_at: string;
 };
 
+const supabase = createClient();
+
 type SubjectResult = {
   subject: string;
   caRaw: number;
@@ -220,8 +222,6 @@ function getCategoryIcon(category: string, urgent: boolean) {
 }
 
 export default function StudentDashboardPage() {
-  const supabase = createClient();
-
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [student, setStudent] = useState<Student | null>(null);
 
@@ -440,70 +440,41 @@ export default function StudentDashboardPage() {
         );
     }
 
-    const {
-      data: assessmentData,
-      error: assessmentError,
-    } = await assessmentQuery;
-
-    if (assessmentError) {
-      setError(assessmentError.message);
-      setLoading(false);
-      return;
-    }
-
-    setAssessments(assessmentData ?? []);
-
-    const {
-      data: attendanceData,
-      error: attendanceError,
-    } = await supabase
-      .from('attendance')
-      .select(
-        'id, student_id, date, status'
-      )
-      .eq('student_id', studentId)
-      .order('date', {
-        ascending: false,
-      });
-
-    if (attendanceError) {
-      setError(attendanceError.message);
-      setLoading(false);
-      return;
-    }
-
-    setAttendance(attendanceData ?? []);
-
-    const {
-      data: newsData,
-      error: newsError,
-    } = await supabase
-      .from('school_news')
-      .select(
-        'id, title, content, category, is_published, is_urgent, publish_date, created_at'
-      )
-      .eq('school_id', schoolId)
-      .eq('is_published', true)
-      .order('is_urgent', {
-        ascending: false,
-      })
-      .order('publish_date', {
-        ascending: false,
-      })
-      .order('created_at', {
-        ascending: false,
-      })
-      .limit(5);
-
-    if (newsError) {
-      setError(newsError.message);
-      setLoading(false);
-      return;
-    }
-
-    setNews(newsData ?? []);
-
+    // The student's identity and academic context are ready, so reveal the
+    // portal now. Larger histories and announcements load together afterward.
     setLoading(false);
+
+    const [assessmentResult, attendanceResult, newsResult] = await Promise.all([
+      assessmentQuery,
+      supabase
+        .from('attendance')
+        .select('id, student_id, date, status')
+        .eq('student_id', studentId)
+        .order('date', { ascending: false }),
+      supabase
+        .from('school_news')
+        .select('id, title, content, category, is_published, is_urgent, publish_date, created_at')
+        .eq('school_id', schoolId)
+        .eq('is_published', true)
+        .order('is_urgent', { ascending: false })
+        .order('publish_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(5),
+    ]);
+
+    if (assessmentResult.error || attendanceResult.error || newsResult.error) {
+      setError(
+        assessmentResult.error?.message ||
+          attendanceResult.error?.message ||
+          newsResult.error?.message ||
+          'Some dashboard information could not be loaded.'
+      );
+      return;
+    }
+
+    setAssessments(assessmentResult.data ?? []);
+    setAttendance(attendanceResult.data ?? []);
+    setNews(newsResult.data ?? []);
   }
 
   useEffect(() => {
