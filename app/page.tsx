@@ -281,9 +281,9 @@ export default async function DashboardPage() {
       icon: 'fa-solid fa-user-tie',
     },
     {
-      title: 'Fees',
+      title: 'Billing',
       href: '/fees',
-      icon: 'fa-solid fa-money-bill-wave',
+      icon: 'fa-solid fa-file-invoice-dollar',
     },
     {
       title: 'Reports',
