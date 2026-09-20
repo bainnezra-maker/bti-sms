@@ -208,11 +208,11 @@ export default function AnnouncementsPage() {
 
       if (
         !profile ||
-        profile.role !== 'admin' ||
+        !['admin','owner'].includes(profile.role) ||
         profile.is_active === false
       ) {
         setError(
-          'Only an active administrator can manage school announcements.'
+          'Only an active administrator or owner can manage school announcements.'
         );
         setLoading(false);
         return;
