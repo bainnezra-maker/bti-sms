@@ -3,8 +3,8 @@ import { Suspense } from 'react';
 import AppShell from '@/components/app-shell';
 
 export const metadata = {
-  title: 'BTI School Management System',
-  description: 'BTI School Management System',
+  title: 'BIRITECH SMS',
+  description: 'BIRITECH SMS',
 };
 
 export default function RootLayout({
@@ -18,7 +18,7 @@ export default function RootLayout({
         <Suspense
           fallback={
             <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm font-semibold text-slate-500">
-              Loading BTI School Management System…
+              Loading BIRITECH SMS…
             </div>
           }
         >
