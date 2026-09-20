@@ -5,12 +5,12 @@ import { createClient } from '@/lib/supabase/client';
 
 type Mode = 'admin' | 'teacher';
 type Teacher = { id:string; full_name:string; department:string|null; staff_id:string|null };
-type Assignment = { id:string; teacher_id:string; class_id:string; subject_id:string; term_id:string };
+type Assignment = { id:string; teacher_id:string; class_id:string; subject_id:string; term_id:string|null; academic_year_id:string|null };
 type Slot = { teacher_assignment_id:string; day_of_week:number; status:string };
 type Attendance = { recorded_by:string|null; class_id:string|null; subject_id:string|null; date:string };
 type Assessment = { recorded_by:string|null; class_id:string|null; subject_id:string|null; assessment_type:string; submitted_at:string|null };
 type DocumentRow = { staff_id:string; document_type:string };
-type AcademicYear = { id:string; name:string; is_current:boolean|null; start_date:string };
+type AcademicYear = { id:string; name:string; is_current:boolean|null; start_date:string; end_date:string };
 type Term = { id:string; academic_year_id:string; name:string; start_date:string; end_date:string; is_current:boolean|null };
 type Score = { teacher:Teacher; attendance:number; expected:number; attendancePoints:number; assessmentCount:number; assessmentPoints:number; documentCount:number; documentPoints:number; bonus:number; total:number; stars:number; badges:string[] };
 
@@ -34,31 +34,37 @@ export default function StaffPerformanceStars({mode}:{mode:Mode}){
     if(profileError||!profile||profile.is_active===false)throw new Error('Your active staff profile could not be loaded.');
     if(mode==='admin'&&profile.role!=='admin')throw new Error('Only administrators can view the school leaderboard.');
     if(mode==='teacher'&&profile.role!=='teacher')throw new Error('Only teachers can view personal performance stars.');
-    const {data:years,error:yearError}=await supabase.from('academic_years').select('id,name,is_current,start_date').eq('school_id',profile.school_id).order('start_date',{ascending:false});
+    const {data:years,error:yearError}=await supabase.from('academic_years').select('id,name,is_current,start_date,end_date').eq('school_id',profile.school_id).order('start_date',{ascending:false});
     if(yearError||!years?.length)throw new Error('Set an academic year to calculate staff performance.');
     const academicYears=years as AcademicYear[], preferredYear=academicYears.find(y=>y.is_current)||academicYears[0];
     const {data:terms,error:termError}=await supabase.from('terms').select('id,academic_year_id,name,start_date,end_date,is_current').in('academic_year_id',academicYears.map(y=>y.id)).order('start_date',{ascending:true});
-    if(termError||!terms?.length)throw new Error('Set a semester to calculate staff performance.');
-    const termRows=terms as Term[];
+    if(termError)throw new Error(`Semester information could not be loaded: ${termError.message}`);
+    const termRows=(terms||[]) as Term[];
     const yearWithTerms=academicYears.find(y=>termRows.some(t=>t.academic_year_id===y.id));
-    const current=(termRows.find(t=>t.is_current)||termRows.find(t=>t.academic_year_id===preferredYear.id)||termRows.find(t=>t.academic_year_id===yearWithTerms?.id)||termRows[0]) as Term;
-    const scoringYear=academicYears.find(y=>y.id===current.academic_year_id);
-    setTermName(`${scoringYear?.name||'Academic year'} · ${current.name}`);
-    const today=new Date().toISOString().slice(0,10), effectiveEnd=today<current.end_date?today:current.end_date;
+    const current=termRows.find(t=>t.is_current)||termRows.find(t=>t.academic_year_id===preferredYear.id)||termRows.find(t=>t.academic_year_id===yearWithTerms?.id)||null;
+    const scoringYear=academicYears.find(y=>y.id===current?.academic_year_id)||preferredYear;
+    const periodStart=current?.start_date||scoringYear.start_date;
+    const periodEnd=current?.end_date||scoringYear.end_date;
+    setTermName(current?`${scoringYear.name} · ${current.name}`:`${scoringYear.name} · Full academic year`);
+    const today=new Date().toISOString().slice(0,10), effectiveEnd=today<periodEnd?today:periodEnd;
     const teacherQuery=supabase.from('users').select('id,full_name,department,staff_id').eq('school_id',profile.school_id).eq('role','teacher').eq('is_active',true).order('full_name');
+    let assignmentQuery=supabase.from('teacher_assignments').select('id,teacher_id,class_id,subject_id,term_id,academic_year_id').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id);
+    let assessmentQuery=supabase.from('assessments').select('recorded_by,class_id,subject_id,assessment_type,submitted_at').eq('school_id',profile.school_id).gte('submitted_at',`${periodStart}T00:00:00`).lte('submitted_at',`${effectiveEnd}T23:59:59`);
+    let documentQuery=supabase.from('staff_teaching_documents').select('staff_id,document_type').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id);
+    if(current){assessmentQuery=assessmentQuery.eq('term_id',current.id);documentQuery=documentQuery.eq('semester_id',current.id)}
     const [teachersQ,assignmentsQ,timetableQ,attendanceQ,assessmentQ,documentsQ]=await Promise.all([
       mode==='teacher'?teacherQuery.eq('id',user.id):teacherQuery,
-      supabase.from('teacher_assignments').select('id,teacher_id,class_id,subject_id,term_id').eq('school_id',profile.school_id).eq('term_id',current.id),
-      supabase.from('timetable').select('teacher_assignment_id,day_of_week,status').eq('school_id',profile.school_id).eq('academic_year_id',current.academic_year_id).eq('status','scheduled'),
-      supabase.from('attendance').select('recorded_by,class_id,subject_id,date').eq('school_id',profile.school_id).gte('date',current.start_date).lte('date',effectiveEnd),
-      supabase.from('assessments').select('recorded_by,class_id,subject_id,assessment_type,submitted_at').eq('school_id',profile.school_id).eq('term_id',current.id),
-      supabase.from('staff_teaching_documents').select('staff_id,document_type').eq('school_id',profile.school_id).eq('academic_year_id',current.academic_year_id).eq('semester_id',current.id),
+      assignmentQuery,
+      supabase.from('timetable').select('teacher_assignment_id,day_of_week,status').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id).eq('status','scheduled'),
+      supabase.from('attendance').select('recorded_by,class_id,subject_id,date').eq('school_id',profile.school_id).gte('date',periodStart).lte('date',effectiveEnd),
+      assessmentQuery,
+      documentQuery,
     ]);
     const queryError=[teachersQ,assignmentsQ,timetableQ,attendanceQ,assessmentQ,documentsQ].find(q=>q.error)?.error;if(queryError)throw queryError;
     const teachers=(teachersQ.data||[]) as Teacher[], assignments=(assignmentsQ.data||[]) as Assignment[], slots=(timetableQ.data||[]) as Slot[], attendance=(attendanceQ.data||[]) as Attendance[], assessments=(assessmentQ.data||[]) as Assessment[], docs=(documentsQ.data||[]) as DocumentRow[];
     const calculated=teachers.map(teacher=>{
       const mine=assignments.filter(a=>a.teacher_id===teacher.id), mineIds=new Set(mine.map(a=>a.id));
-      const expected=slots.filter(s=>mineIds.has(s.teacher_assignment_id)).reduce((n,s)=>n+scheduledOccurrences(s.day_of_week,current.start_date,effectiveEnd),0);
+      const expected=slots.filter(s=>mineIds.has(s.teacher_assignment_id)).reduce((n,s)=>n+scheduledOccurrences(s.day_of_week,periodStart,effectiveEnd),0);
       const sessions=new Set(attendance.filter(a=>a.recorded_by===teacher.id).map(a=>`${a.date}|${a.class_id}|${a.subject_id}`));
       const completed=Math.min(expected,sessions.size), rate=pct(completed,expected);
       const assessmentGroups=new Set(assessments.filter(a=>a.recorded_by===teacher.id).map(a=>`${a.class_id}|${a.subject_id}|${a.assessment_type}`));
