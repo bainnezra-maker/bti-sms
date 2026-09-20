@@ -935,7 +935,7 @@ export default function AdminDashboardPage() {
           {/* FOOTER */}
           <div className="mt-8 border-t border-slate-800 pt-6 text-center">
             <p className="text-xs text-slate-600">
-              BTI School Management System · Administration Dashboard
+              BIRITECH SMS · Administration Dashboard
             </p>
           </div>
         </div>
