@@ -341,11 +341,11 @@ export default async function DashboardPage() {
 
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-200">
-                    BTI
+                    BIRITECH SMS
                   </p>
 
                   <p className="text-sm text-blue-100">
-                    School Management System
+                    Biriwa Technical Institute
                   </p>
                 </div>
 
