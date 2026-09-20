@@ -438,6 +438,7 @@ export default function ActivityCalendarPage() {
 
       if (
         profile.role !== 'admin' &&
+        profile.role !== 'owner' &&
         profile.role !== 'super_admin'
       ) {
         throw new Error(
