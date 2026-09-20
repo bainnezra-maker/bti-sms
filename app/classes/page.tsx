@@ -1026,7 +1026,7 @@ export default function ClassesPage() {
               className="text-blue-400"
             />
             <span>
-              BTI-SMS Academic Structure
+              BIRITECH SMS Academic Structure
             </span>
           </div>
 
