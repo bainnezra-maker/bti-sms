@@ -333,10 +333,12 @@ export default async function DashboardPage() {
 
               <div className="mb-5 flex items-center gap-3">
 
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 shadow-lg ring-1 ring-white/20 backdrop-blur">
-
-                  <i className="fa-solid fa-school text-xl text-cyan-300" />
-
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-amber-400 bg-white shadow-lg">
+                  <img
+                    src="/biritech-logo.png"
+                    alt="Biriwa Technical Institute crest"
+                    className="h-full w-full scale-110 object-cover"
+                  />
                 </div>
 
                 <div>
