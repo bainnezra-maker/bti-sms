@@ -217,7 +217,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'This student already has a BTI-SMS account. Use the password reset process instead of creating another account.',
+            'This student already has a BIRITECH SMS account. Use the password reset process instead of creating another account.',
         },
         {
           status: 409
