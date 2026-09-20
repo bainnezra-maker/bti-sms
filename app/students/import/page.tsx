@@ -33,7 +33,7 @@ export default function StudentImportPage(){
   setLoadingData(true);setMessage('');
   const{data:{user}}=await supabase.auth.getUser();if(!user){setMessage('You must be logged in to use the student importer.');setLoadingData(false);return}
   const{data:profile,error:pe}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
-  if(pe||!profile?.school_id){setMessage(pe?.message||'Your BTI-SMS account is not linked to a school.');setLoadingData(false);return}
+  if(pe||!profile?.school_id){setMessage(pe?.message||'Your BIRITECH SMS account is not linked to a school.');setLoadingData(false);return}
   if(profile.role!=='admin'||profile.is_active===false){setMessage('Only an active Administrator can use the student importer.');setLoadingData(false);return}
   setSchoolId(profile.school_id);
   const[p,y,c]=await Promise.all([supabase.from('programmes').select('id,name').eq('school_id',profile.school_id).order('name'),supabase.from('academic_years').select('id,name,start_date').eq('school_id',profile.school_id).order('start_date',{ascending:false}),supabase.from('classes').select('id,name,level,programme_id,academic_year_id').eq('school_id',profile.school_id).order('name')]);
@@ -42,7 +42,7 @@ export default function StudentImportPage(){
  }
  function downloadTemplate(){
   const sample=[{'FULL NAME':'John Mensah',FORM:'Form 1',PROGRAMME:'Electrical Engineering',CLASS:'A Class',GENDER:'Male',RESIDENCE:'Boarding',HOUSE:'House 1','DATE OF BIRTH':'2010-05-12','GUARDIAN NAME':'Kwame Mensah','GUARDIAN PHONE':'0240000000',ADDRESS:'Accra','ADMISSION DATE':'2026-09-01','JHS AGGREGATE':'18','HEALTH INSURANCE NUMBER':'NHIS123456789','HEALTH INSURANCE EXPIRY DATE':'2027-08-31'}];
-  const ws=XLSX.utils.json_to_sheet(sample,{header:headers});ws['!cols']=headers.map(h=>({wch:Math.max(14,Math.min(32,h.length+4))}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Students');XLSX.writeFile(wb,'BTI-SMS-Student-Import-Template.xlsx');
+  const ws=XLSX.utils.json_to_sheet(sample,{header:headers});ws['!cols']=headers.map(h=>({wch:Math.max(14,Math.min(32,h.length+4))}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Students');XLSX.writeFile(wb,'BIRITECH-SMS-Student-Import-Template.xlsx');
  }
  async function handleFile(e:ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file)return;setFileName(file.name);setMessage('');setErrors([]);setRows([]);setImportProgress('');setProgressPercent(0);try{const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});if(!wb.SheetNames.length){setMessage('The selected Excel file does not contain a worksheet.');return}const data=XLSX.utils.sheet_to_json<Record<string,unknown>>(wb.Sheets[wb.SheetNames[0]],{defval:''}).map(mapRow);setRows(data);setMessage(data.length?`${data.length} student record(s) loaded and ready for import.`:'The selected Excel file contains no student records.')}catch{setMessage('Unable to read this file. Please use an Excel (.xlsx/.xls) or CSV file.')}e.target.value=''}
  async function importStudents(){
