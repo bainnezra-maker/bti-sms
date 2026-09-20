@@ -703,7 +703,7 @@ export default function AcademicManager({
 
           <div className="flex items-center gap-2">
             <i className="fa-solid fa-database" />
-            <span>Connected to BTI-SMS database</span>
+            <span>Connected to BIRITECH SMS database</span>
           </div>
 
         </div>
