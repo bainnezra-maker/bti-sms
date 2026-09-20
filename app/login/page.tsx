@@ -325,10 +325,12 @@ export default function LoginPage() {
           {/* ===================================================== */}
 
           <div className="mb-7 text-center">
-            <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-3xl border border-white/10 bg-white/10 shadow-2xl shadow-black/20 backdrop-blur-xl">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-slate-900 shadow-lg">
-                <i className="bti-brand-icon fa-solid fa-school text-3xl" />
-              </div>
+            <div className="mx-auto mb-5 flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-4 border-amber-400 bg-white shadow-2xl shadow-black/30">
+              <img
+                src="/biritech-logo.png"
+                alt="Biriwa Technical Institute crest"
+                className="bti-brand-icon h-full w-full scale-[1.08] object-cover"
+              />
             </div>
 
             <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
