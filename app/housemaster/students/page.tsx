@@ -64,7 +64,7 @@ export default function BoarderAdmission() {
   useEffect(() => { (async () => {
     const { data: { user } } = await supabase.auth.getUser(); if (!user) { router.replace('/login'); return; }
     const { data: p } = await supabase.from('users').select('id,school_id,full_name,role,is_active').eq('id', user.id).maybeSingle();
-    if (!p || p.is_active === false || !['housemaster', 'admin'].includes(p.role)) { router.replace('/login'); return; }
+    if (!p || p.is_active === false || !['housemaster', 'admin', 'owner'].includes(p.role)) { router.replace('/login'); return; }
     setProfile(p as Profile);
     try { await load(p.school_id); } catch (e) { setMessage({ ok: false, text: e instanceof Error ? e.message : 'Unable to load Boarders.' }); } finally { setLoading(false); }
   })(); }, [router]);
