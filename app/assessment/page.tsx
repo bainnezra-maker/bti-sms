@@ -508,7 +508,7 @@ export default function AssessmentPage() {
             <div>
               <div className="mb-3 flex flex-wrap gap-2">
                 <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">
-                  <i className="fa-solid fa-chart-line mr-2 animate-pulse" />BTI-SMS
+                  <i className="fa-solid fa-chart-line mr-2 animate-pulse" />BIRITECH SMS
                 </span>
                 <span className="rounded-full bg-emerald-400/20 px-3 py-1 text-xs font-semibold text-emerald-100">
                   <i className="fa-solid fa-circle-check mr-2" />Teacher Assessment
