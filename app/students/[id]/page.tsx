@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import StudentFaceEnrollment from '@/components/student-face-enrollment';
 
 type Student = {
   id: string;
@@ -1454,6 +1455,20 @@ export default function StudentProfilePage() {
   }
 
   return (
+    <>
+      <style jsx global>{`
+        @keyframes btiFaceEnrollmentFadeUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .bti-face-enrollment-fade {
+          animation: btiFaceEnrollmentFadeUp 0.35s ease-out both;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .bti-face-enrollment-fade { animation: none; }
+        }
+      `}</style>
+
     <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
 
@@ -2126,6 +2141,17 @@ export default function StudentProfilePage() {
             </div>
           </div>
         </section>
+
+        {/* FACE ENROLLMENT */}
+        <div className="bti-face-enrollment-fade">
+          <StudentFaceEnrollment
+            student={{
+              id: student.id,
+              full_name: student.full_name,
+              admission_number: student.admission_number,
+            }}
+          />
+        </div>
 
         {/* GUARDIAN */}
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -3449,6 +3475,7 @@ export default function StudentProfilePage() {
         </div>
       )}
     </div>
+    </>
   );
 }
 
