@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 type Student = {
   id: string;
@@ -11,11 +12,18 @@ type Student = {
 type ApiResponse = {
   error?: string;
   message?: string;
+  batchId?: string;
+  uploads?: Array<{
+    path: string;
+    token: string;
+  }>;
   enrollment?: {
     enrollment_status?: string;
     reference_photo_count?: number;
   };
 };
+
+const BUCKET = 'student-face-enrollment';
 
 export default function StudentFaceEnrollment({
   student,
@@ -23,42 +31,20 @@ export default function StudentFaceEnrollment({
   student: Student;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState('loading');
   const [count, setCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [progress, setProgress] = useState('');
 
-  /*
-   * Safely reads API responses.
-   *
-   * Vercel or another upstream layer can occasionally return plain text
-   * instead of JSON. Calling response.json() directly on such a response
-   * causes "Unexpected token..." and hides the actual server error.
-   */
   async function readApiResponse(
     response: Response
   ): Promise<ApiResponse> {
-    const contentType = response.headers.get('content-type') || '';
     const raw = await response.text();
 
-    if (!raw) {
-      return {};
-    }
+    if (!raw) return {};
 
-    if (contentType.includes('application/json')) {
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return {
-          error: `The server returned invalid JSON. HTTP ${response.status}.`,
-        };
-      }
-    }
-
-    // Sometimes an upstream/Vercel response is JSON without the
-    // expected content-type, so try JSON once before treating it as text.
     try {
       return JSON.parse(raw);
     } catch {
@@ -105,12 +91,9 @@ export default function StudentFaceEnrollment({
       );
     } catch (error: any) {
       console.error('Face enrollment refresh error:', error);
-
       setStatus('not_enrolled');
-
       setMessage(
-        error?.message ||
-          'Could not load face enrollment.'
+        error?.message || 'Could not load face enrollment.'
       );
     }
   }
@@ -127,30 +110,113 @@ export default function StudentFaceEnrollment({
 
     setBusy(true);
     setMessage('');
+    setProgress('Preparing secure upload…');
 
     try {
-      const form = new FormData();
-
-      form.append('studentId', student.id);
-
-      files.forEach((file) => {
-        form.append('photos', file);
-      });
-
-      const res = await fetch(
+      /*
+       * Step 1:
+       * Send ONLY small metadata to Vercel.
+       * No image bytes pass through the Vercel function.
+       */
+      const prepareRes = await fetch(
         '/api/facial-attendance/enrollment',
         {
           method: 'POST',
-          body: form,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'prepare',
+            studentId: student.id,
+            files: files.map((file) => ({
+              type: file.type,
+              size: file.size,
+              name: file.name,
+            })),
+          }),
         }
       );
 
-      const data = await readApiResponse(res);
+      const prepareData = await readApiResponse(prepareRes);
 
-      if (!res.ok) {
+      if (!prepareRes.ok) {
         throw new Error(
-          data.error ||
-            `Enrollment failed. HTTP ${res.status} ${res.statusText}.`
+          prepareData.error ||
+            `Could not prepare upload. HTTP ${prepareRes.status}.`
+        );
+      }
+
+      const uploads = prepareData.uploads || [];
+
+      if (uploads.length !== files.length) {
+        throw new Error(
+          'The server did not authorize all selected photos.'
+        );
+      }
+
+      /*
+       * Step 2:
+       * Upload image bytes DIRECTLY from the browser to the private
+       * Supabase Storage bucket using the short-lived signed tokens.
+       */
+      const supabase = createClient();
+      const uploadedPaths: string[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        setProgress(
+          `Uploading photo ${i + 1} of ${files.length} securely…`
+        );
+
+        const authorization = uploads[i];
+
+        const { error: uploadError } = await supabase.storage
+          .from(BUCKET)
+          .uploadToSignedUrl(
+            authorization.path,
+            authorization.token,
+            files[i],
+            {
+              contentType: files[i].type,
+            }
+          );
+
+        if (uploadError) {
+          throw new Error(
+            `Photo ${i + 1} upload failed: ${uploadError.message}`
+          );
+        }
+
+        uploadedPaths.push(authorization.path);
+      }
+
+      /*
+       * Step 3:
+       * Send ONLY the small private storage path list back to Vercel.
+       * Server verifies that the objects really exist before enrollment.
+       */
+      setProgress('Verifying enrollment…');
+
+      const finalizeRes = await fetch(
+        '/api/facial-attendance/enrollment',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'finalize',
+            studentId: student.id,
+            paths: uploadedPaths,
+          }),
+        }
+      );
+
+      const finalizeData = await readApiResponse(finalizeRes);
+
+      if (!finalizeRes.ok) {
+        throw new Error(
+          finalizeData.error ||
+            `Could not finalize enrollment. HTTP ${finalizeRes.status}.`
         );
       }
 
@@ -161,13 +227,13 @@ export default function StudentFaceEnrollment({
       }
 
       setMessage(
-        data.message ||
+        finalizeData.message ||
           'Face enrollment completed successfully.'
       );
 
       await refresh();
     } catch (error: any) {
-      console.error('Face enrollment upload error:', error);
+      console.error('Face enrollment error:', error);
 
       setMessage(
         error?.message ||
@@ -175,6 +241,7 @@ export default function StudentFaceEnrollment({
       );
     } finally {
       setBusy(false);
+      setProgress('');
     }
   }
 
@@ -189,6 +256,7 @@ export default function StudentFaceEnrollment({
 
     setBusy(true);
     setMessage('');
+    setProgress('Removing enrollment…');
 
     try {
       const res = await fetch(
@@ -222,11 +290,11 @@ export default function StudentFaceEnrollment({
       console.error('Face enrollment removal error:', error);
 
       setMessage(
-        error?.message ||
-          'Could not remove enrollment.'
+        error?.message || 'Could not remove enrollment.'
       );
     } finally {
       setBusy(false);
+      setProgress('');
     }
   }
 
@@ -290,6 +358,7 @@ export default function StudentFaceEnrollment({
 
           setFiles(selected);
           setMessage('');
+          setProgress('');
         }}
       />
 
@@ -341,9 +410,15 @@ export default function StudentFaceEnrollment({
       {files.length > 0 && (
         <p className="mt-3 text-xs font-bold text-slate-600">
           <i className="fa-solid fa-circle-check mr-2 text-blue-600" />
-
           {files.length} photo
           {files.length === 1 ? '' : 's'} selected
+        </p>
+      )}
+
+      {progress && (
+        <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-semibold text-slate-700">
+          <i className="fa-solid fa-cloud-arrow-up fa-bounce mr-2 text-blue-600" />
+          {progress}
         </p>
       )}
 
