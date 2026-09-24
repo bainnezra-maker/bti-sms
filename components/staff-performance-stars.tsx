@@ -30,11 +30,17 @@ function starsFor(points:number){return points>=250?5:points>=175?4:points>=100?
 export default function StaffPerformanceStars({mode}:{mode:Mode}){
   const [scores,setScores]=useState<Score[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[termName,setTermName]=useState('Current semester'),[viewerId,setViewerId]=useState('');
   useEffect(()=>{(async()=>{try{
-    const {data:{user}}=await supabase.auth.getUser();if(!user)throw new Error('Sign in to view Staff Performance Stars.');setViewerId(user.id);
-    const {data:profile,error:profileError}=await supabase.from('users').select('school_id,role,is_active').eq('id',user.id).maybeSingle();
+    const {data:{user}}=await supabase.auth.getUser();if(!user)throw new Error('Sign in to view Staff Performance Stars.');
+    const {data:profile,error:profileError}=await supabase.from('users').select('school_id,full_name,role,is_active').eq('id',user.id).maybeSingle();
     if(profileError||!profile||profile.is_active===false)throw new Error('Your active staff profile could not be loaded.');
     if(mode==='admin'&&!['admin','owner'].includes(profile.role))throw new Error('Only administrators and the system owner can view the school leaderboard.');
-    if(mode==='teacher'&&profile.role!=='teacher')throw new Error('Only teachers can view personal performance stars.');
+    let teacherViewerId=user.id;
+    if(mode==='teacher'&&profile.role==='owner'){
+      const {data:delegatedTeacher,error:delegatedError}=await supabase.from('users').select('id').eq('school_id',profile.school_id).eq('role','teacher').eq('full_name',profile.full_name).eq('is_active',true).maybeSingle();
+      if(delegatedError||!delegatedTeacher)throw new Error('Your Owner account could not find the linked Ezra teacher profile.');
+      teacherViewerId=delegatedTeacher.id;
+    }else if(mode==='teacher'&&profile.role!=='teacher')throw new Error('Only teachers and the system owner can view personal performance stars.');
+    setViewerId(teacherViewerId);
     const {data:years,error:yearError}=await supabase.from('academic_years').select('id,name,is_current,start_date,end_date').eq('school_id',profile.school_id).order('start_date',{ascending:false});
     if(yearError||!years?.length)throw new Error('Set an academic year to calculate staff performance.');
     const academicYears=years as AcademicYear[], preferredYear=academicYears.find(y=>y.is_current)||academicYears[0];
@@ -54,7 +60,7 @@ export default function StaffPerformanceStars({mode}:{mode:Mode}){
     let documentQuery=supabase.from('staff_teaching_documents').select('staff_id,document_type').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id);
     if(current){assessmentQuery=assessmentQuery.eq('term_id',current.id);documentQuery=documentQuery.eq('semester_id',current.id)}
     const [teachersQ,assignmentsQ,programmesQ,timetableQ,attendanceQ,assessmentQ,documentsQ]=await Promise.all([
-      mode==='teacher'?teacherQuery.eq('id',user.id):teacherQuery,
+      mode==='teacher'?teacherQuery.eq('id',teacherViewerId):teacherQuery,
       assignmentQuery,
       supabase.from('programmes').select('id,code,name').eq('school_id',profile.school_id).order('name'),
       supabase.from('timetable').select('teacher_assignment_id,day_of_week,status').eq('school_id',profile.school_id).eq('academic_year_id',scoringYear.id).eq('status','scheduled'),
