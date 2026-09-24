@@ -3,8 +3,10 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import FacialAttendancePanel from '@/components/facial-attendance-panel';
 
-type Status = 'present' | 'absent' | 'excused' | 'late';
+type Status = 'unmarked' | 'present' | 'absent' | 'excused' | 'late';
+type MarkableStatus = Exclude<Status, 'unmarked'>;
 
 type AcademicYear = { id: string; name: string; is_current: boolean };
 type Programme = { id: string; name: string; code: string | null };
@@ -45,7 +47,7 @@ type UserProfile = {
   is_active: boolean | null;
 };
 
-const STATUS_OPTIONS: Status[] = ['present', 'absent', 'excused', 'late'];
+const STATUS_OPTIONS: MarkableStatus[] = ['present', 'absent', 'excused', 'late'];
 
 function todayString() {
   const d = new Date();
@@ -53,18 +55,18 @@ function todayString() {
   return local.toISOString().slice(0, 10);
 }
 
-function label(status: Status) {
+function label(status: MarkableStatus) {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function icon(status: Status) {
+function icon(status: MarkableStatus) {
   if (status === 'present') return 'fa-solid fa-circle-check';
   if (status === 'absent') return 'fa-solid fa-circle-xmark';
   if (status === 'late') return 'fa-solid fa-clock';
   return 'fa-solid fa-shield-heart';
 }
 
-function activeStyle(status: Status) {
+function activeStyle(status: MarkableStatus) {
   if (status === 'present') return 'border-emerald-600 bg-emerald-600 text-white shadow-emerald-600/20';
   if (status === 'absent') return 'border-red-600 bg-red-600 text-white shadow-red-600/20';
   if (status === 'late') return 'border-amber-500 bg-amber-500 text-white shadow-amber-500/20';
@@ -89,6 +91,7 @@ export default function AttendancePage() {
   const [selectedClass, setSelectedClass] = useState('all');
   const [selectedDate, setSelectedDate] = useState(todayString());
   const [search, setSearch] = useState('');
+  const [attendanceMode, setAttendanceMode] = useState<'manual' | 'facial'>('manual');
 
   const [marks, setMarks] = useState<Record<string, Status>>({});
   const [loading, setLoading] = useState(true);
@@ -117,6 +120,7 @@ export default function AttendancePage() {
         }
 
         let typed = p as UserProfile;
+
         if (typed.role === 'owner') {
           const { data: delegatedTeacher, error: delegatedError } = await supabase
             .from('users')
@@ -126,10 +130,18 @@ export default function AttendancePage() {
             .eq('full_name', typed.full_name)
             .eq('is_active', true)
             .maybeSingle();
-          if (delegatedError || !delegatedTeacher) throw new Error('Your Owner account could not find the linked Ezra teacher profile.');
+
+          if (delegatedError || !delegatedTeacher) {
+            throw new Error('Your Owner account could not find the linked teacher profile.');
+          }
+
           typed = delegatedTeacher as UserProfile;
         }
-        if (typed.role !== 'teacher') throw new Error('This attendance page is for teachers.');
+
+        if (typed.role !== 'teacher') {
+          throw new Error('This attendance page is for teachers.');
+        }
+
         setProfile(typed);
 
         const [yearsResult, programmesResult, subjectsResult, assignmentsResult] = await Promise.all([
@@ -353,7 +365,7 @@ export default function AttendancePage() {
       });
 
       setStudents(rows);
-      setMarks(Object.fromEntries(rows.map(s => [s.id, 'present' as Status])));
+      setMarks(Object.fromEntries(rows.map(s => [s.id, 'unmarked' as Status])));
       setLoadingStudents(false);
     }
     loadStudents();
@@ -379,10 +391,10 @@ export default function AttendancePage() {
       }
 
       const next: Record<string, Status> = Object.fromEntries(
-        students.map(s => [s.id, 'present' as Status])
+        students.map(s => [s.id, 'unmarked' as Status])
       );
       (data ?? []).forEach((r: any) => {
-        if (STATUS_OPTIONS.includes(r.status as Status)) next[r.student_id] = r.status as Status;
+        if (STATUS_OPTIONS.includes(r.status as MarkableStatus)) next[r.student_id] = r.status as MarkableStatus;
       });
       setMarks(next);
       setLoadingAttendance(false);
@@ -403,10 +415,11 @@ export default function AttendancePage() {
   }, [students, search]);
 
   const counts = useMemo(() => {
-    const result = { total: students.length, present: 0, absent: 0, excused: 0, late: 0 };
+    const result = { total: students.length, unmarked: 0, present: 0, absent: 0, excused: 0, late: 0 };
     students.forEach(s => {
       const status = marks[s.id];
       if (status) result[status]++;
+      else result.unmarked++;
     });
     return result;
   }, [students, marks]);
@@ -415,11 +428,11 @@ export default function AttendancePage() {
     ? ((counts.present + counts.late) / counts.total) * 100
     : 0;
 
-  function setMark(id: string, status: Status) {
+  function setMark(id: string, status: MarkableStatus) {
     setMarks(previous => ({ ...previous, [id]: status }));
   }
 
-  function markAll(status: Status) {
+  function markAll(status: MarkableStatus) {
     setMarks(previous => {
       const next = { ...previous };
       filteredStudents.forEach(student => { next[student.id] = status; });
@@ -434,6 +447,13 @@ export default function AttendancePage() {
       return;
     }
 
+    const unmarkedCount = students.filter(student => !marks[student.id] || marks[student.id] === 'unmarked').length;
+    if (unmarkedCount > 0) {
+      setMessageType('error');
+      setMessage(`Mark all students before submitting attendance. ${unmarkedCount} student${unmarkedCount === 1 ? '' : 's'} still unmarked.`);
+      return;
+    }
+
     setSaving(true);
     setMessage('');
 
@@ -443,7 +463,7 @@ export default function AttendancePage() {
       class_id: student.classId,
       date: selectedDate,
       subject_id: selectedSubject,
-      status: marks[student.id] ?? 'present',
+      status: marks[student.id] as MarkableStatus,
       recorded_by: profile.id,
       submitted_at: new Date().toISOString(),
     }));
@@ -579,6 +599,44 @@ export default function AttendancePage() {
             </div>
           </section>
 
+          <section className="bti-attendance-fade rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-black text-slate-900">Attendance Method</h2>
+                <p className="mt-1 text-xs text-slate-500">Use the normal register or facial attendance for a specific class.</p>
+              </div>
+              <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                <button type="button" onClick={() => setAttendanceMode('manual')}
+                  className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black transition-all duration-200 ${attendanceMode === 'manual' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-white/70'}`}>
+                  <i className={`fa-solid fa-list-check ${attendanceMode === 'manual' ? 'fa-beat-fade' : ''}`} /> Manual
+                </button>
+                <button type="button" onClick={() => setAttendanceMode('facial')}
+                  className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black transition-all duration-200 ${attendanceMode === 'facial' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-white/70'}`}>
+                  <i className={`fa-solid fa-camera ${attendanceMode === 'facial' ? 'fa-beat-fade' : ''}`} /> Facial
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {attendanceMode === 'facial' && (
+            <FacialAttendancePanel
+              className={selectedClass === 'all' ? '' : selectedClass}
+              classId={selectedClass === 'all' ? '' : classes.find(c => c.name === selectedClass)?.id ?? ''}
+              students={students.map(student => ({
+                id: student.id,
+                full_name: student.full_name,
+                admission_number: student.admission_number,
+              }))}
+              onApplyPresent={(studentIds) => {
+                setMarks(previous => {
+                  const next = { ...previous };
+                  studentIds.forEach(studentId => { next[studentId] = 'present'; });
+                  return next;
+                });
+              }}
+            />
+          )}
+
           {message && (
             <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${
               messageType === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' :
@@ -615,6 +673,12 @@ export default function AttendancePage() {
                   <p className="mt-1 text-xs text-slate-500">
                     {selectedDate} • {students.length} student{students.length === 1 ? '' : 's'} in the selected group
                   </p>
+                  {counts.unmarked > 0 && (
+                    <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700">
+                      <i className="fa-solid fa-circle-exclamation fa-beat-fade" />
+                      {counts.unmarked} student{counts.unmarked === 1 ? '' : 's'} still unmarked
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Quick status="present" onClick={() => markAll('present')} />
@@ -659,6 +723,11 @@ export default function AttendancePage() {
                           <p className="mt-1 text-xs text-slate-500">
                             {student.admission_number} • {student.form ?? '—'} • {student.programmeName ?? '—'} • Class {student.className}
                           </p>
+                          {(!marks[student.id] || marks[student.id] === 'unmarked') && (
+                            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black text-slate-600">
+                              <i className="fa-regular fa-circle" /> Unmarked
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -684,12 +753,12 @@ export default function AttendancePage() {
             {students.length > 0 && (
               <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
                 <div className="text-xs font-semibold text-slate-600">
-                  <strong>{counts.present}</strong> Present • <strong>{counts.absent}</strong> Absent • <strong>{counts.excused}</strong> Excused • <strong>{counts.late}</strong> Late
+                  <strong>{counts.unmarked}</strong> Unmarked • <strong>{counts.present}</strong> Present • <strong>{counts.absent}</strong> Absent • <strong>{counts.excused}</strong> Excused • <strong>{counts.late}</strong> Late
                 </div>
-                <button type="button" onClick={saveAttendance} disabled={saving}
+                <button type="button" onClick={saveAttendance} disabled={saving || counts.unmarked > 0}
                   className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:opacity-60">
                   <i className={saving ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-paper-plane'} />
-                  {saving ? 'Submitting Attendance...' : 'Submit Attendance'}
+                  {saving ? 'Submitting Attendance...' : counts.unmarked > 0 ? `Mark ${counts.unmarked} Remaining` : 'Submit Attendance'}
                 </button>
               </div>
             )}
@@ -739,7 +808,7 @@ function Filter({ label: title, children }: { label: string; children: React.Rea
   );
 }
 
-function Quick({ status, onClick }: { status: Status; onClick: () => void }) {
+function Quick({ status, onClick }: { status: MarkableStatus; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick}
       className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50">
