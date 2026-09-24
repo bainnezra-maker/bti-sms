@@ -126,7 +126,7 @@ export default function TeacherClassesPage() {
         return;
       }
 
-      const { data: userProfile, error: profileError } =
+      const { data: signedInProfile, error: profileError } =
         await supabase
           .from('users')
           .select(
@@ -139,15 +139,29 @@ export default function TeacherClassesPage() {
         throw profileError;
       }
 
-      if (!userProfile) {
+      if (!signedInProfile) {
         router.replace('/login');
         return;
       }
 
-      if (userProfile.is_active === false) {
+      if (signedInProfile.is_active === false) {
         await supabase.auth.signOut();
         router.replace('/login');
         return;
+      }
+
+      let userProfile = signedInProfile;
+      if (signedInProfile.role === 'owner') {
+        const { data: delegatedTeacher, error: delegatedError } = await supabase
+          .from('users')
+          .select('id, school_id, full_name, email, role, is_active')
+          .eq('school_id', signedInProfile.school_id)
+          .eq('role', 'teacher')
+          .eq('full_name', signedInProfile.full_name)
+          .eq('is_active', true)
+          .maybeSingle();
+        if (delegatedError || !delegatedTeacher) throw new Error('Your Owner account could not find the linked Ezra teacher profile.');
+        userProfile = delegatedTeacher;
       }
 
       if (userProfile.role === 'admin') {
