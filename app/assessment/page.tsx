@@ -115,16 +115,34 @@ export default function AssessmentPage() {
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
+      const { data: signedInProfile, error: profileError } = await supabase
         .from('users')
-        .select('id, school_id, role, is_active')
+        .select('id, full_name, school_id, role, is_active')
         .eq('id', auth.user.id)
         .single();
 
-      if (profileError || !profile) {
+      if (profileError || !signedInProfile) {
         setError(profileError?.message || 'Teacher profile could not be loaded.');
         setLoading(false);
         return;
+      }
+
+      let profile = signedInProfile;
+      if (signedInProfile.role === 'owner') {
+        const { data: delegatedTeacher, error: delegatedError } = await supabase
+          .from('users')
+          .select('id, full_name, school_id, role, is_active')
+          .eq('school_id', signedInProfile.school_id)
+          .eq('role', 'teacher')
+          .eq('full_name', signedInProfile.full_name)
+          .eq('is_active', true)
+          .maybeSingle();
+        if (delegatedError || !delegatedTeacher) {
+          setError('Your Owner account could not find the linked Ezra teacher profile.');
+          setLoading(false);
+          return;
+        }
+        profile = delegatedTeacher;
       }
 
       if (profile.role !== 'teacher') {
