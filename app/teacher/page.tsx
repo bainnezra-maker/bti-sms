@@ -491,7 +491,7 @@ export default function TeacherDashboard() {
       }
 
       const {
-        data: userProfile,
+        data: signedInProfile,
         error: profileError,
       } = await supabase
         .from('users')
@@ -501,7 +501,7 @@ export default function TeacherDashboard() {
         .eq('id', user.id)
         .single();
 
-      if (profileError || !userProfile) {
+      if (profileError || !signedInProfile) {
         if (mounted) {
           setError(
             profileError?.message ??
@@ -518,6 +518,29 @@ export default function TeacherDashboard() {
        * ROLE PROTECTION
        * --------------------------------------------------
        */
+
+      let userProfile = signedInProfile;
+
+      if (signedInProfile.role === 'owner') {
+        const { data: delegatedTeacher, error: delegatedTeacherError } = await supabase
+          .from('users')
+          .select('id, full_name, email, role, school_id')
+          .eq('school_id', signedInProfile.school_id)
+          .eq('role', 'teacher')
+          .eq('full_name', signedInProfile.full_name)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (delegatedTeacherError || !delegatedTeacher) {
+          if (mounted) {
+            setError('Your Owner account could not find the linked Ezra teacher profile.');
+            setLoading(false);
+          }
+          return;
+        }
+
+        userProfile = delegatedTeacher;
+      }
 
       if (userProfile.role !== 'teacher') {
         if (userProfile.role === 'admin') {
@@ -543,7 +566,7 @@ export default function TeacherDashboard() {
       const { data: assignmentData, error: assignmentError } = await supabase
         .from('teacher_assignments')
         .select('id, class_id, subject_id, term_id, academic_year_id, programme_ids, forms')
-        .eq('teacher_id', user.id);
+        .eq('teacher_id', userProfile.id);
 
       if (assignmentError) {
         if (mounted) { setError(assignmentError.message); setLoading(false); }
