@@ -63,9 +63,18 @@ export default function MyUploadsPage() {
       setLoading(true); setError('');
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.replace('/login'); return; }
-      const { data: userProfile, error: profileError } = await supabase.from('users')
+      const { data: signedInProfile, error: profileError } = await supabase.from('users')
         .select('id, full_name, email, role, school_id').eq('id', user.id).single();
-      if (profileError || !userProfile) { if (mounted) { setError(profileError?.message || 'Unable to load your teacher profile.'); setLoading(false); } return; }
+      if (profileError || !signedInProfile) { if (mounted) { setError(profileError?.message || 'Unable to load your teacher profile.'); setLoading(false); } return; }
+      let userProfile = signedInProfile;
+      if (signedInProfile.role === 'owner') {
+        const { data: delegatedTeacher, error: delegatedError } = await supabase.from('users')
+          .select('id, full_name, email, role, school_id')
+          .eq('school_id', signedInProfile.school_id).eq('role', 'teacher')
+          .eq('full_name', signedInProfile.full_name).eq('is_active', true).maybeSingle();
+        if (delegatedError || !delegatedTeacher) { if (mounted) { setError('Your Owner account could not find the linked Ezra teacher profile.'); setLoading(false); } return; }
+        userProfile = delegatedTeacher;
+      }
       if (userProfile.role !== 'teacher') { router.replace(userProfile.role === 'admin' ? '/' : userProfile.role === 'Student' ? '/student' : '/login'); return; }
 
       const [{ data: yearData, error: yearError }, { data: staffMatch, error: staffError }] = await Promise.all([
