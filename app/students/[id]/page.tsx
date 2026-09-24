@@ -28,6 +28,19 @@ type Student = {
   house: string | null;
   health_insurance_number: string | null;
   health_insurance_expiry_date: string | null;
+  region: string | null;
+  place_of_birth: string | null;
+  religion: string | null;
+  bece_index_number: string | null;
+  health_issues: string | null;
+  father_name: string | null;
+  father_contact: string | null;
+  mother_name: string | null;
+  mother_contact: string | null;
+  residential_address: string | null;
+  digital_address: string | null;
+  whatsapp_number: string | null;
+  house_number: string | null;
 };
 
 type Enrollment = {
@@ -361,7 +374,20 @@ export default function StudentProfilePage() {
         resident,
         house,
         health_insurance_number,
-        health_insurance_expiry_date
+        health_insurance_expiry_date,
+        region,
+        place_of_birth,
+        religion,
+        bece_index_number,
+        health_issues,
+        father_name,
+        father_contact,
+        mother_name,
+        mother_contact,
+        residential_address,
+        digital_address,
+        whatsapp_number,
+        house_number
       `)
       .eq('id', studentId)
       .eq('school_id', currentSchoolId)
@@ -2014,13 +2040,22 @@ export default function StudentProfilePage() {
         {/* PERSONAL INFORMATION */}
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5 sm:p-6">
-            <h2 className="text-lg font-bold text-slate-900">
-              Personal Information
-            </h2>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                <i className="fa-solid fa-id-card" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Student Identity & Academic Profile
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Core identity, admission and academic placement information.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[160px_1fr]">
-
             <div className="flex justify-center lg:justify-start">
               <div className="aspect-[35/45] w-32 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm sm:w-36">
                 {student.photo_url ? (
@@ -2041,102 +2076,27 @@ export default function StudentProfilePage() {
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-
-              <InfoItem
-                label="Full Name"
-                value={student.full_name}
-              />
-
-              <InfoItem
-                label="Admission Number"
-                value={student.admission_number}
-              />
-
-              <InfoItem
-                label="Gender"
-                value={
-                  student.gender ||
-                  'Not provided'
-                }
-              />
-
-              <InfoItem
-                label="Date of Birth"
-                value={formatDate(
-                  student.date_of_birth
-                )}
-              />
-
-              <InfoItem
-                label="Admission Date"
-                value={formatDate(
-                  student.admission_date
-                )}
-              />
-
+              <InfoItem label="Full Name" value={student.full_name} />
+              <InfoItem label="Student ID / Admission Number" value={student.admission_number || 'Not provided'} />
+              <InfoItem label="BECE Index Number" value={student.bece_index_number || 'Not provided'} />
+              <InfoItem label="Gender" value={student.gender || 'Not provided'} />
+              <InfoItem label="Date of Birth" value={formatDate(student.date_of_birth)} />
+              <InfoItem label="Place of Birth" value={student.place_of_birth || 'Not provided'} />
+              <InfoItem label="Region" value={student.region || 'Not provided'} />
+              <InfoItem label="Religion" value={student.religion || 'Not provided'} />
+              <InfoItem label="Admission Date" value={formatDate(student.admission_date)} />
               <InfoItem
                 label="JHS Aggregate"
-                value={
-                  student.jhs_aggregate !==
-                  null
-                    ? String(
-                        student.jhs_aggregate
-                      )
-                    : 'Not provided'
-                }
+                value={student.jhs_aggregate !== null ? String(student.jhs_aggregate) : 'Not provided'}
               />
-
-              <InfoItem
-                label="Student Status"
-                value={student.status}
-              />
-
+              <InfoItem label="Student Status" value={student.status || 'Not provided'} />
               <InfoItem
                 label="Current Class"
-                value={
-                  enrollments[0]
-                    ?.class?.[0]?.name ||
-                  'Not enrolled'
-                }
+                value={enrollments[0]?.class?.[0]?.name || 'Not enrolled'}
               />
-
               <InfoItem
                 label="Programme"
-                value={
-                  enrollments[0]
-                    ?.programme?.[0]
-                    ?.name ||
-                  'Not provided'
-                }
-              />
-
-              <InfoItem
-                label="Residence"
-                value={student.resident || 'Not provided'}
-              />
-
-              <InfoItem
-                label="House"
-                value={
-                  student.resident === 'Day'
-                    ? 'Not applicable'
-                    : student.house || 'Not provided'
-                }
-              />
-
-              <InfoItem
-                label="Health Insurance Number"
-                value={
-                  student.health_insurance_number ||
-                  'Not provided'
-                }
-              />
-
-              <InfoItem
-                label="Health Insurance Expiry Date"
-                value={formatDate(
-                  student.health_insurance_expiry_date
-                )}
+                value={enrollments[0]?.programme?.[0]?.name || 'Not provided'}
               />
             </div>
           </div>
@@ -2153,38 +2113,105 @@ export default function StudentProfilePage() {
           />
         </div>
 
-        {/* GUARDIAN */}
+        {/* RESIDENCE & CONTACT INFORMATION */}
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5 sm:p-6">
-            <h2 className="text-lg font-bold text-slate-900">
-              Guardian Information
-            </h2>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                <i className="fa-solid fa-house" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Residence & Contact Information
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Residential, boarding and direct contact details.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
+            <InfoItem label="Residence Status" value={student.resident || 'Not provided'} />
+            <InfoItem
+              label="Boarding House"
+              value={student.resident === 'Day' ? 'Not applicable' : student.house || 'Not provided'}
+            />
+            <InfoItem label="House Number" value={student.house_number || 'Not provided'} />
+            <InfoItem
+              label="Residential Address"
+              value={student.residential_address || student.address || 'Not provided'}
+            />
+            <InfoItem label="Digital Address" value={student.digital_address || 'Not provided'} />
+            <InfoItem label="WhatsApp Number" value={student.whatsapp_number || 'Not provided'} />
+          </div>
+        </section>
+
+        {/* PARENT / GUARDIAN INFORMATION */}
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-5 sm:p-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+                <i className="fa-solid fa-people-roof" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Parent & Guardian Information
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Parent and guardian names and contact information.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
+            <InfoItem label="Father's Name" value={student.father_name || 'Not provided'} />
+            <InfoItem label="Father's Contact" value={student.father_contact || 'Not provided'} />
+            <InfoItem label="Mother's Name" value={student.mother_name || 'Not provided'} />
+            <InfoItem label="Mother's Contact" value={student.mother_contact || 'Not provided'} />
+            <InfoItem label="Guardian Name" value={student.guardian_name || 'Not provided'} />
+            <InfoItem label="Guardian Phone" value={student.guardian_phone || 'Not provided'} />
+          </div>
+        </section>
+
+        {/* HEALTH INFORMATION */}
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-5 sm:p-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                <i className="fa-solid fa-notes-medical" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Health Information
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Health insurance and important health information recorded for the student.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
             <InfoItem
-              label="Guardian Name"
-              value={
-                student.guardian_name ||
-                'Not provided'
-              }
+              label="Health Insurance Number"
+              value={student.health_insurance_number || 'Not provided'}
             />
-
             <InfoItem
-              label="Guardian Phone"
-              value={
-                student.guardian_phone ||
-                'Not provided'
-              }
+              label="Health Insurance Expiry Date"
+              value={formatDate(student.health_insurance_expiry_date)}
             />
-
-            <InfoItem
-              label="Address"
-              value={
-                student.address ||
-                'Not provided'
-              }
-            />
+            <div className="sm:col-span-2 lg:col-span-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Health Issues
+              </p>
+              <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <p className="whitespace-pre-wrap text-sm font-medium leading-6 text-slate-800">
+                  {student.health_issues || 'No health issues recorded.'}
+                </p>
+              </div>
+            </div>
           </div>
         </section>
 
