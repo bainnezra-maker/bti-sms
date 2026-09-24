@@ -276,18 +276,16 @@ export default function AttendancePage() {
     return classes.filter(c => {
       if (selectedForm !== 'all' && c.level !== selectedForm) return false;
       if (selectedProgramme !== 'all' && c.programme_id !== selectedProgramme) return false;
-      if (selectedClass !== 'all' && c.name !== selectedClass) return false;
+      if (selectedClass !== 'all' && c.id !== selectedClass) return false;
       return true;
     });
   }, [classes, selectedForm, selectedProgramme, selectedClass]);
 
   const classOptions = useMemo(
-    () => Array.from(new Set(
-      classes
-        .filter(c => selectedForm === 'all' || c.level === selectedForm)
-        .filter(c => selectedProgramme === 'all' || c.programme_id === selectedProgramme)
-        .map(c => c.name)
-    )).sort(),
+    () => classes
+      .filter(c => selectedForm === 'all' || c.level === selectedForm)
+      .filter(c => selectedProgramme === 'all' || c.programme_id === selectedProgramme)
+      .sort((a, b) => a.name.localeCompare(b.name)),
     [classes, selectedForm, selectedProgramme]
   );
 
@@ -578,7 +576,7 @@ export default function AttendancePage() {
               <Filter label="Class">
                 <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="bti-select">
                   <option value="all">All Classes</option>
-                  {classOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                  {classOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </Filter>
 
@@ -595,7 +593,9 @@ export default function AttendancePage() {
               <span className="rounded-full bg-violet-50 px-3 py-1.5 text-violet-700">
                 {selectedProgramme === 'all' ? 'All Departments' : assignedProgrammes.find(p => p.id === selectedProgramme)?.name}
               </span>
-              <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700">{selectedClass === 'all' ? 'All Classes' : selectedClass}</span>
+              <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700">
+                {selectedClass === 'all' ? 'All Classes' : classes.find(c => c.id === selectedClass)?.name ?? 'Selected Class'}
+              </span>
             </div>
           </section>
 
@@ -620,8 +620,8 @@ export default function AttendancePage() {
 
           {attendanceMode === 'facial' && (
             <FacialAttendancePanel
-              className={selectedClass === 'all' ? '' : selectedClass}
-              classId={selectedClass === 'all' ? '' : classes.find(c => c.name === selectedClass)?.id ?? ''}
+              className={selectedClass === 'all' ? '' : classes.find(c => c.id === selectedClass)?.name ?? ''}
+              classId={selectedClass === 'all' ? '' : selectedClass}
               students={students.map(student => ({
                 id: student.id,
                 full_name: student.full_name,
