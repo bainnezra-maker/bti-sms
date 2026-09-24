@@ -907,32 +907,21 @@ export default function StudentProfilePage() {
     }
   }
 
-  async function deleteOrArchiveStudent() {
-    if (!student || deleteConfirmation !== 'DELETE') return;
+  async function archiveStudent() {
+    if (!student) return;
 
     setDeleteSaving(true);
 
     try {
       const { data, error } = await supabase.rpc(
-        'admin_delete_or_archive_student',
+        'admin_archive_student',
         { p_student_id: student.id }
       );
 
-      if (error) {
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
 
-      const result = data as {
-        action?: 'deleted' | 'archived';
-        message?: string;
-      } | null;
-
-      alert(
-        result?.message ||
-          (result?.action === 'archived'
-            ? 'Student archived successfully.'
-            : 'Student deleted successfully.')
-      );
+      const result = data as { message?: string } | null;
+      alert(result?.message || 'Student archived successfully. School history was preserved.');
 
       setShowDeleteModal(false);
       setDeleteConfirmation('');
@@ -944,6 +933,38 @@ export default function StudentProfilePage() {
         error instanceof Error
           ? error.message
           : 'Unable to delete or archive this student.'
+      );
+    } finally {
+      setDeleteSaving(false);
+    }
+  }
+
+  async function permanentlyDeleteStudent() {
+    if (!student || deleteConfirmation !== 'DELETE') return;
+
+    setDeleteSaving(true);
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'admin_permanently_delete_student',
+        { p_student_id: student.id }
+      );
+
+      if (error) throw new Error(error.message);
+
+      const result = data as { message?: string } | null;
+      alert(result?.message || 'Student and associated school records were permanently deleted.');
+
+      setShowDeleteModal(false);
+      setDeleteConfirmation('');
+      router.push('/students');
+      router.refresh();
+    } catch (error) {
+      console.error('Permanent student delete error:', error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Unable to permanently delete this student.'
       );
     } finally {
       setDeleteSaving(false);
@@ -2806,12 +2827,11 @@ export default function StudentProfilePage() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-bold text-red-700">
-                  Delete Student
+                  Archive or Delete Student
                 </h2>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                  Records entered by mistake with no school history can be permanently deleted.
-                  Students who already have school history will be archived instead so their
-                  academic, attendance, financial, disciplinary and residential records are preserved.
+                  Archive a student to preserve school history, or permanently delete the student
+                  and associated school records when complete removal is required.
                 </p>
               </div>
 
@@ -2824,7 +2844,7 @@ export default function StudentProfilePage() {
                 className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
               >
                 <i className="fa-solid fa-trash-can" />
-                Delete Student
+                Manage Student Record
               </button>
             </div>
           </div>
@@ -2850,10 +2870,10 @@ export default function StudentProfilePage() {
         </div>
       </div>
 
-      {/* DELETE / ARCHIVE STUDENT MODAL */}
+      {/* ARCHIVE / PERMANENT DELETE STUDENT MODAL */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="border-b border-red-100 bg-red-50 px-5 py-5 sm:px-6">
               <div className="flex items-start gap-4">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700">
@@ -2861,10 +2881,10 @@ export default function StudentProfilePage() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-red-900">
-                    Delete Student
+                    Manage Student Record
                   </h2>
                   <p className="mt-1 text-sm text-red-800">
-                    This action is restricted to administrators.
+                    Available to active Administrators and the Owner.
                   </p>
                 </div>
               </div>
@@ -2874,30 +2894,67 @@ export default function StudentProfilePage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="font-bold text-slate-900">{student.full_name}</p>
                 <p className="mt-1 text-sm text-slate-600">
-                  Admission No. {student.admission_number}
+                  Student ID / Admission No. {student.admission_number || '—'}
                 </p>
               </div>
 
-              <p className="text-sm leading-6 text-slate-600">
-                If this student has no school history, the record will be permanently deleted.
-                If school history exists, the student will be archived instead and the history will remain intact.
-              </p>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex gap-3">
+                  <i className="fa-solid fa-box-archive mt-0.5 text-amber-700" />
+                  <div>
+                    <p className="font-bold text-amber-900">Archive Student</p>
+                    <p className="mt-1 text-sm leading-6 text-amber-800">
+                      Removes the student from active status but preserves academic, attendance,
+                      financial, disciplinary and residential history.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={deleteSaving}
+                      onClick={archiveStudent}
+                      className="mt-3 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <i className={`fa-solid ${deleteSaving ? 'fa-spinner fa-spin' : 'fa-box-archive'}`} />
+                      {deleteSaving ? 'Processing...' : 'Archive Student'}
+                    </button>
+                  </div>
+                </div>
+              </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Type <span className="font-bold text-red-700">DELETE</span> to confirm
-                </label>
-                <input
-                  value={deleteConfirmation}
-                  onChange={(event) => setDeleteConfirmation(event.target.value)}
-                  autoComplete="off"
-                  placeholder="DELETE"
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                />
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                <div className="flex gap-3">
+                  <i className="fa-solid fa-trash-can mt-0.5 text-red-700" />
+                  <div className="w-full">
+                    <p className="font-bold text-red-900">Permanently Delete Student</p>
+                    <p className="mt-1 text-sm leading-6 text-red-800">
+                      Completely removes the student and associated school records. This action cannot be undone.
+                    </p>
+
+                    <label className="mb-2 mt-4 block text-sm font-semibold text-red-900">
+                      Type <span className="font-black">DELETE</span> to confirm permanent deletion
+                    </label>
+                    <input
+                      value={deleteConfirmation}
+                      onChange={(event) => setDeleteConfirmation(event.target.value)}
+                      autoComplete="off"
+                      placeholder="DELETE"
+                      className="w-full rounded-xl border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                    />
+
+                    <button
+                      type="button"
+                      disabled={deleteSaving || deleteConfirmation !== 'DELETE'}
+                      onClick={permanentlyDeleteStudent}
+                      className="mt-3 inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <i className={`fa-solid ${deleteSaving ? 'fa-spinner fa-spin' : 'fa-trash-can'}`} />
+                      {deleteSaving ? 'Processing...' : 'Permanently Delete Student'}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+            <div className="flex justify-end border-t border-slate-100 bg-slate-50 px-5 py-4 sm:px-6">
               <button
                 type="button"
                 disabled={deleteSaving}
@@ -2908,15 +2965,6 @@ export default function StudentProfilePage() {
                 className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deleteSaving || deleteConfirmation !== 'DELETE'}
-                onClick={deleteOrArchiveStudent}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <i className={`fa-solid ${deleteSaving ? 'fa-spinner fa-spin' : 'fa-trash-can'}`} />
-                {deleteSaving ? 'Processing...' : 'Confirm Delete'}
               </button>
             </div>
           </div>
