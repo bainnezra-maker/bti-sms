@@ -67,8 +67,9 @@ type AcademicYear = {
 
 type Enrollment = {
   student_id: string;
-  class_id: string;
+  class_id: string | null;
   academic_year_id: string;
+  form: string | null;
   programme_id: string | null;
   status: string | null;
 };
@@ -218,7 +219,7 @@ export default function StudentsPage() {
       supabase
         .from('enrollments')
         .select(
-          'student_id, class_id, academic_year_id, programme_id, status'
+          'student_id, class_id, academic_year_id, programme_id, status, form'
         )
         .eq('status', 'active'),
     ]);
@@ -308,7 +309,9 @@ export default function StudentsPage() {
         continue;
       }
 
-      const schoolClass = classMap.get(enrollment.class_id);
+      const schoolClass = enrollment.class_id
+        ? classMap.get(enrollment.class_id)
+        : undefined;
 
       const programmeId =
         enrollment.programme_id ??
@@ -324,14 +327,16 @@ export default function StudentsPage() {
       );
 
       infoMap.set(enrollment.student_id, {
-        classId: enrollment.class_id,
+        classId: enrollment.class_id ?? '',
         className: schoolClass?.name ?? '',
         programmeId,
         programmeName:
           programme?.name ?? 'Unassigned Programme',
         academicYearName: academicYear?.name ?? '',
         formName:
-          schoolClass?.level ?? 'Unassigned Form',
+          enrollment.form ??
+          schoolClass?.level ??
+          'Unassigned Form',
       });
     }
 
@@ -355,9 +360,11 @@ export default function StudentsPage() {
         map.set(enrollment.programme_id, new Set());
       }
 
-      map
-        .get(enrollment.programme_id)!
-        .add(enrollment.class_id);
+      if (enrollment.class_id) {
+        map
+          .get(enrollment.programme_id)!
+          .add(enrollment.class_id);
+      }
     }
 
     return map;
