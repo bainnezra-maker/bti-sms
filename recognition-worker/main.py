@@ -1,6 +1,13 @@
 import os
 from typing import List
 
+# Keep the recognition worker inside Railway's available memory/CPU budget.
+# These must be set before NumPy, OpenCV and ONNX Runtime are imported.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import cv2
 import numpy as np
 from fastapi import FastAPI, Header, HTTPException
@@ -17,7 +24,8 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 WORKER_SECRET = os.environ["RECOGNITION_WORKER_SECRET"]
 
-MODEL_NAME = os.getenv("FACE_MODEL_NAME", "buffalo_l")
+MODEL_NAME = os.getenv("FACE_MODEL_NAME", "buffalo_s")
+DETECTION_SIZE = int(os.getenv("FACE_DETECTION_SIZE", "480"))
 STRONG_THRESHOLD = float(os.getenv("FACE_STRONG_THRESHOLD", "0.62"))
 REVIEW_THRESHOLD = float(os.getenv("FACE_REVIEW_THRESHOLD", "0.48"))
 
@@ -31,14 +39,20 @@ supabase = create_client(
     SUPABASE_SERVICE_ROLE_KEY
 )
 
+cv2.setNumThreads(1)
+
 engine = FaceAnalysis(
     name=MODEL_NAME,
-    providers=["CPUExecutionProvider"]
+    providers=["CPUExecutionProvider"],
+    # Attendance only needs detection and recognition. Loading landmark and
+    # age/gender models consumed nearly 1 GB and caused Railway to restart the
+    # worker in the middle of a recognition request.
+    allowed_modules=["detection", "recognition"],
 )
 
 engine.prepare(
     ctx_id=-1,
-    det_size=(640, 640)
+    det_size=(DETECTION_SIZE, DETECTION_SIZE)
 )
 
 
@@ -176,7 +190,8 @@ def health():
 
     return {
         "ok": True,
-        "model": MODEL_NAME
+        "model": MODEL_NAME,
+        "detection_size": DETECTION_SIZE,
     }
 
 
