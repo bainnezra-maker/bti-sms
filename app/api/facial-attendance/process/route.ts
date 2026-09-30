@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60;
+
+const WORKER_TIMEOUT_MS = 55_000;
 
 function adminClient() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -86,6 +89,7 @@ export async function POST(request: Request) {
         job_id: jobId,
       }),
       cache: 'no-store',
+      signal: AbortSignal.timeout(WORKER_TIMEOUT_MS),
     });
 
     const raw = await response.text();
@@ -111,12 +115,17 @@ export async function POST(request: Request) {
 
     return NextResponse.json(data);
   } catch (error:any) {
+    const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    const errorMessage = timedOut
+      ? 'Facial recognition took too long. Please try the photo again.'
+      : error?.message || 'Worker connection failed.';
+
     await admin.from('face_recognition_jobs')
-      .update({ status: 'failed', error_message: error?.message || 'Worker connection failed.' })
+      .update({ status: 'failed', error_message: errorMessage })
       .eq('id', jobId);
 
     return NextResponse.json({
-      error: error?.message || 'Could not connect to recognition worker.'
-    }, { status: 502 });
+      error: errorMessage
+    }, { status: timedOut ? 504 : 502 });
   }
 }
