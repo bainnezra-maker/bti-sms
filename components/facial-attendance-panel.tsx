@@ -40,14 +40,20 @@ export default function FacialAttendancePanel({
   students,
   onApplyPresent,
 }: Props) {
-  const cameraInput = useRef<HTMLInputElement | null>(null);
   const uploadInput = useRef<HTMLInputElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const [photos, setPhotos] = useState<File[]>([]);
   const [results, setResults] = useState<MatchResult[]>([]);
   const [processing, setProcessing] = useState(false);
   const [message, setMessage] = useState('');
   const [progress, setProgress] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>(
+    'environment'
+  );
 
   const previews = useMemo(
     () => photos.map((file) => ({ file, url: URL.createObjectURL(file) })),
@@ -58,6 +64,108 @@ export default function FacialAttendancePanel({
     () => () => previews.forEach((x) => URL.revokeObjectURL(x.url)),
     [previews]
   );
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  function stopCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraOpen(false);
+    setCameraStarting(false);
+  }
+
+  async function openCamera(mode: 'environment' | 'user' = facingMode) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage(
+        'This browser cannot open the camera directly. Use Upload Photos or try Chrome, Edge, or Safari.'
+      );
+      return;
+    }
+
+    setCameraStarting(true);
+    setMessage('');
+
+    try {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: mode },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+      setFacingMode(mode);
+      setCameraOpen(true);
+
+      requestAnimationFrame(async () => {
+        if (!videoRef.current) return;
+        videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch {
+          // The stream remains attached for browsers that resume playback
+          // after the user's camera-opening click.
+        }
+      });
+    } catch (error: any) {
+      stopCamera();
+      const denied =
+        error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError';
+      setMessage(
+        denied
+          ? 'Camera permission was denied. Allow camera access in the browser, then try again.'
+          : 'The device camera could not be opened. Close other apps using it and try again.'
+      );
+    } finally {
+      setCameraStarting(false);
+    }
+  }
+
+  function capturePhoto() {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth) {
+      setMessage('The camera is still starting. Please wait a moment and try again.');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      setMessage('The photo could not be captured. Please try again.');
+      return;
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setMessage('The photo could not be captured. Please try again.');
+          return;
+        }
+
+        const file = new File([blob], `classroom-${Date.now()}.jpg`, {
+          type: 'image/jpeg',
+        });
+        setPhotos((previous) => [...previous, file].slice(0, 10));
+        setResults([]);
+        setMessage('Photo captured. You can take another photo or close the camera.');
+        setProgress('');
+      },
+      'image/jpeg',
+      0.9
+    );
+  }
 
   async function readApi(response: Response): Promise<ApiData> {
     const raw = await response.text();
@@ -313,11 +421,17 @@ export default function FacialAttendancePanel({
         <button
           type="button"
           disabled={!classId || processing}
-          onClick={() => cameraInput.current?.click()}
+          onClick={() => openCamera()}
           className="rounded-2xl bg-blue-600 px-5 py-4 font-black text-white disabled:opacity-40"
         >
-          <i className="fa-solid fa-camera mr-2" />
-          Take Photos Now
+          <i
+            className={
+              cameraStarting
+                ? 'fa-solid fa-spinner fa-spin mr-2'
+                : 'fa-solid fa-camera mr-2'
+            }
+          />
+          {cameraStarting ? 'Opening Camera...' : 'Take Photos Now'}
         </button>
 
         <button
@@ -331,15 +445,6 @@ export default function FacialAttendancePanel({
         </button>
 
         <input
-          ref={cameraInput}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => addPhotos(e.target.files)}
-        />
-
-        <input
           ref={uploadInput}
           type="file"
           accept="image/jpeg,image/png,image/webp"
@@ -348,6 +453,70 @@ export default function FacialAttendancePanel({
           onChange={(e) => addPhotos(e.target.files)}
         />
       </div>
+
+      {cameraOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Device camera"
+        >
+          <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-slate-950 shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 text-white sm:px-5">
+              <div>
+                <p className="font-black">Device Camera</p>
+                <p className="text-xs text-slate-300">
+                  Keep students clearly visible, then capture the photo.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="grid h-10 w-10 place-items-center rounded-full bg-white/10"
+                aria-label="Close camera"
+              >
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
+
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="max-h-[70vh] w-full bg-black object-contain"
+            />
+
+            <div className="flex flex-wrap items-center justify-center gap-3 p-4 sm:p-5">
+              <button
+                type="button"
+                onClick={() =>
+                  openCamera(facingMode === 'environment' ? 'user' : 'environment')
+                }
+                className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-black text-white"
+              >
+                <i className="fa-solid fa-camera-rotate mr-2" />
+                Switch Camera
+              </button>
+              <button
+                type="button"
+                onClick={capturePhoto}
+                className="rounded-2xl bg-blue-600 px-7 py-3 text-sm font-black text-white"
+              >
+                <i className="fa-solid fa-camera mr-2" />
+                Capture Photo
+              </button>
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-900"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!!photos.length && (
         <div className="mt-6">
