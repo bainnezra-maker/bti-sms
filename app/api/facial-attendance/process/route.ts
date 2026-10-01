@@ -3,9 +3,12 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
-const WORKER_TIMEOUT_MS = 55_000;
+// The first recognition after a worker restart also warms the InsightFace
+// model and builds the class gallery. Allow that cold start to finish instead
+// of reporting a false timeout while Railway is still processing the photo.
+const WORKER_TIMEOUT_MS = 280_000;
 
 function adminClient() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
