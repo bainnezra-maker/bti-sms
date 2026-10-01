@@ -31,6 +31,7 @@ import {
   faBed,
   faHouse,
   faRotate,
+  faUsersViewfinder,
 } from '@fortawesome/free-solid-svg-icons';
 import { createClient } from '@/lib/supabase/client';
 
@@ -809,6 +810,14 @@ export default function StudentsPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
+            <Link
+              href="/students/face-enrollment"
+              className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700"
+            >
+              <FontAwesomeIcon icon={faUsersViewfinder} />
+              Bulk Face Enrollment
+            </Link>
+
             <Link
               href="/students/student-account"
               className="group inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 font-semibold text-blue-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:bg-blue-100"
