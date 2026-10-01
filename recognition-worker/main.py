@@ -55,6 +55,12 @@ engine.prepare(
     det_size=(DETECTION_SIZE, DETECTION_SIZE)
 )
 
+# Railway workers stay warm between requests. Cache enrollment embeddings so
+# repeated attendance scans do not re-download and re-process the same student
+# photos every time. The key includes the storage paths, so re-enrollment
+# automatically produces a fresh cache entry.
+reference_embedding_cache = {}
+
 
 # ============================================================
 # FASTAPI
@@ -130,6 +136,11 @@ def face_embeddings(image):
 
 def reference_embedding(paths: List[str]):
 
+    cache_key = tuple(paths)
+
+    if cache_key in reference_embedding_cache:
+        return reference_embedding_cache[cache_key]
+
     vectors = []
 
     for path in paths:
@@ -166,12 +177,16 @@ def reference_embedding(paths: List[str]):
     if not vectors:
         return None
 
-    return normalized(
+    embedding = normalized(
         np.mean(
             np.stack(vectors),
             axis=0
         )
     )
+
+    reference_embedding_cache[cache_key] = embedding
+
+    return embedding
 
 
 def cosine(a, b):
@@ -653,7 +668,7 @@ def recognize(
         "status":
             "completed",
 
-        "result_json": {
+        "result": {
             "matches":
                 matches
         }
