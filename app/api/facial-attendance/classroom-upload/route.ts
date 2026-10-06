@@ -5,7 +5,6 @@ import { createClient } from '@/lib/supabase/server';
 export const runtime = 'nodejs';
 
 const BUCKET = 'facial-attendance-classroom';
-const MAX_PHOTOS = 10;
 const MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -75,8 +74,8 @@ export async function POST(request: Request) {
 
   if (action === 'prepare') {
     const files = Array.isArray(body?.files) ? body.files : [];
-    if (!files.length || files.length > MAX_PHOTOS) {
-      return NextResponse.json({ error: `Choose between 1 and ${MAX_PHOTOS} classroom photos.` }, { status: 400 });
+    if (!files.length) {
+      return NextResponse.json({ error: 'Choose at least one classroom photo.' }, { status: 400 });
     }
 
     for (const file of files) {
@@ -131,10 +130,23 @@ export async function POST(request: Request) {
     }
 
     const prefix = `${auth.profile.school_id}/${classId}/${jobId}`;
-    const { data: objects, error: listError } = await admin.storage.from(BUCKET).list(prefix, { limit: MAX_PHOTOS + 2 });
-    if (listError) return NextResponse.json({ error: listError.message }, { status: 500 });
+    const objects:any[] = [];
+    const pageSize = 1000;
 
-    const existing = new Set((objects || []).map((o:any) => `${prefix}/${o.name}`));
+    for (let offset = 0; ; offset += pageSize) {
+      const { data: page, error: listError } = await admin.storage
+        .from(BUCKET)
+        .list(prefix, { limit: pageSize, offset });
+
+      if (listError) {
+        return NextResponse.json({ error: listError.message }, { status: 500 });
+      }
+
+      objects.push(...(page || []));
+      if (!page || page.length < pageSize) break;
+    }
+
+    const existing = new Set(objects.map((o:any) => `${prefix}/${o.name}`));
     const missing = (job.photo_paths || []).filter((p:string) => !existing.has(p));
     if (missing.length) return NextResponse.json({ error: 'One or more classroom photos did not finish uploading.' }, { status: 400 });
 
