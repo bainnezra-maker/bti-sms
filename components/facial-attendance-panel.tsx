@@ -43,6 +43,7 @@ export default function FacialAttendancePanel({
   const uploadInput = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const [photos, setPhotos] = useState<File[]>([]);
   const [results, setResults] = useState<MatchResult[]>([]);
@@ -68,8 +69,72 @@ export default function FacialAttendancePanel({
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      audioContextRef.current?.close().catch(() => undefined);
     };
   }, []);
+
+  function prepareShutterAudio() {
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & {
+          webkitAudioContext?: typeof AudioContext;
+        }).webkitAudioContext;
+
+      if (!AudioContextClass) return;
+
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextClass();
+      }
+
+      if (audioContextRef.current.state === 'suspended') {
+        void audioContextRef.current.resume();
+      }
+    } catch {
+      // Audio is confirmation only; it must never interrupt capture.
+    }
+  }
+
+  function playShutterSound() {
+    try {
+      const audioContext = audioContextRef.current;
+      if (!audioContext || audioContext.state === 'closed') return;
+
+      const duration = 0.11;
+      const frameCount = Math.floor(audioContext.sampleRate * duration);
+      const buffer = audioContext.createBuffer(
+        1,
+        frameCount,
+        audioContext.sampleRate
+      );
+      const samples = buffer.getChannelData(0);
+
+      for (let index = 0; index < frameCount; index++) {
+        const time = index / audioContext.sampleRate;
+        const firstClick = Math.exp(-time * 75);
+        const secondClick =
+          time > 0.045 ? Math.exp(-(time - 0.045) * 95) * 0.7 : 0;
+        samples[index] =
+          (Math.random() * 2 - 1) * (firstClick + secondClick) * 0.55;
+      }
+
+      const source = audioContext.createBufferSource();
+      const filter = audioContext.createBiquadFilter();
+      const gain = audioContext.createGain();
+
+      source.buffer = buffer;
+      filter.type = 'highpass';
+      filter.frequency.value = 850;
+      gain.gain.value = 0.7;
+
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioContext.destination);
+      source.start();
+    } catch {
+      // The captured photo remains valid on muted or restricted devices.
+    }
+  }
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -131,6 +196,10 @@ export default function FacialAttendancePanel({
   }
 
   function capturePhoto() {
+    // Create/resume audio during the teacher's click so mobile browsers allow
+    // the offline shutter confirmation when the image blob is ready.
+    prepareShutterAudio();
+
     const video = videoRef.current;
     if (!video || video.readyState < 2 || !video.videoWidth) {
       setMessage('The camera is still starting. Please wait a moment and try again.');
@@ -154,10 +223,17 @@ export default function FacialAttendancePanel({
           return;
         }
 
-        const file = new File([blob], `classroom-${Date.now()}.jpg`, {
-          type: 'image/jpeg',
-        });
-        setPhotos((previous) => [...previous, file].slice(0, 10));
+        const captureId =
+          typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : Math.random().toString(36).slice(2);
+        const file = new File(
+          [blob],
+          `classroom-${Date.now()}-${captureId}.jpg`,
+          { type: 'image/jpeg' }
+        );
+        setPhotos((previous) => [...previous, file]);
+        playShutterSound();
         setResults([]);
         setMessage('Photo captured. You can take another photo or close the camera.');
         setProgress('');
@@ -188,7 +264,7 @@ export default function FacialAttendancePanel({
       ['image/jpeg', 'image/png', 'image/webp'].includes(f.type)
     );
 
-    setPhotos((previous) => [...previous, ...incoming].slice(0, 10));
+    setPhotos((previous) => [...previous, ...incoming]);
     setResults([]);
     setMessage('');
     setProgress('');
