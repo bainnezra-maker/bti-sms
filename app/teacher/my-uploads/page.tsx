@@ -7,6 +7,15 @@ import { createClient } from '@/lib/supabase/client';
 type Profile = { id: string; full_name: string; email: string; role: string; school_id: string };
 type AcademicYear = { id: string; name: string; is_current?: boolean };
 type Semester = { id: string; name: string; academic_year_id: string; is_current?: boolean };
+type Subject = { id: string; name: string; code: string | null };
+type TeacherAssignment = {
+  id: string;
+  academic_year_id: string;
+  subject_id: string;
+  forms: string[] | null;
+  programme_ids: string[] | null;
+  subject: Subject | Subject[] | null;
+};
 type DocumentType = 'unit_specification' | 'learning_session_plan' | 'particulars_of_work_done';
 type TeachingDocument = {
   id: string; staff_id: string; document_type: DocumentType; academic_year_id: string | null;
@@ -45,10 +54,14 @@ export default function MyUploadsPage() {
   const [staffId, setStaffId] = useState<string | null>(null);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
   const [documents, setDocuments] = useState<TeachingDocument[]>([]);
   const [documentType, setDocumentType] = useState<DocumentType>('unit_specification');
   const [yearId, setYearId] = useState('');
   const [semesterId, setSemesterId] = useState('');
+  const [generatorType, setGeneratorType] = useState<DocumentType>('unit_specification');
+  const [generatorSubjectId, setGeneratorSubjectId] = useState('');
+  const [generatorMessage, setGeneratorMessage] = useState('');
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -77,12 +90,17 @@ export default function MyUploadsPage() {
       }
       if (userProfile.role !== 'teacher') { router.replace(userProfile.role === 'admin' ? '/' : userProfile.role === 'Student' ? '/student' : '/login'); return; }
 
-      const [{ data: yearData, error: yearError }, { data: staffMatch, error: staffError }] = await Promise.all([
+      const [{ data: yearData, error: yearError }, { data: staffMatch, error: staffError }, { data: assignmentData, error: assignmentError }] = await Promise.all([
         supabase.from('academic_years').select('id, name, is_current').eq('school_id', userProfile.school_id).order('start_date', { ascending: false }),
         supabase.from('staff').select('id').eq('school_id', userProfile.school_id).ilike('email', userProfile.email).eq('staff_category', 'teaching').maybeSingle(),
+        supabase.from('teacher_assignments')
+          .select('id, academic_year_id, subject_id, forms, programme_ids, subject:subjects(id, name, code)')
+          .eq('school_id', userProfile.school_id)
+          .eq('teacher_id', userProfile.id),
       ]);
       if (yearError) { if (mounted) { setError(yearError.message); setLoading(false); } return; }
       if (staffError) { if (mounted) { setError(staffError.message); setLoading(false); } return; }
+      if (assignmentError) { if (mounted) { setError(assignmentError.message); setLoading(false); } return; }
       const yearRows = (yearData ?? []) as AcademicYear[];
       const currentYear = yearRows.find(y => y.is_current) ?? yearRows[0] ?? null;
 
@@ -103,7 +121,7 @@ export default function MyUploadsPage() {
         docRows = (docData ?? []) as TeachingDocument[];
       }
       if (!mounted) return;
-      setProfile(userProfile as Profile); setStaffId(staffMatch?.id ?? null); setYears(yearRows); setSemesters(termRows); setDocuments(docRows);
+      setProfile(userProfile as Profile); setStaffId(staffMatch?.id ?? null); setYears(yearRows); setSemesters(termRows); setAssignments((assignmentData ?? []) as TeacherAssignment[]); setDocuments(docRows);
       setYearId(currentYear?.id ?? '');
       setSemesterId(termRows.find(t => t.is_current)?.id ?? termRows[0]?.id ?? '');
       setLoading(false);
@@ -126,6 +144,32 @@ export default function MyUploadsPage() {
     learning_session_plan: documents.filter(d => d.document_type === 'learning_session_plan').length,
     particulars_of_work_done: documents.filter(d => d.document_type === 'particulars_of_work_done').length,
   }), [documents]);
+
+  const assignedSubjects = useMemo(() => {
+    const unique = new Map<string, Subject>();
+    assignments
+      .filter(assignment => !yearId || assignment.academic_year_id === yearId)
+      .forEach(assignment => {
+        const subject = Array.isArray(assignment.subject) ? assignment.subject[0] : assignment.subject;
+        if (subject?.id) unique.set(subject.id, subject);
+      });
+    return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [assignments, yearId]);
+
+  useEffect(() => {
+    if (generatorSubjectId && !assignedSubjects.some(subject => subject.id === generatorSubjectId)) {
+      setGeneratorSubjectId('');
+    }
+  }, [assignedSubjects, generatorSubjectId]);
+
+  function prepareGenerator() {
+    setError(''); setMessage(''); setGeneratorMessage('');
+    if (!yearId) { setError('Select an academic year for the document.'); return; }
+    if (!semesterId) { setError('Select a semester for the document.'); return; }
+    const subject = assignedSubjects.find(item => item.id === generatorSubjectId);
+    if (!subject) { setError('Select one of your assigned subjects.'); return; }
+    setGeneratorMessage(`${SHORT[generatorType]} generator ready for ${subject.name}. Its curriculum will be matched to your assignment, academic year and semester.`);
+  }
 
   async function uploadDocument(event: FormEvent) {
     event.preventDefault(); setError(''); setMessage('');
@@ -173,7 +217,7 @@ export default function MyUploadsPage() {
             <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
               <div><div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-xs font-black"><i className="fa-solid fa-cloud-arrow-up"/> Teacher Workspace</div>
                 <h1 className="mt-4 text-3xl font-black sm:text-4xl">My Uploads</h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Upload and keep track of your USB, LSP and POWD teaching documents.</p></div>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Generate documents from your assigned subjects, upload existing files and keep track of your USB, LSP and POWD.</p></div>
               <div className="rounded-2xl bg-white/10 px-5 py-4 ring-1 ring-white/10"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Teacher</p><p className="mt-1 font-black">{profile?.full_name ?? 'Teacher'}</p></div>
             </div>
           </section>
@@ -184,6 +228,34 @@ export default function MyUploadsPage() {
 
           <section className="grid gap-4 sm:grid-cols-3">
             {(['unit_specification','learning_session_plan','particulars_of_work_done'] as DocumentType[]).map((type, index) => <div key={type} className="upload-in rounded-[1.6rem] border border-slate-200 bg-white p-5 shadow-sm" style={{animationDelay:`${index*70}ms`}}><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700"><i className={ICONS[type]}/></span><p className="mt-4 text-3xl font-black text-slate-950">{counts[type]}</p><p className="text-xs font-black text-slate-500">{SHORT[type]} uploads</p><p className="mt-1 text-[11px] text-slate-400">{LABELS[type]}</p></div>)}
+          </section>
+
+          <section className="upload-in overflow-hidden rounded-[2rem] border border-blue-200 bg-white shadow-sm">
+            <div className="border-b border-blue-100 bg-gradient-to-r from-blue-50 via-white to-violet-50 px-6 py-6 sm:px-7">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-200"><i className="fa-solid fa-wand-magic-sparkles"/></span><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-blue-600">Subject-linked workspace</p><h2 className="mt-1 text-xl font-black text-slate-950">Generate USB, LSP or POWD</h2><p className="mt-1 text-xs text-slate-500">Only subjects assigned to you by the administrator are available here.</p></div></div>
+                <span className="w-fit rounded-full bg-blue-100 px-3 py-1.5 text-[10px] font-black text-blue-700"><i className="fa-solid fa-link mr-1.5"/>{assignedSubjects.length} ASSIGNED {assignedSubjects.length === 1 ? 'SUBJECT' : 'SUBJECTS'}</span>
+              </div>
+            </div>
+            <div className="grid gap-6 p-6 sm:p-7 lg:grid-cols-[1.05fr_.95fr]">
+              <div>
+                <p className="text-xs font-black text-slate-600">Choose document</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  {(['unit_specification','learning_session_plan','particulars_of_work_done'] as DocumentType[]).map(type => <button key={type} type="button" onClick={()=>{setGeneratorType(type);setGeneratorMessage('')}} className={`rounded-2xl border p-4 text-left transition ${generatorType===type?'border-blue-500 bg-blue-50 text-blue-900 shadow-sm':'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}><i className={`${ICONS[type]} ${generatorType===type?'text-blue-600':'text-slate-400'}`}/><p className="mt-3 text-lg font-black">{SHORT[type]}</p><p className="mt-1 text-[10px] leading-4">{LABELS[type]}</p></button>)}
+                </div>
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">How the link works</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">The selected subject determines which NCI or NCII curriculum, learning outcomes and performance criteria are used. The academic year and semester determine the approved teaching weeks.</p>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <label className="block"><span className="text-xs font-black text-slate-600">My assigned subject</span><select value={generatorSubjectId} onChange={e=>{setGeneratorSubjectId(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select assigned subject</option>{assignedSubjects.map(subject=><option key={subject.id} value={subject.id}>{subject.code ? `${subject.code} — ` : ''}{subject.name}</option>)}</select></label>
+                <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="text-xs font-black text-slate-600">Academic year</span><select value={yearId} onChange={e=>{setYearId(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select year</option>{years.map(y=><option key={y.id} value={y.id}>{y.name}{y.is_current?' (Current)':''}</option>)}</select></label><label className="block"><span className="text-xs font-black text-slate-600">Semester</span><select value={semesterId} onChange={e=>{setSemesterId(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select semester</option>{semesters.map(s=><option key={s.id} value={s.id}>{s.name}{s.is_current?' (Current)':''}</option>)}</select></label></div>
+                {assignedSubjects.length===0&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-800"><i className="fa-solid fa-triangle-exclamation mr-2"/>No subject assignment was found for this academic year. Ask the administrator to assign your subject first.</div>}
+                {generatorMessage&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold leading-5 text-emerald-800"><i className="fa-solid fa-circle-check mr-2"/>{generatorMessage}</div>}
+                <button type="button" onClick={prepareGenerator} disabled={!staffId||assignedSubjects.length===0} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"><i className="fa-solid fa-wand-magic-sparkles"/>Prepare {SHORT[generatorType]} Generator</button>
+              </div>
+            </div>
           </section>
 
           <section className="grid gap-6 xl:grid-cols-[.9fr_1.35fr]">
