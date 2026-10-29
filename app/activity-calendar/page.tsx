@@ -373,6 +373,8 @@ function calendarRowsFromGrid(grid: string[][]) {
 
   const headers = grid[headerIndex].map(value => normalizeName(value));
   const dateIndex = headers.findIndex(value => value.includes('date') || value.includes('day'));
+  // Prefer the document's descriptive activity column. A "Week" column is
+  // only a sequence number and must never be treated as the activity itself.
   const activityIndex = headers.findIndex((value, index) =>
     index !== dateIndex && (
       value.includes('activity') ||
@@ -380,8 +382,7 @@ function calendarRowsFromGrid(grid: string[][]) {
       value.includes('lesson plan') ||
       value.includes('submission') ||
       value.includes('task') ||
-      value.includes('description') ||
-      value.includes('week')
+      value.includes('description')
     )
   );
   const personnelIndex = headers.findIndex(value =>
@@ -402,11 +403,7 @@ function calendarRowsFromGrid(grid: string[][]) {
     const activityValue = activityIndex >= 0
       ? (row[activityIndex] || '').trim()
       : '';
-    const activity = activityValue
-      ? activityValue.toLowerCase().includes('lesson plan')
-        ? activityValue
-        : `Lesson Plan Submission - ${activityValue}`
-      : 'Lesson Plan Submission';
+    const activity = activityValue || 'Lesson Plan Submission';
     const personnel = personnelIndex >= 0 ? (row[personnelIndex] || '').trim() : '';
 
     if (row[dateIndex]?.trim()) previousDate = row[dateIndex].trim();
