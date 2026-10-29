@@ -11,7 +11,7 @@ import {
   faCircleExclamation,
   faCloudArrowUp,
   faDownload,
-  faFileExcel,
+  faFileWord,
   faFilter,
   faPlus,
   faRotate,
@@ -81,6 +81,12 @@ type ImportRow = {
   unmatchedStaff: string[];
   valid: boolean;
   error?: string;
+};
+
+type RawCalendarRow = {
+  Date: string;
+  Activity: string;
+  'Personnel Responsible': string;
 };
 
 const WEEKDAYS = [
@@ -156,31 +162,56 @@ function formatLongDate(value: string) {
   });
 }
 
-function parseExcelDate(value: unknown): string | null {
+function parseActivityDate(value: unknown): string | null {
   if (value === null || value === undefined || value === '') {
     return null;
   }
 
-  if (typeof value === 'number') {
-    const parsed = XLSX.SSF.parse_date_code(value);
-
-    if (!parsed) {
-      return null;
-    }
-
-    const date = new Date(
-      parsed.y,
-      parsed.m - 1,
-      parsed.d
-    );
-
-    return formatDateInput(date);
-  }
-
-  const raw = String(value).trim();
+  const raw = String(value)
+    .replace(/(\d)(st|nd|rd|th)\b/gi, '$1')
+    .replace(/[–—]/g, '-')
+    .replace(/,/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   if (!raw) {
     return null;
+  }
+
+  // Date ranges such as 15th-19th/06/26 or 15-19 September 2026.
+  const rangeMatch = raw.match(
+    /(\d{1,2})\s*-\s*\d{1,2}\s*[\/-]?\s*(\d{1,2}|[A-Za-z]+)\s*[\/-]?\s*(\d{2,4})/i
+  );
+
+  if (rangeMatch) {
+    const day = Number(rangeMatch[1]);
+    const monthToken = rangeMatch[2];
+    const yearToken = Number(rangeMatch[3]);
+    const month = /^\d+$/.test(monthToken)
+      ? Number(monthToken) - 1
+      : MONTHS.findIndex(month =>
+          month.toLowerCase().startsWith(monthToken.toLowerCase())
+        );
+    const year = yearToken < 100 ? 2000 + yearToken : yearToken;
+    const date = new Date(year, month, day);
+
+    if (month >= 0 && !Number.isNaN(date.getTime())) {
+      return formatDateInput(date);
+    }
+  }
+
+  const embeddedDate = raw.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+
+  if (embeddedDate) {
+    const day = Number(embeddedDate[1]);
+    const month = Number(embeddedDate[2]);
+    const shortYear = Number(embeddedDate[3]);
+    const year = shortYear < 100 ? 2000 + shortYear : shortYear;
+    const date = new Date(year, month - 1, day);
+
+    if (!Number.isNaN(date.getTime())) {
+      return formatDateInput(date);
+    }
   }
 
   // yyyy-mm-dd
@@ -229,6 +260,114 @@ function splitPersonnel(value: string) {
     .filter(Boolean);
 }
 
+function textFromWordCell(cell: Element) {
+  return Array.from(cell.getElementsByTagName('*'))
+    .filter(element => element.localName === 't')
+    .map(element => element.textContent || '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function calendarRowsFromGrid(grid: string[][]) {
+  const headerIndex = grid.findIndex(row => {
+    const values = row.map(value => normalizeName(value));
+    return values.some(value => value.includes('date') || value.includes('day')) &&
+      values.some(value => value.includes('activity') || value.includes('event'));
+  });
+
+  if (headerIndex < 0) return [] as RawCalendarRow[];
+
+  const headers = grid[headerIndex].map(value => normalizeName(value));
+  const dateIndex = headers.findIndex(value => value.includes('date') || value.includes('day'));
+  const activityIndex = headers.findIndex(value => value.includes('activity') || value.includes('event'));
+  const personnelIndex = headers.findIndex(value =>
+    value.includes('personnel') ||
+    value.includes('responsib') ||
+    value.includes('in charge') ||
+    value.includes('officer')
+  );
+
+  if (dateIndex < 0 || activityIndex < 0) return [] as RawCalendarRow[];
+
+  let previousDate = '';
+
+  return grid.slice(headerIndex + 1).flatMap(row => {
+    const date = (row[dateIndex] || '').trim() || previousDate;
+    const activity = (row[activityIndex] || '').trim();
+    const personnel = personnelIndex >= 0 ? (row[personnelIndex] || '').trim() : '';
+
+    if (row[dateIndex]?.trim()) previousDate = row[dateIndex].trim();
+    if (!date && !activity && !personnel) return [];
+
+    return [{
+      Date: date,
+      Activity: activity,
+      'Personnel Responsible': personnel,
+    }];
+  });
+}
+
+function parseDocxRows(buffer: ArrayBuffer) {
+  const archive = XLSX.CFB.read(buffer, { type: 'array' });
+  const documentPart = XLSX.CFB.find(archive, '/word/document.xml');
+
+  if (!documentPart?.content) {
+    throw new Error('The Word document does not contain readable document content.');
+  }
+
+  const xml = new TextDecoder('utf-8').decode(documentPart.content as Uint8Array);
+  const documentXml = new DOMParser().parseFromString(xml, 'application/xml');
+
+  if (documentXml.getElementsByTagName('parsererror').length) {
+    throw new Error('The Word document content could not be parsed.');
+  }
+
+  const tables = Array.from(documentXml.getElementsByTagName('*'))
+    .filter(element => element.localName === 'tbl');
+
+  return tables.flatMap(table => {
+    const rows = Array.from(table.children)
+      .filter(element => element.localName === 'tr')
+      .map(row => Array.from(row.children)
+        .filter(element => element.localName === 'tc')
+        .map(textFromWordCell));
+
+    return calendarRowsFromGrid(rows);
+  });
+}
+
+function parseHtmlWordRows(buffer: ArrayBuffer) {
+  const html = new TextDecoder('utf-8').decode(buffer);
+  const wordDocument = new DOMParser().parseFromString(html, 'text/html');
+
+  return Array.from(wordDocument.querySelectorAll('table')).flatMap(table => {
+    const rows = Array.from(table.querySelectorAll('tr')).map(row =>
+      Array.from(row.querySelectorAll('th,td')).map(cell =>
+        (cell.textContent || '').replace(/\s+/g, ' ').trim()
+      )
+    );
+
+    return calendarRowsFromGrid(rows);
+  });
+}
+
+async function readWordCalendar(file: File) {
+  const buffer = await file.arrayBuffer();
+
+  if (file.name.toLowerCase().endsWith('.docx')) {
+    return parseDocxRows(buffer);
+  }
+
+  const rows = parseHtmlWordRows(buffer);
+
+  if (!rows.length) {
+    throw new Error(`${file.name} is an older binary Word file. Open it in Microsoft Word and save it as DOCX before importing.`);
+  }
+
+  return rows;
+}
+
 export default function ActivityCalendarPage() {
   const supabase = createClient();
 
@@ -273,8 +412,8 @@ export default function ActivityCalendarPage() {
   });
 
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
-  const [selectedImportFile, setSelectedImportFile] =
-    useState<File | null>(null);
+  const [selectedImportFiles, setSelectedImportFiles] =
+    useState<File[]>([]);
 
   const [importMessage, setImportMessage] = useState('');
 
@@ -783,99 +922,51 @@ export default function ActivityCalendarPage() {
   }
 
   function downloadTemplate() {
-    const rows = [
-      {
-        Date: '15/09/2026',
-        Activity: 'Staff Meeting',
-        'Personnel Responsible': 'John Mensah',
-      },
-      {
-        Date: '20/09/2026',
-        Activity: 'Science Practical Examination',
-        'Personnel Responsible': 'Mary Asante, Daniel Owusu',
-      },
-    ];
-
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-
-    worksheet['!cols'] = [
-      { wch: 18 },
-      { wch: 45 },
-      { wch: 40 },
-    ];
-
-    const workbook = XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      'Activity Calendar'
-    );
-
-    XLSX.writeFile(
-      workbook,
-      'BTI-Activity-Calendar-Template.xlsx'
-    );
+    const template = `<!doctype html><html><head><meta charset="utf-8"><style>
+      @page{size:A4 landscape;margin:15mm}body{font-family:Arial,sans-serif}h1{text-align:center;font-size:18pt}
+      table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:8px}th{background:#e2e8f0}td{height:28px}
+    </style></head><body><h1>ACTIVITY CALENDAR</h1><table><tr><th>Date</th><th>Activity</th><th>Personnel Responsible</th></tr><tr><td>15/09/2026</td><td>Staff Meeting</td><td>John Mensah</td></tr><tr><td>20/09/2026</td><td>Science Practical Examination</td><td>Mary Asante, Daniel Owusu</td></tr></table></body></html>`;
+    const blob = new Blob(['\ufeff', template], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'BIRITECH-Activity-Calendar-Word-Template.doc';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async function processImportFile(file: File) {
-    setSelectedImportFile(file);
+  async function processImportFiles(files: File[]) {
+    const selectedFiles = files.slice(0, 2);
+    setSelectedImportFiles(selectedFiles);
     setImportRows([]);
     setImportMessage('');
     setError('');
 
     try {
-      const buffer = await file.arrayBuffer();
-
-      const workbook = XLSX.read(buffer, {
-        type: 'array',
-        cellDates: true,
-      });
-
-      const firstSheetName = workbook.SheetNames[0];
-
-      if (!firstSheetName) {
-        throw new Error('The Excel file does not contain a worksheet.');
+      if (!selectedFiles.length) {
+        throw new Error('Choose one or both Word activity-calendar documents.');
       }
 
-      const worksheet =
-        workbook.Sheets[firstSheetName];
-
-      const rawRows = XLSX.utils.sheet_to_json<
-        Record<string, unknown>
-      >(worksheet, {
-        defval: '',
-      });
+      const rowsByFile = await Promise.all(
+        selectedFiles.map(file => readWordCalendar(file))
+      );
+      const rawRows = rowsByFile.flat();
 
       if (rawRows.length === 0) {
         throw new Error(
-          'The Excel file does not contain any activity rows.'
+          'No activity table was found. The Word document needs Date, Activity and Personnel Responsible columns.'
         );
       }
 
       const rows: ImportRow[] = rawRows.map(
         (rawRow, index) => {
-          const dateValue =
-            rawRow.Date ??
-            rawRow.date ??
-            rawRow['Activity Date'] ??
-            rawRow['activity date'];
+          const dateValue = rawRow.Date;
+          const activityValue = rawRow.Activity;
+          const personnelValue = rawRow['Personnel Responsible'];
 
-          const activityValue =
-            rawRow.Activity ??
-            rawRow.activity ??
-            rawRow.Title ??
-            rawRow.title;
-
-          const personnelValue =
-            rawRow['Personnel Responsible'] ??
-            rawRow['Personnel responsible'] ??
-            rawRow['Personnel in Charge'] ??
-            rawRow['Personnel in charge'] ??
-            rawRow.personnel ??
-            rawRow.Personnel;
-
-          const date = parseExcelDate(dateValue);
+          const date = parseActivityDate(dateValue);
 
           const title = String(
             activityValue ?? ''
@@ -946,7 +1037,7 @@ export default function ActivityCalendarPage() {
       const invalidCount = rows.length - validCount;
 
       setImportMessage(
-        `${validCount} valid row${
+        `${selectedFiles.length} Word document${selectedFiles.length === 1 ? '' : 's'} read: ${validCount} valid row${
           validCount === 1 ? '' : 's'
         } and ${invalidCount} invalid row${
           invalidCount === 1 ? '' : 's'
@@ -956,7 +1047,7 @@ export default function ActivityCalendarPage() {
       setError(
         err instanceof Error
           ? err.message
-          : 'Unable to read the Excel file.'
+          : 'Unable to read the Word activity-calendar documents.'
       );
     }
   }
@@ -1068,7 +1159,7 @@ export default function ActivityCalendarPage() {
       );
 
       setShowImportModal(false);
-      setSelectedImportFile(null);
+      setSelectedImportFiles([]);
       setImportRows([]);
       setImportMessage('');
 
@@ -1192,7 +1283,7 @@ export default function ActivityCalendarPage() {
                 }}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/10 active:scale-95"
               >
-                <FontAwesomeIcon icon={faFileExcel} />
+                <FontAwesomeIcon icon={faFileWord} />
                 Import Calendar
               </button>
 
@@ -1803,19 +1894,19 @@ export default function ActivityCalendarPage() {
             <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-slate-900/95 p-5 backdrop-blur">
               <div>
                 <div className="flex items-center gap-2 text-emerald-300">
-                  <FontAwesomeIcon icon={faFileExcel} />
+                  <FontAwesomeIcon icon={faFileWord} />
                   <span className="text-xs font-bold uppercase tracking-wider">
                     Activity Calendar Import
                   </span>
                 </div>
 
                 <h2 className="mt-1 text-xl font-black">
-                  Import Activities from Excel
+                  Import Activities from Word
                 </h2>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Upload the school&apos;s three-column activity
-                  calendar.
+                  Upload the school&apos;s two Word activity-calendar
+                  documents.
                 </p>
               </div>
 
@@ -1824,7 +1915,7 @@ export default function ActivityCalendarPage() {
                   if (importing) return;
 
                   setShowImportModal(false);
-                  setSelectedImportFile(null);
+                  setSelectedImportFiles([]);
                   setImportRows([]);
                   setImportMessage('');
                 }}
@@ -1844,12 +1935,12 @@ export default function ActivityCalendarPage() {
 
                   <div>
                     <h3 className="text-sm font-black text-white">
-                      Excel format
+                      Word document format
                     </h3>
 
                     <p className="mt-1 text-xs leading-5 text-slate-400">
-                      Your Excel file should contain exactly these
-                      three main columns:
+                      Each Word document should contain an activity
+                      table with these three main columns:
                     </p>
 
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1879,7 +1970,7 @@ export default function ActivityCalendarPage() {
 
                   <p className="mt-1 text-xs text-slate-500">
                     Download the official BIRITECH SMS activity calendar
-                    Excel template.
+                    Word template.
                   </p>
                 </div>
 
@@ -1896,14 +1987,14 @@ export default function ActivityCalendarPage() {
               <label className="group flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-slate-950/50 p-8 text-center transition hover:border-indigo-400/30 hover:bg-indigo-500/5">
                 <input
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".docx,.doc"
+                  multiple
                   className="hidden"
                   onChange={(event) => {
-                    const file =
-                      event.target.files?.[0];
+                    const files = Array.from(event.target.files ?? []);
 
-                    if (file) {
-                      processImportFile(file);
+                    if (files.length) {
+                      processImportFiles(files);
                     }
                   }}
                 />
@@ -1915,13 +2006,13 @@ export default function ActivityCalendarPage() {
                 </div>
 
                 <h3 className="mt-4 text-sm font-black">
-                  {selectedImportFile
-                    ? selectedImportFile.name
-                    : 'Choose Activity Calendar Excel File'}
+                  {selectedImportFiles.length
+                    ? selectedImportFiles.map(file => file.name).join(' + ')
+                    : 'Choose the Two Activity Calendar Word Files'}
                 </h3>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  XLSX, XLS or CSV files
+                  DOCX or Word-compatible DOC files · maximum 2 documents
                 </p>
               </label>
 
@@ -2094,7 +2185,7 @@ export default function ActivityCalendarPage() {
                     if (importing) return;
 
                     setShowImportModal(false);
-                    setSelectedImportFile(null);
+                    setSelectedImportFiles([]);
                     setImportRows([]);
                     setImportMessage('');
                   }}
