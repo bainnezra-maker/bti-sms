@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { generateTeachingDocument } from '@/lib/teaching-document-generator';
 
 type Profile = { id: string; full_name: string; email: string; role: string; school_id: string };
 type AcademicYear = { id: string; name: string; is_current?: boolean };
@@ -67,6 +68,7 @@ export default function MyUploadsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -162,13 +164,88 @@ export default function MyUploadsPage() {
     }
   }, [assignedSubjects, generatorSubjectId]);
 
-  function prepareGenerator() {
+  async function generateDocument() {
     setError(''); setMessage(''); setGeneratorMessage('');
     if (!yearId) { setError('Select an academic year for the document.'); return; }
     if (!semesterId) { setError('Select a semester for the document.'); return; }
     const subject = assignedSubjects.find(item => item.id === generatorSubjectId);
     if (!subject) { setError('Select one of your assigned subjects.'); return; }
-    setGeneratorMessage(`${SHORT[generatorType]} generator ready for ${subject.name}. Its curriculum will be matched to your assignment, academic year and semester.`);
+    if (!profile || !staffId) { setError('Your teacher login is not linked to a Teaching Staff record.'); return; }
+
+    if (generatorType === 'unit_specification' && documents.some(document =>
+      document.document_type === generatorType &&
+      document.academic_year_id === yearId &&
+      document.semester_id === semesterId
+    )) {
+      setError('A Unit Specification Breakdown already exists for this semester. Open the existing document from Upload history.');
+      return;
+    }
+
+    const year = years.find(item => item.id === yearId);
+    const semester = semesters.find(item => item.id === semesterId);
+    const matchingAssignments = assignments.filter(assignment =>
+      assignment.subject_id === subject.id && assignment.academic_year_id === yearId
+    );
+    const forms = Array.from(new Set(matchingAssignments.flatMap(assignment => assignment.forms ?? []))).sort();
+    const programmeIds = new Set(matchingAssignments.flatMap(assignment => assignment.programme_ids ?? []));
+    const generated = generateTeachingDocument({
+      kind: generatorType,
+      teacherName: profile.full_name,
+      subjectName: subject.name,
+      subjectCode: subject.code,
+      academicYear: year?.name ?? 'Academic Year',
+      semester: semester?.name ?? 'Semester',
+      forms,
+      programmeCount: programmeIds.size,
+    });
+
+    setGenerating(true);
+    const blob = new Blob(['\ufeff', generated.content], { type: `${generated.mimeType};charset=utf-8` });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = generated.fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+
+    const storagePath = `${profile.school_id}/${staffId}/generated-${Date.now()}-${generated.fileName}`;
+    const { error: storageError } = await supabase.storage
+      .from('staff-documents')
+      .upload(storagePath, blob, { cacheControl: '3600', upsert: false, contentType: generated.mimeType });
+
+    if (storageError) {
+      setError(`The ${SHORT[generatorType]} was downloaded, but it could not be saved to Upload history: ${storageError.message}`);
+      setGenerating(false);
+      return;
+    }
+
+    const { data, error: recordError } = await supabase.from('staff_teaching_documents').insert({
+      staff_id: staffId,
+      school_id: profile.school_id,
+      document_type: generatorType,
+      academic_year_id: yearId,
+      semester_id: semesterId,
+      title: generated.title,
+      file_name: generated.fileName,
+      file_path: storagePath,
+      file_type: generated.mimeType,
+      file_size: blob.size,
+      uploaded_by: profile.id,
+      notes: `Generated from the ${subject.name} teacher assignment in BIRITECH SMS.`,
+    }).select('id, staff_id, document_type, academic_year_id, semester_id, title, file_name, file_path, file_type, file_size, uploaded_at, notes').single();
+
+    if (recordError) {
+      await supabase.storage.from('staff-documents').remove([storagePath]);
+      setError(`The ${SHORT[generatorType]} was downloaded, but it could not be added to Upload history: ${recordError.message}`);
+      setGenerating(false);
+      return;
+    }
+
+    setDocuments(current => [data as TeachingDocument, ...current]);
+    setGeneratorMessage(`${SHORT[generatorType]} generated, downloaded and saved to your Upload history.`);
+    setGenerating(false);
   }
 
   async function uploadDocument(event: FormEvent) {
@@ -245,7 +322,7 @@ export default function MyUploadsPage() {
                 </div>
                 <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">How the link works</p>
-                  <p className="mt-2 text-xs leading-5 text-slate-600">The selected subject determines which NCI or NCII curriculum, learning outcomes and performance criteria are used. The academic year and semester determine the approved teaching weeks.</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">Your selected subject, assignment, academic year and semester are inserted automatically. The downloaded Word document follows the official USB, LSP or POWD structure and remains editable for approved curriculum details.</p>
                 </div>
               </div>
               <div className="space-y-4">
@@ -253,7 +330,7 @@ export default function MyUploadsPage() {
                 <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="text-xs font-black text-slate-600">Academic year</span><select value={yearId} onChange={e=>{setYearId(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select year</option>{years.map(y=><option key={y.id} value={y.id}>{y.name}{y.is_current?' (Current)':''}</option>)}</select></label><label className="block"><span className="text-xs font-black text-slate-600">Semester</span><select value={semesterId} onChange={e=>{setSemesterId(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select semester</option>{semesters.map(s=><option key={s.id} value={s.id}>{s.name}{s.is_current?' (Current)':''}</option>)}</select></label></div>
                 {assignedSubjects.length===0&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-800"><i className="fa-solid fa-triangle-exclamation mr-2"/>No subject assignment was found for this academic year. Ask the administrator to assign your subject first.</div>}
                 {generatorMessage&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold leading-5 text-emerald-800"><i className="fa-solid fa-circle-check mr-2"/>{generatorMessage}</div>}
-                <button type="button" onClick={prepareGenerator} disabled={!staffId||assignedSubjects.length===0} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"><i className="fa-solid fa-wand-magic-sparkles"/>Prepare {SHORT[generatorType]} Generator</button>
+                <button type="button" onClick={generateDocument} disabled={generating||!staffId||assignedSubjects.length===0} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"><i className={generating?'fa-solid fa-spinner fa-spin':'fa-solid fa-wand-magic-sparkles'}/>{generating?`Generating ${SHORT[generatorType]}...`:`Generate & Download ${SHORT[generatorType]}`}</button>
               </div>
             </div>
           </section>
