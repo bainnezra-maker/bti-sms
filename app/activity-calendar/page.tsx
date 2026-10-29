@@ -203,7 +203,37 @@ function formatLongDate(value: string) {
   });
 }
 
-function parseActivityDate(value: unknown): string | null {
+function getAcademicYearForMonth(
+  month: number,
+  academicYear?: AcademicYear | null
+) {
+  if (academicYear?.start_date && academicYear?.end_date) {
+    const start = new Date(`${academicYear.start_date}T00:00:00`);
+    const end = new Date(`${academicYear.end_date}T23:59:59`);
+
+    for (let year = start.getFullYear(); year <= end.getFullYear(); year++) {
+      const candidate = new Date(year, month, 1);
+      const candidateMonthEnd = new Date(year, month + 1, 0, 23, 59, 59);
+
+      if (candidate <= end && candidateMonthEnd >= start) {
+        return year;
+      }
+    }
+  }
+
+  const yearMatch = academicYear?.name.match(/(\d{4})\D+(\d{4})/);
+
+  if (yearMatch) {
+    return month >= 8 ? Number(yearMatch[1]) : Number(yearMatch[2]);
+  }
+
+  return new Date().getFullYear();
+}
+
+function parseActivityDate(
+  value: unknown,
+  academicYear?: AcademicYear | null
+): string | null {
   if (value === null || value === undefined || value === '') {
     return null;
   }
@@ -252,6 +282,27 @@ function parseActivityDate(value: unknown): string | null {
 
     if (!Number.isNaN(date.getTime())) {
       return formatDateInput(date);
+    }
+  }
+
+  // Word schedules commonly omit the year in rows, for example
+  // "21ST SEPT - 25TH SEPT". Resolve it from the selected academic year.
+  const namedDate = raw.match(/(\d{1,2})\s+([A-Za-z]{3,9})/);
+
+  if (namedDate) {
+    const day = Number(namedDate[1]);
+    const monthToken = namedDate[2].toLowerCase();
+    const month = MONTHS.findIndex(name =>
+      name.toLowerCase().startsWith(monthToken)
+    );
+
+    if (month >= 0) {
+      const year = getAcademicYearForMonth(month, academicYear);
+      const date = new Date(year, month, day);
+
+      if (!Number.isNaN(date.getTime())) {
+        return formatDateInput(date);
+      }
     }
   }
 
@@ -1046,7 +1097,7 @@ export default function ActivityCalendarPage() {
           const activityValue = rawRow.Activity;
           const personnelValue = rawRow['Personnel Responsible'];
 
-          const date = parseActivityDate(dateValue);
+          const date = parseActivityDate(dateValue, currentAcademicYear);
 
           const title = String(
             activityValue ?? ''
@@ -2173,6 +2224,16 @@ export default function ActivityCalendarPage() {
               <p className="text-center text-xs text-slate-500">
                 DOCX or Word-compatible DOC · upload one calendar for each form
               </p>
+
+              {error && (
+                <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-200">
+                  <FontAwesomeIcon
+                    icon={faCircleExclamation}
+                    className="mr-2 text-rose-400"
+                  />
+                  {error}
+                </div>
+              )}
 
               {/* Import result message */}
               {importMessage && (
