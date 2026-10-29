@@ -421,7 +421,9 @@ function calendarRowsFromGrid(grid: string[][]) {
 }
 
 function parseDocxRows(buffer: ArrayBuffer) {
-  const archive = XLSX.CFB.read(buffer, { type: 'array' });
+  // file.arrayBuffer() returns an ArrayBuffer in the browser, while the CFB
+  // reader expects indexable bytes for ZIP-based DOCX files.
+  const archive = XLSX.CFB.read(new Uint8Array(buffer), { type: 'array' });
   const documentPart = XLSX.CFB.find(archive, '/word/document.xml');
 
   if (!documentPart?.content) {
