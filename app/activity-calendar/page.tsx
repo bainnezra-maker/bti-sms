@@ -47,6 +47,14 @@ type AcademicYear = {
   is_current?: boolean | null;
 };
 
+type TargetForm = 'all' | 'form_1' | 'form_2' | 'form_3';
+type FormFilter = 'any' | TargetForm;
+
+type ImportFileSelection = {
+  targetForm: Exclude<TargetForm, 'all'>;
+  file: File;
+};
+
 type Activity = {
   id: string;
   school_id: string;
@@ -56,6 +64,7 @@ type Activity = {
   end_date?: string | null;
   description?: string | null;
   activity_type?: string | null;
+  target_form?: TargetForm | null;
   is_all_staff?: boolean | null;
   created_at?: string | null;
   responsible_staff?: {
@@ -68,6 +77,7 @@ type Activity = {
 type ActivityForm = {
   activity_date: string;
   title: string;
+  target_form: TargetForm;
   staff_ids: string[];
 };
 
@@ -75,6 +85,7 @@ type ImportRow = {
   rowNumber: number;
   date: string;
   title: string;
+  targetForm: Exclude<TargetForm, 'all'>;
   personnel: string;
   staffIds: string[];
   matchedStaff: string[];
@@ -113,6 +124,36 @@ const MONTHS = [
   'November',
   'December',
 ];
+
+const TARGET_FORM_OPTIONS: { value: TargetForm; label: string }[] = [
+  { value: 'all', label: 'All Forms' },
+  { value: 'form_1', label: 'Form 1' },
+  { value: 'form_2', label: 'Form 2' },
+  { value: 'form_3', label: 'Form 3' },
+];
+
+const LESSON_PLAN_FORM_OPTIONS = TARGET_FORM_OPTIONS.filter(
+  (option): option is { value: Exclude<TargetForm, 'all'>; label: string } =>
+    option.value !== 'all'
+);
+
+function getTargetFormLabel(value?: TargetForm | null) {
+  return TARGET_FORM_OPTIONS.find(option => option.value === (value || 'all'))
+    ?.label || 'All Forms';
+}
+
+function getTargetFormBadgeClass(value?: TargetForm | null) {
+  switch (value) {
+    case 'form_1':
+      return 'border-cyan-400/20 bg-cyan-500/10 text-cyan-300';
+    case 'form_2':
+      return 'border-violet-400/20 bg-violet-500/10 text-violet-300';
+    case 'form_3':
+      return 'border-amber-400/20 bg-amber-500/10 text-amber-300';
+    default:
+      return 'border-slate-400/20 bg-slate-500/10 text-slate-300';
+  }
+}
 
 function normalizeName(value: string) {
   return value
@@ -272,15 +313,26 @@ function textFromWordCell(cell: Element) {
 function calendarRowsFromGrid(grid: string[][]) {
   const headerIndex = grid.findIndex(row => {
     const values = row.map(value => normalizeName(value));
-    return values.some(value => value.includes('date') || value.includes('day')) &&
-      values.some(value => value.includes('activity') || value.includes('event'));
+    return row.length >= 2 && values.some(
+      value => value.includes('date') || value.includes('day')
+    );
   });
 
   if (headerIndex < 0) return [] as RawCalendarRow[];
 
   const headers = grid[headerIndex].map(value => normalizeName(value));
   const dateIndex = headers.findIndex(value => value.includes('date') || value.includes('day'));
-  const activityIndex = headers.findIndex(value => value.includes('activity') || value.includes('event'));
+  const activityIndex = headers.findIndex((value, index) =>
+    index !== dateIndex && (
+      value.includes('activity') ||
+      value.includes('event') ||
+      value.includes('lesson plan') ||
+      value.includes('submission') ||
+      value.includes('task') ||
+      value.includes('description') ||
+      value.includes('week')
+    )
+  );
   const personnelIndex = headers.findIndex(value =>
     value.includes('personnel') ||
     value.includes('responsib') ||
@@ -288,17 +340,26 @@ function calendarRowsFromGrid(grid: string[][]) {
     value.includes('officer')
   );
 
-  if (dateIndex < 0 || activityIndex < 0) return [] as RawCalendarRow[];
+  if (dateIndex < 0) return [] as RawCalendarRow[];
 
   let previousDate = '';
 
   return grid.slice(headerIndex + 1).flatMap(row => {
+    if (!row.some(cell => cell.trim())) return [];
+
     const date = (row[dateIndex] || '').trim() || previousDate;
-    const activity = (row[activityIndex] || '').trim();
+    const activityValue = activityIndex >= 0
+      ? (row[activityIndex] || '').trim()
+      : '';
+    const activity = activityValue
+      ? activityValue.toLowerCase().includes('lesson plan')
+        ? activityValue
+        : `Lesson Plan Submission - ${activityValue}`
+      : 'Lesson Plan Submission';
     const personnel = personnelIndex >= 0 ? (row[personnelIndex] || '').trim() : '';
 
     if (row[dateIndex]?.trim()) previousDate = row[dateIndex].trim();
-    if (!date && !activity && !personnel) return [];
+    if (!date && !personnel) return [];
 
     return [{
       Date: date,
@@ -395,6 +456,8 @@ export default function ActivityCalendarPage() {
 
   const [search, setSearch] = useState('');
   const [selectedStaff, setSelectedStaff] = useState('all');
+  const [selectedFormFilter, setSelectedFormFilter] =
+    useState<FormFilter>('any');
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -408,12 +471,13 @@ export default function ActivityCalendarPage() {
   const [form, setForm] = useState<ActivityForm>({
     activity_date: formatDateInput(new Date()),
     title: '',
+    target_form: 'all',
     staff_ids: [],
   });
 
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
   const [selectedImportFiles, setSelectedImportFiles] =
-    useState<File[]>([]);
+    useState<ImportFileSelection[]>([]);
 
   const [importMessage, setImportMessage] = useState('');
 
@@ -473,9 +537,13 @@ export default function ActivityCalendarPage() {
           (item) => item.staff_id === selectedStaff
         );
 
-      return matchesSearch && matchesStaff;
+      const matchesForm =
+        selectedFormFilter === 'any' ||
+        (activity.target_form || 'all') === selectedFormFilter;
+
+      return matchesSearch && matchesStaff && matchesForm;
     });
-  }, [activities, search, selectedStaff]);
+  }, [activities, search, selectedStaff, selectedFormFilter]);
 
   const activitiesByDate = useMemo(() => {
     const map = new Map<string, Activity[]>();
@@ -617,6 +685,7 @@ export default function ActivityCalendarPage() {
         end_date,
         description,
         activity_type,
+        target_form,
         is_all_staff,
         created_at,
         responsible_staff:school_activity_responsible_staff (
@@ -700,6 +769,7 @@ export default function ActivityCalendarPage() {
     setForm({
       activity_date: formatDateInput(new Date()),
       title: '',
+      target_form: 'all',
       staff_ids: [],
     });
   }
@@ -712,6 +782,7 @@ export default function ActivityCalendarPage() {
       activity_date:
         date || formatDateInput(new Date()),
       title: '',
+      target_form: 'all',
       staff_ids: [],
     });
 
@@ -728,6 +799,7 @@ export default function ActivityCalendarPage() {
     setForm({
       activity_date: activity.activity_date,
       title: activity.title,
+      target_form: activity.target_form || 'all',
       staff_ids: ids,
     });
 
@@ -794,6 +866,7 @@ export default function ActivityCalendarPage() {
             academic_year_id: academicYear.id,
             title: form.title.trim(),
             activity_date: form.activity_date,
+            target_form: form.target_form,
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingActivity.id)
@@ -842,6 +915,7 @@ export default function ActivityCalendarPage() {
               end_date: form.activity_date,
               description: null,
               activity_type: 'general',
+              target_form: form.target_form,
               is_all_staff: false,
               created_by: userId,
             })
@@ -925,20 +999,20 @@ export default function ActivityCalendarPage() {
     const template = `<!doctype html><html><head><meta charset="utf-8"><style>
       @page{size:A4 landscape;margin:15mm}body{font-family:Arial,sans-serif}h1{text-align:center;font-size:18pt}
       table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:8px}th{background:#e2e8f0}td{height:28px}
-    </style></head><body><h1>ACTIVITY CALENDAR</h1><table><tr><th>Date</th><th>Activity</th><th>Personnel Responsible</th></tr><tr><td>15/09/2026</td><td>Staff Meeting</td><td>John Mensah</td></tr><tr><td>20/09/2026</td><td>Science Practical Examination</td><td>Mary Asante, Daniel Owusu</td></tr></table></body></html>`;
+    </style></head><body><h1>LESSON PLAN SUBMISSION CALENDAR</h1><table><tr><th>Date</th><th>Activity</th><th>Personnel Responsible (Optional)</th></tr><tr><td>15/09/2026</td><td>Lesson Plan Submission - Week 1</td><td></td></tr><tr><td>22/09/2026</td><td>Lesson Plan Submission - Week 2</td><td></td></tr></table></body></html>`;
     const blob = new Blob(['\ufeff', template], { type: 'application/msword;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'BIRITECH-Activity-Calendar-Word-Template.doc';
+    link.download = 'BIRITECH-Lesson-Plan-Calendar-Word-Template.doc';
     document.body.appendChild(link);
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async function processImportFiles(files: File[]) {
-    const selectedFiles = files.slice(0, 2);
+  async function processImportFiles(files: ImportFileSelection[]) {
+    const selectedFiles = files.slice(0, 3);
     setSelectedImportFiles(selectedFiles);
     setImportRows([]);
     setImportMessage('');
@@ -946,22 +1020,28 @@ export default function ActivityCalendarPage() {
 
     try {
       if (!selectedFiles.length) {
-        throw new Error('Choose one or both Word activity-calendar documents.');
+        throw new Error('Choose at least one Form lesson-plan calendar document.');
       }
 
       const rowsByFile = await Promise.all(
-        selectedFiles.map(file => readWordCalendar(file))
+        selectedFiles.map(async selection => {
+          const rows = await readWordCalendar(selection.file);
+          return rows.map(rawRow => ({
+            rawRow,
+            targetForm: selection.targetForm,
+          }));
+        })
       );
       const rawRows = rowsByFile.flat();
 
       if (rawRows.length === 0) {
         throw new Error(
-          'No activity table was found. The Word document needs Date, Activity and Personnel Responsible columns.'
+          'No activity table was found. Each Word document needs Date and Activity columns.'
         );
       }
 
       const rows: ImportRow[] = rawRows.map(
-        (rawRow, index) => {
+        ({ rawRow, targetForm }, index) => {
           const dateValue = rawRow.Date;
           const activityValue = rawRow.Activity;
           const personnelValue = rawRow['Personnel Responsible'];
@@ -1004,9 +1084,6 @@ export default function ActivityCalendarPage() {
           } else if (!title) {
             errorMessage =
               'Missing activity.';
-          } else if (!personnel) {
-            errorMessage =
-              'Missing personnel responsible.';
           } else if (unmatchedStaff.length > 0) {
             errorMessage =
               `Personnel not found: ${unmatchedStaff.join(
@@ -1018,6 +1095,7 @@ export default function ActivityCalendarPage() {
             rowNumber: index + 2,
             date: date || '',
             title,
+            targetForm,
             personnel,
             staffIds,
             matchedStaff,
@@ -1037,7 +1115,7 @@ export default function ActivityCalendarPage() {
       const invalidCount = rows.length - validCount;
 
       setImportMessage(
-        `${selectedFiles.length} Word document${selectedFiles.length === 1 ? '' : 's'} read: ${validCount} valid row${
+        `${selectedFiles.length} Form calendar${selectedFiles.length === 1 ? '' : 's'} read: ${validCount} valid row${
           validCount === 1 ? '' : 's'
         } and ${invalidCount} invalid row${
           invalidCount === 1 ? '' : 's'
@@ -1091,6 +1169,7 @@ export default function ActivityCalendarPage() {
             .eq('school_id', schoolId)
             .eq('activity_date', row.date)
             .eq('title', row.title)
+            .eq('target_form', row.targetForm)
             .maybeSingle();
 
         if (existingActivity) {
@@ -1108,7 +1187,8 @@ export default function ActivityCalendarPage() {
               activity_date: row.date,
               end_date: row.date,
               description: null,
-              activity_type: 'general',
+              activity_type: 'lesson_plan_submission',
+              target_form: row.targetForm,
               is_all_staff: false,
               created_by: userId,
             })
@@ -1129,10 +1209,11 @@ export default function ActivityCalendarPage() {
           })
         );
 
-        const { error: responsibleError } =
-          await supabase
-            .from('school_activity_responsible_staff')
-            .insert(responsibleRows);
+        const { error: responsibleError } = responsibleRows.length
+          ? await supabase
+              .from('school_activity_responsible_staff')
+              .insert(responsibleRows)
+          : { error: null };
 
         if (responsibleError) {
           await supabase
@@ -1413,6 +1494,33 @@ export default function ActivityCalendarPage() {
               />
             </div>
 
+            <div className="relative min-w-[180px]">
+              <FontAwesomeIcon
+                icon={faListCheck}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+              />
+
+              <select
+                value={selectedFormFilter}
+                onChange={(event) =>
+                  setSelectedFormFilter(event.target.value as FormFilter)
+                }
+                className="w-full appearance-none rounded-xl border border-white/10 bg-slate-950/80 py-3 pl-11 pr-10 text-sm text-white outline-none focus:border-indigo-500/50"
+              >
+                <option value="any">All Form Calendars</option>
+                {TARGET_FORM_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <FontAwesomeIcon
+                icon={faChevronDown}
+                className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"
+              />
+            </div>
+
             <div className="relative min-w-[220px]">
               <FontAwesomeIcon
                 icon={faFilter}
@@ -1564,6 +1672,9 @@ export default function ActivityCalendarPage() {
                           key={activity.id}
                           className="rounded-md border border-indigo-400/10 bg-indigo-500/10 px-1.5 py-1"
                         >
+                          <span className={`mb-1 inline-flex rounded border px-1 py-0.5 text-[8px] font-black uppercase tracking-wide ${getTargetFormBadgeClass(activity.target_form)}`}>
+                            {getTargetFormLabel(activity.target_form)}
+                          </span>
                           <p className="line-clamp-2 text-[10px] font-semibold leading-4 text-indigo-200 sm:text-xs">
                             {activity.title}
                           </p>
@@ -1630,11 +1741,16 @@ export default function ActivityCalendarPage() {
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-indigo-300">
-                          {formatDisplayDate(
-                            activity.activity_date
-                          )}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-xs font-semibold text-indigo-300">
+                            {formatDisplayDate(
+                              activity.activity_date
+                            )}
+                          </p>
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getTargetFormBadgeClass(activity.target_form)}`}>
+                            {getTargetFormLabel(activity.target_form)}
+                          </span>
+                        </div>
 
                         <h3 className="mt-1 truncate text-sm font-black text-white">
                           {activity.title}
@@ -1765,6 +1881,30 @@ export default function ActivityCalendarPage() {
                   placeholder="e.g. Staff Meeting"
                   className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-indigo-500/50"
                 />
+              </div>
+
+              {/* Target form */}
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-300">
+                  Applies To
+                </label>
+
+                <select
+                  value={form.target_form}
+                  onChange={(event) =>
+                    setForm(previous => ({
+                      ...previous,
+                      target_form: event.target.value as TargetForm,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-indigo-500/50"
+                >
+                  {TARGET_FORM_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Personnel */}
@@ -1905,8 +2045,8 @@ export default function ActivityCalendarPage() {
                 </h2>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Upload the school&apos;s two Word activity-calendar
-                  documents.
+                  Upload the separate Form 1, Form 2 and Form 3
+                  lesson-plan submission calendars.
                 </p>
               </div>
 
@@ -1939,8 +2079,8 @@ export default function ActivityCalendarPage() {
                     </h3>
 
                     <p className="mt-1 text-xs leading-5 text-slate-400">
-                      Each Word document should contain an activity
-                      table with these three main columns:
+                      Each Word document should contain a lesson-plan
+                      schedule table. Personnel Responsible is optional.
                     </p>
 
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1983,38 +2123,56 @@ export default function ActivityCalendarPage() {
                 </button>
               </div>
 
-              {/* File upload */}
-              <label className="group flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-slate-950/50 p-8 text-center transition hover:border-indigo-400/30 hover:bg-indigo-500/5">
-                <input
-                  type="file"
-                  accept=".docx,.doc"
-                  multiple
-                  className="hidden"
-                  onChange={(event) => {
-                    const files = Array.from(event.target.files ?? []);
+              {/* Form calendar uploads */}
+              <div className="grid gap-3 md:grid-cols-3">
+                {LESSON_PLAN_FORM_OPTIONS.map(option => {
+                  const selected = selectedImportFiles.find(
+                    selection => selection.targetForm === option.value
+                  );
 
-                    if (files.length) {
-                      processImportFiles(files);
-                    }
-                  }}
-                />
+                  return (
+                    <label
+                      key={option.value}
+                      className="group flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-slate-950/50 p-5 text-center transition hover:border-indigo-400/30 hover:bg-indigo-500/5"
+                    >
+                      <input
+                        type="file"
+                        accept=".docx,.doc"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) return;
 
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/10 text-2xl text-indigo-300 transition group-hover:scale-110">
-                  <FontAwesomeIcon
-                    icon={faCloudArrowUp}
-                  />
-                </div>
+                          const nextSelections = [
+                            ...selectedImportFiles.filter(
+                              selection => selection.targetForm !== option.value
+                            ),
+                            { targetForm: option.value, file },
+                          ];
 
-                <h3 className="mt-4 text-sm font-black">
-                  {selectedImportFiles.length
-                    ? selectedImportFiles.map(file => file.name).join(' + ')
-                    : 'Choose the Two Activity Calendar Word Files'}
-                </h3>
+                          processImportFiles(nextSelections);
+                        }}
+                      />
 
-                <p className="mt-1 text-xs text-slate-500">
-                  DOCX or Word-compatible DOC files · maximum 2 documents
-                </p>
-              </label>
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl border text-xl transition group-hover:scale-110 ${getTargetFormBadgeClass(option.value)}`}>
+                        <FontAwesomeIcon icon={faCloudArrowUp} />
+                      </div>
+
+                      <h3 className="mt-3 text-sm font-black text-white">
+                        {option.label} Calendar
+                      </h3>
+
+                      <p className="mt-1 max-w-full truncate text-xs text-slate-500">
+                        {selected?.file.name || 'Choose Word document'}
+                      </p>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <p className="text-center text-xs text-slate-500">
+                DOCX or Word-compatible DOC · upload one calendar for each form
+              </p>
 
               {/* Import result message */}
               {importMessage && (
@@ -2056,6 +2214,10 @@ export default function ActivityCalendarPage() {
                           </th>
 
                           <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">
+                            Form
+                          </th>
+
+                          <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">
                             Activity
                           </th>
 
@@ -2089,6 +2251,12 @@ export default function ActivityCalendarPage() {
                                     row.date
                                   )
                                 : '—'}
+                            </td>
+
+                            <td className="whitespace-nowrap px-4 py-3">
+                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getTargetFormBadgeClass(row.targetForm)}`}>
+                                {getTargetFormLabel(row.targetForm)}
+                              </span>
                             </td>
 
                             <td className="px-4 py-3 font-semibold text-white">
@@ -2284,6 +2452,9 @@ export default function ActivityCalendarPage() {
                           </div>
 
                           <div className="min-w-0 flex-1">
+                            <span className={`mb-2 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${getTargetFormBadgeClass(activity.target_form)}`}>
+                              {getTargetFormLabel(activity.target_form)}
+                            </span>
                             <h3 className="font-black text-white">
                               {activity.title}
                             </h3>
