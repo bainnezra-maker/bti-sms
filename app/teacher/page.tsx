@@ -251,6 +251,16 @@ function timeToMinutes(value: string) {
   return hour * 60 + minute;
 }
 
+function chunkItems<T>(items: T[], size = 100) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
 function useAnimatedNumber(
   target: number,
   duration = 900
@@ -343,37 +353,39 @@ async function fetchPagedAssessments(filters: {
 
   const pageSize = 1000;
 
-  for (let page = 0; page < 10; page += 1) {
-    let query = supabase
-      .from('assessments')
-      .select(
-        'id, student_id, subject, assessment_type, score, max_score, term'
-      )
-      .eq('school_id', filters.schoolId)
-      .in('student_id', filters.studentIds)
-      .in('subject', filters.subjects)
-      .range(
-        page * pageSize,
-        page * pageSize + pageSize - 1
-      );
+  for (const studentIdBatch of chunkItems(filters.studentIds)) {
+    for (let page = 0; page < 10; page += 1) {
+      let query = supabase
+        .from('assessments')
+        .select(
+          'id, student_id, subject, assessment_type, score, max_score, term'
+        )
+        .eq('school_id', filters.schoolId)
+        .in('student_id', studentIdBatch)
+        .in('subject', filters.subjects)
+        .range(
+          page * pageSize,
+          page * pageSize + pageSize - 1
+        );
 
-    if (filters.term) {
-      query = query.eq('term', filters.term);
-    }
+      if (filters.term) {
+        query = query.eq('term', filters.term);
+      }
 
-    const { data, error } = await query;
+      const { data, error } = await query;
 
-    if (error) {
-      throw error;
-    }
+      if (error) {
+        throw error;
+      }
 
-    const batch =
-      (data ?? []) as AssessmentRecord[];
+      const batch =
+        (data ?? []) as AssessmentRecord[];
 
-    rows.push(...batch);
+      rows.push(...batch);
 
-    if (batch.length < pageSize) {
-      break;
+      if (batch.length < pageSize) {
+        break;
+      }
     }
   }
 
@@ -391,30 +403,32 @@ async function fetchPagedAttendance(
 
   const pageSize = 1000;
 
-  for (let page = 0; page < 10; page += 1) {
-    const {
-      data,
-      error,
-    } = await supabase
-      .from('attendance')
-      .select('student_id, status')
-      .in('student_id', studentIds)
-      .range(
-        page * pageSize,
-        page * pageSize + pageSize - 1
-      );
+  for (const studentIdBatch of chunkItems(studentIds)) {
+    for (let page = 0; page < 10; page += 1) {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from('attendance')
+        .select('student_id, status')
+        .in('student_id', studentIdBatch)
+        .range(
+          page * pageSize,
+          page * pageSize + pageSize - 1
+        );
 
-    if (error) {
-      return rows;
-    }
+      if (error) {
+        return rows;
+      }
 
-    const batch =
-      (data ?? []) as AttendanceRow[];
+      const batch =
+        (data ?? []) as AttendanceRow[];
 
-    rows.push(...batch);
+      rows.push(...batch);
 
-    if (batch.length < pageSize) {
-      break;
+      if (batch.length < pageSize) {
+        break;
+      }
     }
   }
 
@@ -697,32 +711,39 @@ export default function TeacherDashboard() {
       let studentRows: Student[] = [];
 
       if (studentIds.length) {
-        const {
-          data: studentData,
-          error: studentError,
-        } = await supabase
-          .from('students')
-          .select(
-            'id, full_name, admission_number, gender'
-          )
-          .in('id', studentIds)
-          .eq(
-            'school_id',
-            userProfile.school_id
-          )
-          .order('full_name');
+        for (const studentIdBatch of chunkItems(studentIds)) {
+          const {
+            data: studentData,
+            error: studentError,
+          } = await supabase
+            .from('students')
+            .select(
+              'id, full_name, admission_number, gender'
+            )
+            .in('id', studentIdBatch)
+            .eq(
+              'school_id',
+              userProfile.school_id
+            )
+            .order('full_name');
 
-        if (studentError) {
-          if (mounted) {
-            setError(studentError.message);
-            setLoading(false);
+          if (studentError) {
+            if (mounted) {
+              setError(studentError.message);
+              setLoading(false);
+            }
+
+            return;
           }
 
-          return;
+          studentRows.push(
+            ...((studentData ?? []) as Student[])
+          );
         }
 
-        studentRows =
-          (studentData ?? []) as Student[];
+        studentRows.sort((left, right) =>
+          left.full_name.localeCompare(right.full_name)
+        );
       }
 
       // Render the teacher workspace as soon as its essential data is ready.
