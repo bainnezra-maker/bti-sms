@@ -1216,84 +1216,151 @@ export default function ActivityCalendarPage() {
     setSuccess('');
 
     try {
-      let importedCount = 0;
       let skippedCount = 0;
+      const activityKey = (
+        date: string,
+        targetForm: string,
+        title: string
+      ) => `${date}|${targetForm}|${normalizeName(title)}`;
 
-      for (const row of validRows) {
+      const preparedRows = validRows.flatMap((row) => {
         const academicYear = getAcademicYearForDate(
           row.date
         );
 
         if (!academicYear) {
           skippedCount++;
-          continue;
+          return [];
         }
 
-        const { data: existingActivity } =
-          await supabase
-            .from('school_activities')
-            .select('id')
-            .eq('school_id', schoolId)
-            .eq('activity_date', row.date)
-            .eq('title', row.title)
-            .eq('target_form', row.targetForm)
-            .maybeSingle();
+        return [{ row, academicYearId: academicYear.id }];
+      });
 
-        if (existingActivity) {
+      if (!preparedRows.length) {
+        throw new Error(
+          'None of the activity dates match an academic year.'
+        );
+      }
+
+      const activityDates = preparedRows.map(({ row }) => row.date);
+      const targetForms = Array.from(
+        new Set(preparedRows.map(({ row }) => row.targetForm))
+      );
+
+      const { data: existingActivities, error: existingError } =
+        await supabase
+          .from('school_activities')
+          .select('activity_date, title, target_form')
+          .eq('school_id', schoolId)
+          .gte('activity_date', activityDates.sort()[0])
+          .lte('activity_date', activityDates.sort().at(-1)!)
+          .in('target_form', targetForms);
+
+      if (existingError) {
+        throw new Error(existingError.message);
+      }
+
+      const knownKeys = new Set(
+        (existingActivities || []).map((activity) =>
+          activityKey(
+            activity.activity_date,
+            activity.target_form || 'all',
+            activity.title
+          )
+        )
+      );
+
+      const rowsToInsert = preparedRows.filter(({ row }) => {
+        const key = activityKey(
+          row.date,
+          row.targetForm,
+          row.title
+        );
+
+        if (knownKeys.has(key)) {
           skippedCount++;
-          continue;
+          return false;
         }
 
-        const { data: activity, error: activityError } =
+        knownKeys.add(key);
+        return true;
+      });
+
+      let importedCount = 0;
+
+      if (rowsToInsert.length) {
+        const { data: insertedActivities, error: activityError } =
           await supabase
             .from('school_activities')
-            .insert({
-              school_id: schoolId,
-              academic_year_id: academicYear.id,
-              title: row.title,
-              activity_date: row.date,
-              end_date: row.date,
-              description: null,
-              activity_type: getImportedActivityType(row.title),
-              target_form: row.targetForm,
-              is_all_staff: false,
-              created_by: userId,
-            })
-            .select('id')
-            .single();
+            .insert(
+              rowsToInsert.map(({ row, academicYearId }) => ({
+                school_id: schoolId,
+                academic_year_id: academicYearId,
+                title: row.title,
+                activity_date: row.date,
+                end_date: row.date,
+                description: null,
+                activity_type: getImportedActivityType(row.title),
+                target_form: row.targetForm,
+                is_all_staff: false,
+                created_by: userId,
+              }))
+            )
+            .select('id, activity_date, title, target_form');
 
-        if (activityError || !activity) {
+        if (activityError || !insertedActivities) {
           throw new Error(
             activityError?.message ||
-              `Unable to import row ${row.rowNumber}.`
+              'Unable to import the activity rows.'
           );
         }
 
-        const responsibleRows = row.staffIds.map(
-          (staffId) => ({
-            activity_id: activity.id,
-            staff_id: staffId,
-          })
+        const importRowByKey = new Map(
+          rowsToInsert.map(({ row }) => [
+            activityKey(row.date, row.targetForm, row.title),
+            row,
+          ])
         );
 
-        const { error: responsibleError } = responsibleRows.length
-          ? await supabase
-              .from('school_activity_responsible_staff')
-              .insert(responsibleRows)
-          : { error: null };
+        const responsibleRows = insertedActivities.flatMap(
+          (activity) => {
+            const row = importRowByKey.get(
+              activityKey(
+                activity.activity_date,
+                activity.target_form || 'all',
+                activity.title
+              )
+            );
+
+            return (row?.staffIds || []).map((staffId) => ({
+              activity_id: activity.id,
+              staff_id: staffId,
+            }));
+          }
+        );
+
+        const { error: responsibleError } =
+          responsibleRows.length
+            ? await supabase
+                .from('school_activity_responsible_staff')
+                .insert(responsibleRows)
+            : { error: null };
 
         if (responsibleError) {
           await supabase
             .from('school_activities')
             .delete()
-            .eq('id', activity.id);
+            .in(
+              'id',
+              insertedActivities.map((activity) => activity.id)
+            );
 
           throw new Error(
-            `Row ${row.rowNumber}: ${responsibleError.message}`
+            `Unable to assign responsible personnel: ${responsibleError.message}`
           );
         }
 
-        importedCount++;
+        importedCount = insertedActivities.length;
       }
 
       setSuccess(
