@@ -155,6 +155,23 @@ function getTargetFormBadgeClass(value?: TargetForm | null) {
   }
 }
 
+function getImportedActivityType(title: string) {
+  const normalizedTitle = title.toLowerCase();
+
+  if (normalizedTitle.includes('exam')) {
+    return 'examination';
+  }
+
+  if (
+    normalizedTitle.includes('vacation') ||
+    normalizedTitle.includes('holiday')
+  ) {
+    return 'holiday';
+  }
+
+  return 'academic';
+}
+
 function normalizeName(value: string) {
   return value
     .toLowerCase()
@@ -1237,7 +1254,7 @@ export default function ActivityCalendarPage() {
               activity_date: row.date,
               end_date: row.date,
               description: null,
-              activity_type: 'lesson_plan_submission',
+              activity_type: getImportedActivityType(row.title),
               target_form: row.targetForm,
               is_all_staff: false,
               created_by: userId,
