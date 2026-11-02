@@ -4,10 +4,11 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { CalendarEntry, generateTeachingDocument, getTeachingWeeks, hasCurriculum } from '@/lib/teaching-document-generator';
+import { generateUsbDocument } from '@/lib/usb-docx-generator';
 
 type Profile = { id: string; full_name: string; email: string; role: string; school_id: string };
 type AcademicYear = { id: string; name: string; is_current?: boolean };
-type Semester = { id: string; name: string; academic_year_id: string; is_current?: boolean };
+type Semester = { id: string; name: string; academic_year_id: string; is_current?: boolean; start_date?: string | null; end_date?: string | null };
 type Subject = { id: string; name: string; code: string | null };
 type TeacherAssignment = {
   id: string;
@@ -122,7 +123,7 @@ export default function MyUploadsPage() {
       let termRows: Semester[] = [];
       if (currentYear) {
         const { data: termData, error: termError } = await supabase.from('terms')
-          .select('id, name, academic_year_id, is_current').eq('academic_year_id', currentYear.id).order('start_date');
+          .select('id, name, academic_year_id, is_current, start_date, end_date').eq('academic_year_id', currentYear.id).order('start_date');
         if (termError) { if (mounted) { setError(termError.message); setLoading(false); } return; }
         termRows = (termData ?? []) as Semester[];
       }
@@ -148,7 +149,7 @@ export default function MyUploadsPage() {
   useEffect(() => {
     async function changeYear() {
       if (!yearId) { setSemesters([]); setSemesterId(''); return; }
-      const { data, error: termError } = await supabase.from('terms').select('id, name, academic_year_id, is_current').eq('academic_year_id', yearId).order('start_date');
+      const { data, error: termError } = await supabase.from('terms').select('id, name, academic_year_id, is_current, start_date, end_date').eq('academic_year_id', yearId).order('start_date');
       if (termError) { setError(termError.message); return; }
       const rows = (data ?? []) as Semester[]; setSemesters(rows); setSemesterId(rows.find(t => t.is_current)?.id ?? rows[0]?.id ?? '');
     }
@@ -225,13 +226,15 @@ export default function MyUploadsPage() {
       assignment.subject_id === subject.id && assignment.academic_year_id === yearId
     );
     const programmeIds = new Set(matchingAssignments.flatMap(assignment => assignment.programme_ids ?? []));
-    const generated = generateTeachingDocument({
+    const context = {
       kind: generatorType,
       teacherName: profile.full_name,
       subjectName: subject.name,
       subjectCode: subject.code,
       academicYear: year?.name ?? 'Academic Year',
       semester: semester?.name ?? 'Semester',
+      semesterStartDate: semester?.start_date,
+      semesterEndDate: semester?.end_date,
       form: generatorForm,
       programmeCount: programmeIds.size,
       department,
@@ -240,10 +243,24 @@ export default function MyUploadsPage() {
       selectedWeekDate,
       calendarEntries,
       powdConfirmed,
-    });
+    };
 
     setGenerating(true);
-    const blob = new Blob(['\ufeff', generated.content], { type: `${generated.mimeType};charset=utf-8` });
+    let generated;
+    let blob: Blob;
+    try {
+      if (generatorType === 'unit_specification') {
+        generated = await generateUsbDocument(context);
+        blob = generated.blob;
+      } else {
+        generated = generateTeachingDocument(context);
+        blob = new Blob(['\ufeff', generated.content], { type: `${generated.mimeType};charset=utf-8` });
+      }
+    } catch (generationError) {
+      setError(generationError instanceof Error ? generationError.message : `The ${SHORT[generatorType]} could not be generated.`);
+      setGenerating(false);
+      return;
+    }
     const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = downloadUrl;

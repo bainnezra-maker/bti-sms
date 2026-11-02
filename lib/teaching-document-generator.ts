@@ -9,6 +9,7 @@ export type TeachingDocumentContext = {
   kind: TeachingDocumentKind; teacherName: string; subjectName: string; subjectCode?: string | null;
   academicYear: string; semester: string; form: string; programmeCount: number;
   department?: string | null; numberOfLearners?: number | null; sessionDurationMinutes?: number;
+  semesterStartDate?: string | null; semesterEndDate?: string | null;
   selectedWeekDate?: string | null; calendarEntries: CalendarEntry[]; powdConfirmed?: boolean;
 };
 export type GeneratedTeachingDocument = { title: string; fileName: string; mimeType: string; content: string };
