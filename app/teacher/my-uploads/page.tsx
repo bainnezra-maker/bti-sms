@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { generateTeachingDocument } from '@/lib/teaching-document-generator';
+import { CalendarEntry, generateTeachingDocument, getTeachingWeeks, hasCurriculum } from '@/lib/teaching-document-generator';
 
 type Profile = { id: string; full_name: string; email: string; role: string; school_id: string };
 type AcademicYear = { id: string; name: string; is_current?: boolean };
@@ -17,6 +17,7 @@ type TeacherAssignment = {
   programme_ids: string[] | null;
   subject: Subject | Subject[] | null;
 };
+type SchoolActivity = { academic_year_id: string | null; title: string; activity_date: string; end_date: string | null; target_form: string | null };
 type DocumentType = 'unit_specification' | 'learning_session_plan' | 'particulars_of_work_done';
 type TeachingDocument = {
   id: string; staff_id: string; document_type: DocumentType; academic_year_id: string | null;
@@ -62,6 +63,13 @@ export default function MyUploadsPage() {
   const [semesterId, setSemesterId] = useState('');
   const [generatorType, setGeneratorType] = useState<DocumentType>('unit_specification');
   const [generatorSubjectId, setGeneratorSubjectId] = useState('');
+  const [generatorForm, setGeneratorForm] = useState('');
+  const [selectedWeekDate, setSelectedWeekDate] = useState('');
+  const [sessionDuration, setSessionDuration] = useState('120');
+  const [numberOfLearners, setNumberOfLearners] = useState('');
+  const [powdConfirmed, setPowdConfirmed] = useState(false);
+  const [department, setDepartment] = useState('');
+  const [schoolActivities, setSchoolActivities] = useState<SchoolActivity[]>([]);
   const [generatorMessage, setGeneratorMessage] = useState('');
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
@@ -92,17 +100,22 @@ export default function MyUploadsPage() {
       }
       if (userProfile.role !== 'teacher') { router.replace(userProfile.role === 'admin' ? '/' : userProfile.role === 'Student' ? '/student' : '/login'); return; }
 
-      const [{ data: yearData, error: yearError }, { data: staffMatch, error: staffError }, { data: assignmentData, error: assignmentError }] = await Promise.all([
+      const [{ data: yearData, error: yearError }, { data: staffMatch, error: staffError }, { data: assignmentData, error: assignmentError }, { data: activityData, error: activityError }] = await Promise.all([
         supabase.from('academic_years').select('id, name, is_current').eq('school_id', userProfile.school_id).order('start_date', { ascending: false }),
-        supabase.from('staff').select('id').eq('school_id', userProfile.school_id).ilike('email', userProfile.email).eq('staff_category', 'teaching').maybeSingle(),
+        supabase.from('staff').select('id, department').eq('school_id', userProfile.school_id).ilike('email', userProfile.email).eq('staff_category', 'teaching').maybeSingle(),
         supabase.from('teacher_assignments')
           .select('id, academic_year_id, subject_id, forms, programme_ids, subject:subjects(id, name, code)')
           .eq('school_id', userProfile.school_id)
           .eq('teacher_id', userProfile.id),
+        supabase.from('school_activities')
+          .select('academic_year_id, title, activity_date, end_date, target_form')
+          .eq('school_id', userProfile.school_id)
+          .order('activity_date', { ascending: true }),
       ]);
       if (yearError) { if (mounted) { setError(yearError.message); setLoading(false); } return; }
       if (staffError) { if (mounted) { setError(staffError.message); setLoading(false); } return; }
       if (assignmentError) { if (mounted) { setError(assignmentError.message); setLoading(false); } return; }
+      if (activityError) { if (mounted) { setError(activityError.message); setLoading(false); } return; }
       const yearRows = (yearData ?? []) as AcademicYear[];
       const currentYear = yearRows.find(y => y.is_current) ?? yearRows[0] ?? null;
 
@@ -123,7 +136,8 @@ export default function MyUploadsPage() {
         docRows = (docData ?? []) as TeachingDocument[];
       }
       if (!mounted) return;
-      setProfile(userProfile as Profile); setStaffId(staffMatch?.id ?? null); setYears(yearRows); setSemesters(termRows); setAssignments((assignmentData ?? []) as TeacherAssignment[]); setDocuments(docRows);
+      setProfile(userProfile as Profile); setStaffId(staffMatch?.id ?? null); setDepartment(staffMatch?.department ?? ''); setYears(yearRows); setSemesters(termRows); setAssignments((assignmentData ?? []) as TeacherAssignment[]); setDocuments(docRows);
+      setSchoolActivities((activityData ?? []) as SchoolActivity[]);
       setYearId(currentYear?.id ?? '');
       setSemesterId(termRows.find(t => t.is_current)?.id ?? termRows[0]?.id ?? '');
       setLoading(false);
@@ -158,11 +172,39 @@ export default function MyUploadsPage() {
     return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [assignments, yearId]);
 
+  const assignedForms = useMemo(() => Array.from(new Set(assignments
+    .filter(assignment => assignment.academic_year_id === yearId && assignment.subject_id === generatorSubjectId)
+    .flatMap(assignment => assignment.forms ?? [])))
+    .sort(), [assignments, generatorSubjectId, yearId]);
+
+  const calendarEntries = useMemo<CalendarEntry[]>(() => schoolActivities
+    .filter(activity => !activity.academic_year_id || activity.academic_year_id === yearId)
+    .map(activity => ({ title: activity.title, activityDate: activity.activity_date, endDate: activity.end_date, targetForm: activity.target_form })), [schoolActivities, yearId]);
+
+  const selectedSubject = assignedSubjects.find(subject => subject.id === generatorSubjectId);
+  const teachingWeeks = useMemo(() => {
+    if (!selectedSubject || !generatorForm) return [];
+    return getTeachingWeeks({
+      teacherName: profile?.full_name ?? 'Teacher', subjectName: selectedSubject.name,
+      subjectCode: selectedSubject.code, academicYear: years.find(item => item.id === yearId)?.name ?? '',
+      semester: semesters.find(item => item.id === semesterId)?.name ?? '', form: generatorForm,
+      programmeCount: 0, calendarEntries,
+    });
+  }, [calendarEntries, generatorForm, profile?.full_name, selectedSubject, semesterId, semesters, yearId, years]);
+
   useEffect(() => {
     if (generatorSubjectId && !assignedSubjects.some(subject => subject.id === generatorSubjectId)) {
       setGeneratorSubjectId('');
     }
   }, [assignedSubjects, generatorSubjectId]);
+
+  useEffect(() => {
+    if (!assignedForms.includes(generatorForm)) setGeneratorForm(assignedForms[0] ?? '');
+  }, [assignedForms, generatorForm]);
+
+  useEffect(() => {
+    if (!teachingWeeks.some(week => week.startDate === selectedWeekDate)) setSelectedWeekDate(teachingWeeks[0]?.startDate ?? '');
+  }, [selectedWeekDate, teachingWeeks]);
 
   async function generateDocument() {
     setError(''); setMessage(''); setGeneratorMessage('');
@@ -170,23 +212,18 @@ export default function MyUploadsPage() {
     if (!semesterId) { setError('Select a semester for the document.'); return; }
     const subject = assignedSubjects.find(item => item.id === generatorSubjectId);
     if (!subject) { setError('Select one of your assigned subjects.'); return; }
+    if (!generatorForm) { setError('Select the form for this document.'); return; }
+    if (!hasCurriculum(subject.name, generatorForm)) { setError(`The approved ${generatorForm} curriculum for ${subject.name} has not been loaded yet.`); return; }
+    if (calendarEntries.length === 0) { setError('The school activity calendar has no entries for this document.'); return; }
+    if (generatorType !== 'unit_specification' && !selectedWeekDate) { setError('Select a lesson-plan week.'); return; }
+    if (generatorType === 'particulars_of_work_done' && !powdConfirmed) { setError('Confirm that this lesson was completed before generating the POWD.'); return; }
     if (!profile || !staffId) { setError('Your teacher login is not linked to a Teaching Staff record.'); return; }
-
-    if (generatorType === 'unit_specification' && documents.some(document =>
-      document.document_type === generatorType &&
-      document.academic_year_id === yearId &&
-      document.semester_id === semesterId
-    )) {
-      setError('A Unit Specification Breakdown already exists for this semester. Open the existing document from Upload history.');
-      return;
-    }
 
     const year = years.find(item => item.id === yearId);
     const semester = semesters.find(item => item.id === semesterId);
     const matchingAssignments = assignments.filter(assignment =>
       assignment.subject_id === subject.id && assignment.academic_year_id === yearId
     );
-    const forms = Array.from(new Set(matchingAssignments.flatMap(assignment => assignment.forms ?? []))).sort();
     const programmeIds = new Set(matchingAssignments.flatMap(assignment => assignment.programme_ids ?? []));
     const generated = generateTeachingDocument({
       kind: generatorType,
@@ -195,8 +232,14 @@ export default function MyUploadsPage() {
       subjectCode: subject.code,
       academicYear: year?.name ?? 'Academic Year',
       semester: semester?.name ?? 'Semester',
-      forms,
+      form: generatorForm,
       programmeCount: programmeIds.size,
+      department,
+      numberOfLearners: Number(numberOfLearners) || null,
+      sessionDurationMinutes: Number(sessionDuration) || 120,
+      selectedWeekDate,
+      calendarEntries,
+      powdConfirmed,
     });
 
     setGenerating(true);
@@ -322,12 +365,15 @@ export default function MyUploadsPage() {
                 </div>
                 <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">How the link works</p>
-                  <p className="mt-2 text-xs leading-5 text-slate-600">Your selected subject, assignment, academic year and semester are inserted automatically. The downloaded Word document follows the official USB, LSP or POWD structure and remains editable for approved curriculum details.</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">Your approved NCI/NCII curriculum and the selected form&apos;s activity calendar are inserted automatically. LSP and POWD use the exact lesson-plan week you choose.</p>
                 </div>
               </div>
               <div className="space-y-4">
                 <label className="block"><span className="text-xs font-black text-slate-600">My assigned subject</span><select value={generatorSubjectId} onChange={e=>{setGeneratorSubjectId(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select assigned subject</option>{assignedSubjects.map(subject=><option key={subject.id} value={subject.id}>{subject.code ? `${subject.code} — ` : ''}{subject.name}</option>)}</select></label>
                 <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="text-xs font-black text-slate-600">Academic year</span><select value={yearId} onChange={e=>{setYearId(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select year</option>{years.map(y=><option key={y.id} value={y.id}>{y.name}{y.is_current?' (Current)':''}</option>)}</select></label><label className="block"><span className="text-xs font-black text-slate-600">Semester</span><select value={semesterId} onChange={e=>{setSemesterId(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select semester</option>{semesters.map(s=><option key={s.id} value={s.id}>{s.name}{s.is_current?' (Current)':''}</option>)}</select></label></div>
+                <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="text-xs font-black text-slate-600">Form / curriculum level</span><select value={generatorForm} onChange={e=>{setGeneratorForm(e.target.value);setGeneratorMessage('')}} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select form</option>{assignedForms.map(form=><option key={form} value={form}>{form} — {/1/.test(form)?'NCI':'NCII'}</option>)}</select></label>{generatorType!=='unit_specification'&&<label className="block"><span className="text-xs font-black text-slate-600">Lesson-plan week</span><select value={selectedWeekDate} onChange={e=>setSelectedWeekDate(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"><option value="">Select week</option>{teachingWeeks.map(week=><option key={week.startDate} value={week.startDate}>Week {week.week} — {formatDate(week.startDate)} — {Array.from(new Set(week.curriculum?.items.map(item=>item.unit.unitTitle)??[])).join(' / ')}</option>)}</select></label>}</div>
+                {generatorType!=='unit_specification'&&<div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="text-xs font-black text-slate-600">Session duration (minutes)</span><input type="number" min="30" step="10" value={sessionDuration} onChange={e=>setSessionDuration(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"/></label><label className="block"><span className="text-xs font-black text-slate-600">Number of learners <span className="font-medium text-slate-400">(optional)</span></span><input type="number" min="1" value={numberOfLearners} onChange={e=>setNumberOfLearners(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"/></label></div>}
+                {generatorType==='particulars_of_work_done'&&<label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900"><input type="checkbox" checked={powdConfirmed} onChange={e=>setPowdConfirmed(e.target.checked)} className="mt-1"/><span>I confirm that I taught this selected lesson. Generate the POWD as completed work.</span></label>}
                 {assignedSubjects.length===0&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-800"><i className="fa-solid fa-triangle-exclamation mr-2"/>No subject assignment was found for this academic year. Ask the administrator to assign your subject first.</div>}
                 {generatorMessage&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold leading-5 text-emerald-800"><i className="fa-solid fa-circle-check mr-2"/>{generatorMessage}</div>}
                 <button type="button" onClick={generateDocument} disabled={generating||!staffId||assignedSubjects.length===0} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"><i className={generating?'fa-solid fa-spinner fa-spin':'fa-solid fa-wand-magic-sparkles'}/>{generating?`Generating ${SHORT[generatorType]}...`:`Generate & Download ${SHORT[generatorType]}`}</button>
