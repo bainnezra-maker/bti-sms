@@ -21,7 +21,10 @@ const units = curriculumSeed.units as CurriculumUnit[];
 function escapeHtml(value: string | number | null | undefined) { return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;') }
 function safeFilePart(value: string) { return value.trim().replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'subject' }
 function subjectKey(name: string) { const normalized = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); if (normalized.includes('integrated science') || normalized === 'science') return 'integrated-science'; if (normalized.includes('social studies')) return 'social-studies'; return normalized.replaceAll(' ', '-') }
-function levelForForm(form: string): CurriculumLevel { return /(?:^|\s)1(?:\s|$)/i.test(form) ? 'NCI' : 'NCII' }
+function levelForForm(form: string): CurriculumLevel {
+  const formNumber = Number(form.match(/\d+/)?.[0] ?? 1);
+  return formNumber <= 2 ? 'NCI' : 'NCII';
+}
 function formTarget(form: string) { return `form_${form.match(/\d+/)?.[0] ?? '1'}` }
 function formatDate(value: string) { const date = new Date(`${value}T00:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('en-GH', { day: 'numeric', month: 'short', year: 'numeric' }).format(date) }
 function mondayEnd(startDate: string) { const date = new Date(`${startDate}T00:00:00`); date.setDate(date.getDate() + 4); return date.toISOString().slice(0, 10) }
