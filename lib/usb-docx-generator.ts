@@ -16,22 +16,13 @@ import {
   WidthType,
 } from 'docx';
 
-import curriculumSeed from '@/lib/curriculum-data.json';
-import type { CalendarEntry, CurriculumLevel, TeachingDocumentContext } from '@/lib/teaching-document-generator';
-
-type CurriculumOutcome = {
-  number: number;
-  title: string;
-  performanceCriteria: string[];
-};
-
-type CurriculumUnit = {
-  level: CurriculumLevel;
-  subjectKey: string;
-  unitNumber: number;
-  unitTitle: string;
-  learningOutcomes: CurriculumOutcome[];
-};
+import {
+  getCurriculumForContext,
+  levelForForm,
+  type CurriculumOutcome,
+  type CurriculumUnit,
+  type TeachingDocumentContext,
+} from '@/lib/teaching-document-generator';
 
 type LessonChunk = {
   unit: CurriculumUnit;
@@ -45,7 +36,6 @@ type ScheduledRow =
   | { kind: 'activity'; week: string; activity: string }
   | { kind: 'lesson'; week: string; lesson: number; chunk: LessonChunk };
 
-const units = curriculumSeed.units as CurriculumUnit[];
 const PAGE_WIDTH = 12240;
 const PAGE_HEIGHT = 15840;
 const LEFT_MARGIN = 640;
@@ -72,31 +62,12 @@ function safeFilePart(value: string) {
   return value.trim().replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'subject';
 }
 
-function subjectKey(name: string) {
-  const normalized = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  if (normalized.includes('integrated science') || normalized === 'science') return 'integrated-science';
-  if (normalized.includes('social studies')) return 'social-studies';
-  return normalized.replaceAll(' ', '-');
-}
-
-function levelForForm(form: string): CurriculumLevel {
-  return Number(form.match(/\d+/)?.[0] ?? 1) <= 2 ? 'NCI' : 'NCII';
-}
-
 function formTarget(form: string) {
   return `form_${form.match(/\d+/)?.[0] ?? '1'}`;
 }
 
 function isLessonPlan(title: string) {
   return /lesson\s*plan/i.test(title);
-}
-
-function curriculumFor(context: TeachingDocumentContext) {
-  const key = subjectKey(context.subjectName);
-  const level = levelForForm(context.form);
-  return units
-    .filter(unit => unit.level === level && unit.subjectKey === key)
-    .sort((a, b) => a.unitNumber - b.unitNumber);
 }
 
 function text(value: string, options: { bold?: boolean; color?: string; break?: number } = {}) {
@@ -315,7 +286,7 @@ function tableForRows(rows: ScheduledRow[]) {
 }
 
 function unitSections(context: TeachingDocumentContext) {
-  const curriculum = curriculumFor(context);
+  const curriculum = getCurriculumForContext(context);
   const scheduled = scheduleRows(context, makeChunks(curriculum));
   const groups: { unit: CurriculumUnit; rows: ScheduledRow[] }[] = [];
   let currentUnit = curriculum[0];

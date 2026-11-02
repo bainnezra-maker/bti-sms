@@ -3,8 +3,8 @@ import curriculumSeed from '@/lib/curriculum-data.json';
 export type TeachingDocumentKind = 'unit_specification' | 'learning_session_plan' | 'particulars_of_work_done';
 export type CurriculumLevel = 'NCI' | 'NCII';
 export type CalendarEntry = { title: string; activityDate: string; endDate?: string | null; targetForm?: string | null };
-type CurriculumOutcome = { number: number; title: string; performanceCriteria: string[]; rangeStatement: string; evidenceRequirements: string };
-type CurriculumUnit = { level: CurriculumLevel; subjectKey: string; unitNumber: number; unitTitle: string; levelLabel: string; creditValue: string | null; notionalHours: number | null; introduction: string; contentContext: string; assessmentGuidance: string; learningOutcomes: CurriculumOutcome[]; sourceFile: string };
+export type CurriculumOutcome = { number: number; title: string; performanceCriteria: string[]; rangeStatement: string; evidenceRequirements: string };
+export type CurriculumUnit = { level: CurriculumLevel; subjectKey: string; unitNumber: number; unitTitle: string; levelLabel: string; creditValue: string | null; notionalHours: number | null; introduction: string; contentContext: string; assessmentGuidance: string; learningOutcomes: CurriculumOutcome[]; sourceFile: string };
 export type TeachingDocumentContext = {
   kind: TeachingDocumentKind; teacherName: string; subjectName: string; subjectCode?: string | null;
   academicYear: string; semester: string; form: string; programmeCount: number;
@@ -22,7 +22,7 @@ const units = curriculumSeed.units as CurriculumUnit[];
 function escapeHtml(value: string | number | null | undefined) { return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;') }
 function safeFilePart(value: string) { return value.trim().replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'subject' }
 function subjectKey(name: string) { const normalized = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); if (normalized.includes('integrated science') || normalized === 'science') return 'integrated-science'; if (normalized.includes('social studies')) return 'social-studies'; return normalized.replaceAll(' ', '-') }
-function levelForForm(form: string): CurriculumLevel {
+export function levelForForm(form: string): CurriculumLevel {
   const formNumber = Number(form.match(/\d+/)?.[0] ?? 1);
   return formNumber <= 2 ? 'NCI' : 'NCII';
 }
@@ -30,13 +30,81 @@ function formTarget(form: string) { return `form_${form.match(/\d+/)?.[0] ?? '1'
 function formatDate(value: string) { const date = new Date(`${value}T00:00:00`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('en-GH', { day: 'numeric', month: 'short', year: 'numeric' }).format(date) }
 function mondayEnd(startDate: string) { const date = new Date(`${startDate}T00:00:00`); date.setDate(date.getDate() + 4); return date.toISOString().slice(0, 10) }
 function isLessonPlan(title: string) { return /lesson\s*plan/i.test(title) }
-function curriculumFor(context: TeachingDocumentContext) { const level = levelForForm(context.form); const key = subjectKey(context.subjectName); return units.filter(unit => unit.level === level && unit.subjectKey === key).sort((a, b) => a.unitNumber - b.unitNumber) }
+function semesterNumber(semester: string) {
+  const numeric = Number(semester.match(/\d+/)?.[0]);
+  if (numeric === 1 || numeric === 2) return numeric;
+  if (/\bfirst\b/i.test(semester)) return 1;
+  if (/\bsecond\b/i.test(semester)) return 2;
+  return 1;
+}
+
+function balancedOutcomeRanges(curriculum: CurriculumUnit[], partCount: number) {
+  const outcomes = curriculum.flatMap(unit => unit.learningOutcomes.map(outcome => ({
+    unit,
+    outcome,
+    weight: Math.max(1, Math.ceil(outcome.performanceCriteria.length / 3)),
+  })));
+  if (outcomes.length <= partCount) return outcomes.map((_, index) => [index, index + 1] as const);
+
+  const prefix = [0];
+  outcomes.forEach(item => prefix.push(prefix[prefix.length - 1] + item.weight));
+  const target = prefix[prefix.length - 1] / partCount;
+  const costs = Array.from({ length: partCount + 1 }, () => Array(outcomes.length + 1).fill(Number.POSITIVE_INFINITY));
+  const previous = Array.from({ length: partCount + 1 }, () => Array(outcomes.length + 1).fill(-1));
+  costs[0][0] = 0;
+
+  for (let part = 1; part <= partCount; part += 1) {
+    for (let end = part; end <= outcomes.length - (partCount - part); end += 1) {
+      for (let start = part - 1; start < end; start += 1) {
+        if (!Number.isFinite(costs[part - 1][start])) continue;
+        const weight = prefix[end] - prefix[start];
+        const cost = costs[part - 1][start] + ((weight - target) ** 2);
+        if (cost < costs[part][end]) {
+          costs[part][end] = cost;
+          previous[part][end] = start;
+        }
+      }
+    }
+  }
+
+  const ranges: Array<readonly [number, number]> = [];
+  let end = outcomes.length;
+  for (let part = partCount; part >= 1; part -= 1) {
+    const start = previous[part][end];
+    ranges.unshift([start, end] as const);
+    end = start;
+  }
+  return ranges;
+}
+
+export function getCurriculumForContext(context: Pick<TeachingDocumentContext, 'subjectName' | 'form' | 'semester'>) {
+  const level = levelForForm(context.form);
+  const key = subjectKey(context.subjectName);
+  const curriculum = units
+    .filter(unit => unit.level === level && unit.subjectKey === key)
+    .sort((a, b) => a.unitNumber - b.unitNumber);
+  const formNumber = Number(context.form.match(/\d+/)?.[0] ?? 1);
+  if (level !== 'NCI' || formNumber < 1 || formNumber > 2 || curriculum.length === 0) return curriculum;
+
+  const segmentIndex = ((formNumber - 1) * 2) + (semesterNumber(context.semester) - 1);
+  const flattened = curriculum.flatMap(unit => unit.learningOutcomes.map(outcome => ({ unit, outcome })));
+  const ranges = balancedOutcomeRanges(curriculum, 4);
+  const [start, end] = ranges[segmentIndex] ?? [0, flattened.length];
+  const selected = flattened.slice(start, end);
+
+  return curriculum.flatMap(unit => {
+    const learningOutcomes = selected
+      .filter(item => item.unit.unitNumber === unit.unitNumber)
+      .map(item => item.outcome);
+    return learningOutcomes.length ? [{ ...unit, learningOutcomes }] : [];
+  });
+}
 
 function buildPlan(context: TeachingDocumentContext): PlannedWeek[] {
   const target = formTarget(context.form);
   const entries = context.calendarEntries.filter(entry => !entry.targetForm || entry.targetForm === 'all' || entry.targetForm === target).sort((a, b) => a.activityDate.localeCompare(b.activityDate));
   const teachingEntries = entries.filter(entry => isLessonPlan(entry.title));
-  const outcomes = curriculumFor(context).flatMap(unit => unit.learningOutcomes.map(outcome => ({ unit, outcome })));
+  const outcomes = getCurriculumForContext(context).flatMap(unit => unit.learningOutcomes.map(outcome => ({ unit, outcome })));
   const perWeek = Math.max(1, Math.ceil(outcomes.length / Math.max(1, teachingEntries.length)));
   let cursor = 0;
   return entries.map((entry, index) => {
