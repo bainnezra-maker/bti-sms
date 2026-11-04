@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { CalendarEntry, generateTeachingDocument, getTeachingWeeks, hasCurriculum } from '@/lib/teaching-document-generator';
 import { generateUsbDocument } from '@/lib/usb-docx-generator';
+import { generateLspDocument } from '@/lib/lsp-docx-generator';
 
 type Profile = { id: string; full_name: string; email: string; role: string; school_id: string };
 type AcademicYear = { id: string; name: string; is_current?: boolean };
@@ -251,6 +252,9 @@ export default function MyUploadsPage() {
     try {
       if (generatorType === 'unit_specification') {
         generated = await generateUsbDocument(context);
+        blob = generated.blob;
+      } else if (generatorType === 'learning_session_plan') {
+        generated = await generateLspDocument(context);
         blob = generated.blob;
       } else {
         generated = generateTeachingDocument(context);
